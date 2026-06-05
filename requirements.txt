@@ -1,0 +1,36 @@
+# Core Framework
+langchain
+langchain-openai
+langchain-openrouter
+langgraph
+
+# Configuration & Env
+pydantic
+pydantic-settings
+tomli
+platformdirs
+python-dotenv
+pyyaml
+
+# CLI & UI
+click
+rich
+
+# Tools & Web
+aiohttp
+beautifulsoup4
+markdownify
+duckduckgo-search
+
+# Model Context Protocol (MCP)
+langchain-mcp-adapters
+
+# RAG & Codebase Intelligence
+langchain-chroma
+langchain-text-splitters
+tiktoken
+
+# Development & Testing
+# pytest
+# pytest-asyncio
+# ruff
