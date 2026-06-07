@@ -3,6 +3,7 @@ langchain
 langchain-openai
 langchain-openrouter
 langgraph
+langgraph-checkpoint-postgres
 
 # Configuration & Env
 pydantic
@@ -11,6 +12,8 @@ tomli
 platformdirs
 python-dotenv
 pyyaml
+psycopg[binary]
+tavily
 
 # CLI & UI
 click
