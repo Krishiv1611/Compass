@@ -13,6 +13,7 @@ platformdirs
 python-dotenv
 pyyaml
 psycopg[binary]
+psycopg-pool
 tavily
 
 # CLI & UI

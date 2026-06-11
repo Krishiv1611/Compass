@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.postgres import PostgresSaver
+from tools.memory_tool import _store as memory_store
 
 from graph.state import AgentState
 from graph.nodes import call_model, summary_node
@@ -69,9 +70,14 @@ builder.add_conditional_edges("call_model", _route_after_model)
 builder.add_edge("tools", "call_model")
 builder.add_edge("summary_node", END)
 
-# ─── Checkpointer ──────────────────────────────────────────────────────────────
+# ─── Checkpointer + Store ──────────────────────────────────────────────────────
 # Keep the connection alive for the lifetime of the process
 DB_URI = os.environ.get("DB_URI")
+
+# Build compile kwargs — include memory store if available
+_compile_kwargs = {}
+if memory_store is not None:
+    _compile_kwargs["store"] = memory_store
 
 if DB_URI:
     try:
@@ -80,10 +86,10 @@ if DB_URI:
         _checkpointer_ctx = PostgresSaver.from_conn_string(DB_URI)
         checkpointer = _checkpointer_ctx.__enter__()
         checkpointer.setup()
-        workflow = builder.compile(checkpointer=checkpointer)
+        workflow = builder.compile(checkpointer=checkpointer, **_compile_kwargs)
     except Exception:
         # Fall back to no checkpointer if DB is unavailable
-        workflow = builder.compile()
+        workflow = builder.compile(**_compile_kwargs)
 else:
     # No DB configured — run without persistence
-    workflow = builder.compile()
+    workflow = builder.compile(**_compile_kwargs)
