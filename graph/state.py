@@ -11,4 +11,5 @@ class AgentState(TypedDict):
     approval_status: str| None
     loop_detected: bool
     token_usage: dict
+    summary:str
 
