@@ -12,7 +12,6 @@ import sys
 import time
 import uuid
 
-# Force UTF-8 output on Windows to handle Unicode characters
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
@@ -32,6 +31,7 @@ from rich.spinner import Spinner
 from rich.columns import Columns
 from rich.align import Align
 from rich import box
+from langchain_core.messages import AIMessageChunk, AIMessage, ToolMessage
 
 # ─── Theme ──────────────────────────────────────────────────────────────────────
 
@@ -62,19 +62,22 @@ COMPASS_BANNER = r"""[bold bright_cyan]
 
 COMPASS_TAGLINE = "[dim bright_white]🧭  AI Coding Agent — powered by LangGraph[/]"
 
-# ─── Slash Commands ─────────────────────────────────────────────────────────────
 
 SLASH_COMMANDS = {
-    "/help":    "Show available commands",
-    "/exit":    "Exit Compass",
-    "/clear":   "Clear the terminal screen",
-    "/model":   "Show current model info",
-    "/tools":   "List all available tools",
-    "/history": "Show conversation message count",
-    "/compact": "Summarize and compact context (planned)",
+    "/help":     "Show available commands",
+    "/exit":     "Exit Compass",
+    "/clear":    "Clear the terminal screen",
+    "/model":    "Show current model info",
+    "/tools":    "List all available tools",
+    "/history":  "Show conversation message count",
+    "/sessions": "List recent sessions",
+    "/new":      "Start a new session",
+    "/resume":   "Resume a session by ID prefix",
+    "/rename":   "Rename the current session",
+    "/compact":  "Summarize and compact context (planned)",
 }
 
-# ─── Available Tools (for /tools display) ───────────────────────────────────────
+
 
 TOOL_REGISTRY = [
     ("read_file",     "📄", "Read contents of a file"),
@@ -396,7 +399,7 @@ def _format_prompt() -> str:
     return click.style("🧭 › ", fg="cyan", bold=True)
 
 
-def _process_stream_event(compass: CompassConsole, node_name: str, node_output: dict):
+def _process_stream_event(compass: CompassConsole, node_name: str, node_output: dict, skip_response: bool = False):
     """
     Process a single streaming event from workflow.stream(stream_mode='updates').
 
@@ -404,8 +407,6 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
     - 'call_model' node emits AIMessages (may contain tool_calls and/or content)
     - 'tools' node emits ToolMessages with results
     """
-    from langchain_core.messages import AIMessage, ToolMessage
-
     messages = node_output.get("messages", [])
 
     for msg in messages:
@@ -417,7 +418,7 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
                     compass.print_tool_call(tc["name"], tc.get("args", {}))
 
             # Display the final text response
-            if msg.content and isinstance(msg.content, str) and msg.content.strip():
+            if not skip_response and msg.content and isinstance(msg.content, str) and msg.content.strip():
                 turn = node_output.get("turn_count", 0)
                 compass.print_response(msg.content, turn=turn)
 
@@ -433,12 +434,24 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
                 compass.print_tool_result(tool_name, result)
 
 
-def _handle_slash_command(compass: CompassConsole, command: str, messages: list) -> bool:
+def _handle_slash_command(
+    compass: CompassConsole,
+    command: str,
+    messages: list,
+    session_ctx: dict | None = None,
+) -> bool | str:
     """
-    Handle a slash command. Returns True if the REPL should continue,
-    False if it should exit.
+    Handle a slash command.
+    Returns:
+      - False → exit the REPL
+      - True  → continue with the current session
+      - str   → switch to a different session (returns thread_id)
     """
-    cmd = command.strip().lower()
+    from sessions import SessionManager
+
+    parts = command.strip().split(maxsplit=1)
+    cmd = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ""
 
     if cmd == "/exit":
         return False
@@ -459,6 +472,102 @@ def _handle_slash_command(compass: CompassConsole, command: str, messages: list)
     elif cmd == "/history":
         compass.print_history_summary(len(messages))
 
+    elif cmd == "/sessions":
+        sm = SessionManager()
+        sessions = sm.list_sessions(limit=10)
+        if not sessions:
+            compass.console.print(Text("  No sessions found.", style="dim"))
+            compass.console.print()
+        else:
+            table = Table(
+                title="[bold bright_cyan]📌 Recent Sessions[/]",
+                box=box.SIMPLE_HEAVY,
+                border_style="bright_black",
+                header_style="bold bright_cyan",
+                padding=(0, 2),
+                show_edge=False,
+            )
+            table.add_column("ID", style="bold cyan", min_width=10)
+            table.add_column("Name", style="bright_white", min_width=20)
+            table.add_column("Last Active", style="dim", min_width=16)
+            table.add_column("Turns", style="bold", justify="right")
+
+            current_tid = session_ctx["thread_id"] if session_ctx else ""
+            for s in sessions:
+                tid_display = s["thread_id"][:10]
+                if s["thread_id"] == current_tid:
+                    tid_display += " ◄"
+                name = s.get("name", "") or "(unnamed)"
+                age = sm.session_age_minutes(s)
+                if age < 60:
+                    last_active = f"{int(age)}m ago"
+                elif age < 1440:
+                    last_active = f"{int(age / 60)}h ago"
+                else:
+                    last_active = f"{int(age / 1440)}d ago"
+                turns = str(s.get("turn_count", 0))
+                table.add_row(tid_display, name, last_active, turns)
+
+            compass.console.print()
+            compass.console.print(table)
+            compass.console.print()
+
+    elif cmd == "/new":
+        sm = SessionManager()
+        new_sess = sm.create_session()
+        compass.console.print(
+            Text(f"  📌 New session: {new_sess['thread_id'][:10]}...", style="compass.success")
+        )
+        compass.console.print()
+        return new_sess["thread_id"]  # signal to switch session
+
+    elif cmd == "/resume":
+        if not arg:
+            compass.console.print(
+                Text("  Usage: /resume <session_id_prefix>", style="compass.warn")
+            )
+            compass.console.print()
+        else:
+            sm = SessionManager()
+            sess = sm.get_session(arg)
+            if sess:
+                compass.console.print(
+                    Text(f"  📌 Resuming session: {sess['thread_id'][:10]}... "
+                         f"({sess.get('name') or 'unnamed'})",
+                         style="compass.success")
+                )
+                compass.console.print()
+                return sess["thread_id"]  # signal to switch session
+            else:
+                compass.console.print(
+                    Text(f"  No session found matching '{arg}'.", style="compass.error")
+                )
+                compass.console.print()
+
+    elif cmd == "/rename":
+        if not arg:
+            compass.console.print(
+                Text("  Usage: /rename <new name>", style="compass.warn")
+            )
+            compass.console.print()
+        elif session_ctx:
+            sm = SessionManager()
+            if sm.rename_session(session_ctx["thread_id"], arg):
+                session_ctx["name"] = arg.strip()
+                compass.console.print(
+                    Text(f"  ✔ Session renamed to: {arg.strip()}", style="compass.success")
+                )
+            else:
+                compass.console.print(
+                    Text("  Error: Could not rename session.", style="compass.error")
+                )
+            compass.console.print()
+        else:
+            compass.console.print(
+                Text("  No active session to rename.", style="compass.warn")
+            )
+            compass.console.print()
+
     elif cmd == "/compact":
         compass.console.print(
             Text("  ⏳ Context compaction is not yet implemented.", style="compass.warn")
@@ -475,17 +584,20 @@ def _handle_slash_command(compass: CompassConsole, command: str, messages: list)
     return True
 
 
-def compass_repl():
+def compass_repl(resume_thread_id: str | None = None):
     """
     Launch the Compass interactive REPL.
 
     This is the main entry point for the terminal UI. It:
     - Displays the welcome banner
+    - Handles session resume (if resume_thread_id provided or recent session found)
     - Accepts user input with a styled prompt
     - Routes slash commands
     - Streams the LangGraph workflow for real-time display
     - Renders tool calls and agent responses with Rich
     """
+    from sessions import SessionManager
+
     compass = CompassConsole()
     compass.print_welcome()
 
@@ -499,12 +611,67 @@ def compass_repl():
         )
         sys.exit(1)
 
-    messages = []
-    prompt_str = _format_prompt()
+    sm = SessionManager()
 
-    # Generate a unique thread_id for this session (required by checkpointer)
-    thread_id = uuid.uuid4().hex
+    # ── Resolve session ─────────────────────────────────────────────────────
+    session_ctx = None
+    is_resumed = False
+
+    if resume_thread_id:
+        # Explicit resume from CLI flag
+        session_ctx = sm.get_session(resume_thread_id)
+        if session_ctx:
+            is_resumed = True
+        else:
+            # thread_id doesn't exist in sessions.json — create a record for it
+            session_ctx = sm.create_session()
+            session_ctx["thread_id"] = resume_thread_id
+            sm._save()
+    else:
+        # Check for a recent session to offer resume
+        last = sm.get_last_session()
+        if last and sm.session_age_minutes(last) < 60:
+            compass.console.print(
+                Text(f"  📌 Recent session found: "
+                     f"{last['thread_id'][:10]}... "
+                     f"({last.get('name') or 'unnamed'}, "
+                     f"{last.get('turn_count', 0)} turns)",
+                     style="dim bright_white")
+            )
+            try:
+                answer = click.prompt(
+                    click.style("     Resume? (y/N)", fg="cyan"),
+                    prompt_suffix=" ",
+                    default="n",
+                    show_default=False,
+                ).strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                answer = "n"
+
+            if answer in ("y", "yes"):
+                session_ctx = last
+                is_resumed = True
+
+    if session_ctx is None:
+        session_ctx = sm.create_session()
+
+    thread_id = session_ctx["thread_id"]
     config = {"configurable": {"thread_id": thread_id}}
+
+    # Show session status
+    status_style = "compass.success" if is_resumed else "compass.info"
+    status_label = "resumed" if is_resumed else "new"
+    session_name = session_ctx.get("name", "")
+    name_display = f" — {session_name}" if session_name else ""
+    compass.console.print(
+        Text(f"  📌 Session: {thread_id[:10]}...{name_display} ({status_label})",
+             style=status_style)
+    )
+    compass.console.print()
+
+    messages = []
+    turn_count = session_ctx.get("turn_count", 0)
+    prompt_str = _format_prompt()
 
     while True:
         try:
@@ -521,10 +688,21 @@ def compass_repl():
 
             # Slash commands
             if user_input.startswith("/"):
-                should_continue = _handle_slash_command(compass, user_input, messages)
-                if not should_continue:
+                result = _handle_slash_command(
+                    compass, user_input, messages, session_ctx=session_ctx
+                )
+                if result is False:
                     compass.print_goodbye()
                     break
+                elif isinstance(result, str):
+                    # Switch to a different session
+                    thread_id = result
+                    config = {"configurable": {"thread_id": thread_id}}
+                    session_ctx = sm.get_session(thread_id)
+                    if session_ctx is None:
+                        session_ctx = {"thread_id": thread_id, "turn_count": 0}
+                    messages = []
+                    turn_count = session_ctx.get("turn_count", 0)
                 continue
 
             # Add user message to history
@@ -533,17 +711,61 @@ def compass_repl():
             # Stream the agent response in real-time
             compass.console.print()
             try:
-                for chunk in workflow.stream(
-                    {"messages": messages},
-                    config=config,
-                    stream_mode="updates",
+                live_panel = None
+                current_text = ""
+
+                for event_type, payload in workflow.stream( # type: ignore
+                    {"messages": messages}, # type: ignore
+                    config=config, # type: ignore
+                    stream_mode=["messages", "updates"],
                 ):
-                    # Each chunk is {node_name: {state_updates}}
-                    for node_name, node_output in chunk.items():
-                        _process_stream_event(compass, node_name, node_output)
+                    if event_type == "messages":
+                        chunk, _ = payload
+                        if isinstance(chunk, AIMessageChunk) and getattr(chunk, "content", None) and not getattr(chunk, "tool_calls", None):
+                            if not live_panel:
+                                live_panel = Live(console=compass.console, refresh_per_second=15, transient=False)
+                                live_panel.start()
+                            content_str = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                            current_text += content_str
+                            md = Markdown(current_text)
+                            panel = Panel(
+                                md,
+                                border_style="bright_cyan",
+                                box=box.ROUNDED,
+                                title="[bold bright_cyan]🧭 Compass[/]",
+                                title_align="left",
+                                subtitle=f"[dim]turn {turn_count + 1}[/]",
+                                subtitle_align="right",
+                                padding=(1, 2),
+                            )
+                            live_panel.update(panel)
+                    elif event_type == "updates":
+                        if live_panel:
+                            live_panel.stop()
+                            live_panel = None
+
+                        # Each payload is {node_name: {state_updates}}
+                        if isinstance(payload, dict):
+                            for node_name, node_output in payload.items():
+                                _process_stream_event(compass, node_name, node_output, skip_response=bool(current_text))
+                            
+                        # If a tool call or non-message update happened, reset text so we can stream the next message
+                        current_text = ""
+
+                if live_panel:
+                    live_panel.stop()
+
             except Exception as e:
                 compass.print_error(f"Agent error: {e}")
                 continue
+
+            # Update session metadata after successful turn
+            turn_count += 1
+            sm.update_session(
+                thread_id,
+                turn_count=turn_count,
+                first_message=user_input if turn_count == 1 else "",
+            )
 
             compass.console.print()
 
@@ -566,12 +788,16 @@ def compass_repl():
 
 # ─── Single-Shot Mode ────────────────────────────────────────────────────────────
 
-def run_single(message: str):
+def run_single(message: str, resume_thread_id: str | None = None):
     """
     Execute a single message through the agent and display the result.
     Used for non-interactive mode: `python main.py -m "do something"`
+    Optionally resumes a previous session.
     """
+    from sessions import SessionManager
+
     compass = CompassConsole()
+    sm = SessionManager()
 
     # Lazy import
     try:
@@ -580,27 +806,77 @@ def run_single(message: str):
         compass.print_error(f"Failed to load agent workflow: {e}")
         sys.exit(1)
 
+    # Resolve session
+    if resume_thread_id:
+        session_ctx = sm.get_session(resume_thread_id)
+        if session_ctx is None:
+            session_ctx = sm.create_session()
+            session_ctx["thread_id"] = resume_thread_id
+            sm._save()
+        thread_id = session_ctx["thread_id"]
+    else:
+        session_ctx = sm.create_session()
+        thread_id = session_ctx["thread_id"]
+
+    config = {"configurable": {"thread_id": thread_id}}
+
     compass.console.print()
     prompt_display = Text()
     prompt_display.append("  🧭 › ", style="bold cyan")
     prompt_display.append(message, style="bright_white")
     compass.console.print(prompt_display)
 
-    # Generate a one-off thread_id for this run
-    config = {"configurable": {"thread_id": uuid.uuid4().hex}}
-
     compass.console.print()
     try:
-        for chunk in workflow.stream(
-            {"messages": [{"role": "user", "content": message}]},
-            config=config,
-            stream_mode="updates",
+        live_panel = None
+        current_text = ""
+        turn_count = session_ctx.get("turn_count", 0)
+
+        for event_type, payload in workflow.stream( # type: ignore
+            {"messages": [{"role": "user", "content": message}]}, # type: ignore
+            config=config, # type: ignore
+            stream_mode=["messages", "updates"],
         ):
-            for node_name, node_output in chunk.items():
-                _process_stream_event(compass, node_name, node_output)
+            if event_type == "messages":
+                chunk, _ = payload
+                if isinstance(chunk, AIMessageChunk) and getattr(chunk, "content", None) and not getattr(chunk, "tool_calls", None):
+                    if not live_panel:
+                        live_panel = Live(console=compass.console, refresh_per_second=15, transient=False)
+                        live_panel.start()
+                    content_str = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                    current_text += content_str
+                    md = Markdown(current_text)
+                    panel = Panel(
+                        md,
+                        border_style="bright_cyan",
+                        box=box.ROUNDED,
+                        title="[bold bright_cyan]🧭 Compass[/]",
+                        title_align="left",
+                        subtitle=f"[dim]turn {turn_count + 1}[/]",
+                        subtitle_align="right",
+                        padding=(1, 2),
+                    )
+                    live_panel.update(panel)
+            elif event_type == "updates":
+                if live_panel:
+                    live_panel.stop()
+                    live_panel = None
+
+                if isinstance(payload, dict):
+                    for node_name, node_output in payload.items():
+                        _process_stream_event(compass, node_name, node_output, skip_response=bool(current_text))
+                
+                current_text = ""
+
+        if live_panel:
+            live_panel.stop()
+
     except Exception as e:
         compass.print_error(f"Agent error: {e}")
         sys.exit(1)
 
-    compass.console.print()
+    # Update session metadata
+    turn_count = session_ctx.get("turn_count", 0) + 1
+    sm.update_session(thread_id, turn_count=turn_count, first_message=message)
 
+    compass.console.print()

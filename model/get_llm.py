@@ -5,6 +5,6 @@ def llm():
     load_dotenv()
     model=ChatOpenRouter(
         api_key=os.getenv("OPENROUTER_API_KEY"),
-        model="nvidia/nemotron-3-ultra-550b-a55b:free"
+        model="google/gemma-4-31b-it:free"
     )
     return model
