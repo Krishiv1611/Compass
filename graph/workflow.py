@@ -1,9 +1,12 @@
 """
 Compass Agent Workflow — LangGraph StateGraph assembly.
 
-Builds the agent graph:
-    START → call_model → has tool calls? → YES → tools → call_model (loop)
-                                         → NO  → END
+Four-agent graph:
+    START → planner → executor → route:
+                                   → tools → executor (loop)
+                                   → loop_recovery → executor (retry)
+                                   → summary_node → END
+                                   → END
 """
 
 import os
@@ -15,7 +18,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from tools.memory_tool import _store as memory_store
 
 from graph.state import AgentState
-from graph.nodes import call_model, summary_node
+from graph.nodes import planner_node, call_model, loop_recovery_node, summary_node
 from tools.file_tools import read_file, write_to_file, edit_file
 from tools.directory_tools import list_dir, find_files
 from tools.search_tools import grep_search
@@ -23,16 +26,18 @@ from tools.web_tools import web_search
 from tools.shell_tool import shell_execute
 from tools.memory_tool import memory
 from tools.todo_tool import todo
+from rag.retriever import codebase_search
 
 # Load environment variables
 load_dotenv()
 
 # ─── All tools the agent can use ────────────────────────────────────────────────
-# IMPORTANT: This list must match the tools bound in nodes.py call_model()
+# IMPORTANT: This list must match the tools bound in nodes.py _executor_with_tools
 ALL_TOOLS = [
     read_file, write_to_file, edit_file,   # file tools
     list_dir, find_files,                   # directory tools
     grep_search,                            # search tools
+    codebase_search,                        # RAG semantic search
     web_search,                             # web tools
     shell_execute,                          # shell tool
     memory,                                 # memory tool
@@ -43,31 +48,51 @@ ALL_TOOLS = [
 _SUMMARIZE_AFTER = 10  # number of messages before triggering compaction
 
 
-def _route_after_model(state: AgentState) -> str:
-    """Route after call_model: tools, summarize, or end."""
+def _route_after_executor(state: AgentState) -> str:
+    """
+    Route after the executor node.
+
+    Priority order:
+      1. Loop detected (and under recovery limit) → loop_recovery
+      2. Has tool calls (normal flow)              → tools
+      3. Done + long conversation                  → summary_node
+      4. Done                                      → END
+    """
+    # ── 1. Loop recovery ─────────────────────────────────────────────────────
+    if state.get("loop_detected", False):
+        loop_count = state.get("loop_count", 0)
+        if loop_count < 3:
+            return "loop_recovery"
+        # loop_count >= 3: fall through to END (hard break)
+
+    # ── 2. Normal tool execution ─────────────────────────────────────────────
     last_message = state["messages"][-1]
-
-    # If the model wants to call tools, go to tools node
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tools"
+        if not state.get("loop_detected", False):
+            return "tools"
 
-    # If conversation is getting long, compact it before ending
+    # ── 3. Context compaction ────────────────────────────────────────────────
     if len(state["messages"]) > _SUMMARIZE_AFTER:
         return "summary_node"
 
+    # ── 4. Done ──────────────────────────────────────────────────────────────
     return END
 
 
 # ─── Build the graph ────────────────────────────────────────────────────────────
 builder = StateGraph(AgentState)  # type: ignore
 
-builder.add_node("call_model", call_model)
+builder.add_node("planner", planner_node)
+builder.add_node("executor", call_model)
 builder.add_node("tools", ToolNode(ALL_TOOLS))
+builder.add_node("loop_recovery", loop_recovery_node)
 builder.add_node("summary_node", summary_node)
 
-builder.add_edge(START, "call_model")
-builder.add_conditional_edges("call_model", _route_after_model)
-builder.add_edge("tools", "call_model")
+builder.add_edge(START, "planner")
+builder.add_edge("planner", "executor")
+builder.add_conditional_edges("executor", _route_after_executor)
+builder.add_edge("tools", "executor")
+builder.add_edge("loop_recovery", "executor")
 builder.add_edge("summary_node", END)
 
 # ─── Checkpointer + Store ──────────────────────────────────────────────────────

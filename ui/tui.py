@@ -74,22 +74,25 @@ SLASH_COMMANDS = {
     "/new":      "Start a new session",
     "/resume":   "Resume a session by ID prefix",
     "/rename":   "Rename the current session",
+    "/index":    "Index the codebase for semantic search",
     "/compact":  "Summarize and compact context (planned)",
+    "/config":   "View or update settings",
 }
 
 
 
 TOOL_REGISTRY = [
-    ("read_file",     "📄", "Read contents of a file"),
-    ("write_to_file", "✏️",  "Write content to a file"),
-    ("edit_file",     "🔧", "Edit specific sections of a file"),
-    ("list_dir",      "📁", "List directory contents"),
-    ("find_files",    "🔍", "Find files matching a pattern"),
-    ("grep_search",   "🔎", "Search file contents with regex"),
-    ("web_search",    "🌐", "Search the web"),
-    ("shell_execute", "💻", "Execute a shell command"),
-    ("memory",        "🧠", "Store/retrieve key-value memories"),
-    ("todo",          "📋", "Manage a task list"),
+    ("read_file",       "📄", "Read contents of a file"),
+    ("write_to_file",   "✏️",  "Write content to a file"),
+    ("edit_file",       "🔧", "Edit specific sections of a file"),
+    ("list_dir",        "📁", "List directory contents"),
+    ("find_files",      "🔍", "Find files matching a pattern"),
+    ("grep_search",     "🔎", "Search file contents with regex"),
+    ("codebase_search", "🧬", "Semantic search across the codebase"),
+    ("web_search",      "🌐", "Search the web"),
+    ("shell_execute",   "💻", "Execute a shell command"),
+    ("memory",          "🧠", "Store/retrieve key-value memories"),
+    ("todo",            "📋", "Manage a task list"),
 ]
 
 
@@ -404,11 +407,77 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
     Process a single streaming event from workflow.stream(stream_mode='updates').
 
     Each event is {node_name: {state_updates}}.
-    - 'call_model' node emits AIMessages (may contain tool_calls and/or content)
-    - 'tools' node emits ToolMessages with results
+    Handles all four agent nodes:
+      - 'planner'       → Show the plan in a styled panel
+      - 'executor'      → Tool calls + final response
+      - 'loop_recovery' → Warning panel with recovery guidance
+      - 'summary_node'  → Subtle compaction notice
+      - 'tools'         → ToolMessage results
     """
     messages = node_output.get("messages", [])
 
+    # ── Planner Agent ────────────────────────────────────────────────────────
+    if node_name == "planner":
+        plan = node_output.get("plan", "")
+        # The planner also emits an AIMessage — show it as the plan
+        for msg in messages:
+            if isinstance(msg, AIMessage) and msg.content:
+                plan_content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                if plan_content.strip():
+                    md = Markdown(plan_content)
+                    panel = Panel(
+                        md,
+                        border_style="bright_magenta",
+                        box=box.ROUNDED,
+                        title="[bold bright_magenta]📋 Plan[/]",
+                        title_align="left",
+                        subtitle="[dim]planner agent[/]",
+                        subtitle_align="right",
+                        padding=(1, 2),
+                    )
+                    compass.console.print()
+                    compass.console.print(panel)
+        return
+
+    # ── Loop Recovery Agent ──────────────────────────────────────────────────
+    if node_name == "loop_recovery":
+        guidance = node_output.get("recovery_guidance", "")
+        loop_count = node_output.get("loop_count", 0)
+
+        if node_output.get("is_done", False):
+            # Hard break — show final message
+            for msg in messages:
+                if isinstance(msg, AIMessage) and msg.content:
+                    content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    compass.print_response(content, turn=node_output.get("turn_count", 0))
+            return
+
+        if guidance:
+            warning_text = Text()
+            warning_text.append("\n  ⚠️  Loop Detected", style="bold yellow")
+            warning_text.append(f" — recovery attempt {loop_count}/3\n\n", style="dim")
+            warning_text.append(f"  {guidance}\n", style="bright_white")
+
+            panel = Panel(
+                warning_text,
+                border_style="yellow",
+                box=box.ROUNDED,
+                title="[bold yellow]🔄 Loop Recovery[/]",
+                title_align="left",
+                padding=(0, 1),
+            )
+            compass.console.print()
+            compass.console.print(panel)
+        return
+
+    # ── Summary Node ─────────────────────────────────────────────────────────
+    if node_name == "summary_node":
+        compass.console.print(
+            Text("  📝 Context compacted by summarizer agent.", style="dim bright_white")
+        )
+        return
+
+    # ── Executor Agent + Tools Node ──────────────────────────────────────────
     for msg in messages:
         if isinstance(msg, AIMessage):
             # Display tool calls the model wants to make
@@ -432,6 +501,7 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
                 compass.print_tool_error(tool_name, result)
             else:
                 compass.print_tool_result(tool_name, result)
+
 
 
 def _handle_slash_command(
@@ -573,6 +643,96 @@ def _handle_slash_command(
             Text("  ⏳ Context compaction is not yet implemented.", style="compass.warn")
         )
         compass.console.print()
+
+    elif cmd == "/index":
+        from rag.indexer import index_workspace
+
+        workspace = os.getcwd()
+        compass.console.print(
+            Text(f"  🧬 Indexing workspace: {workspace}", style="compass.info")
+        )
+        compass.console.print()
+
+        try:
+            with compass.thinking_spinner():
+                result = index_workspace(workspace)
+
+            # Display results in a styled panel
+            stats_text = Text()
+            stats_text.append("\n  📊 Indexing Results\n\n", style="bold bright_cyan")
+            stats_text.append("  Files scanned:  ", style="dim")
+            stats_text.append(f"{result.files_scanned}\n", style="bold bright_white")
+            stats_text.append("  Files indexed:  ", style="dim")
+            stats_text.append(f"{result.files_indexed}", style="bold green")
+            stats_text.append(f"  ({result.chunks_added} chunks)\n", style="dim")
+            stats_text.append("  Files skipped:  ", style="dim")
+            stats_text.append(f"{result.files_skipped}", style="bold bright_white")
+            stats_text.append("  (unchanged)\n", style="dim")
+            if result.files_removed > 0:
+                stats_text.append("  Files removed:  ", style="dim")
+                stats_text.append(f"{result.files_removed}", style="bold yellow")
+                stats_text.append(f"  ({result.chunks_removed} chunks)\n", style="dim")
+            stats_text.append("  Elapsed:        ", style="dim")
+            stats_text.append(f"{result.elapsed_seconds:.1f}s\n", style="bold bright_white")
+
+            if result.errors:
+                stats_text.append(f"\n  ⚠  {len(result.errors)} error(s):\n", style="compass.warn")
+                for err in result.errors[:5]:
+                    stats_text.append(f"     • {err}\n", style="dim red")
+
+            panel = Panel(
+                stats_text,
+                border_style="bright_cyan",
+                box=box.ROUNDED,
+                title="[bold bright_cyan]🧬 Codebase Index[/]",
+                title_align="left",
+                padding=(0, 1),
+            )
+            compass.console.print(panel)
+            compass.console.print()
+        except Exception as e:
+            compass.print_error(f"Indexing failed: {e}")
+
+    elif cmd == "/config":
+        from config.settings import settings
+
+        if not arg:
+            # Display current settings
+            table = Table(
+                title="[bold bright_cyan]⚙️  Settings[/]",
+                box=box.SIMPLE_HEAVY,
+                border_style="bright_black",
+                header_style="bold bright_cyan",
+                padding=(0, 2),
+                show_edge=False,
+            )
+            table.add_column("Setting", style="bold cyan")
+            table.add_column("Value", style="bright_white")
+
+            for k, v in settings.get_all().items():
+                table.add_row(k, str(v))
+
+            compass.console.print()
+            compass.console.print(table)
+            compass.console.print(
+                Text("  Use /config <key> <value> to update.", style="dim")
+            )
+            compass.console.print()
+        else:
+            # Update setting
+            parts = arg.split(maxsplit=1)
+            if len(parts) == 2:
+                k, v = parts
+                settings.set(k, v)
+                compass.console.print(
+                    Text(f"  ✔ Setting '{k}' updated to '{v}'.", style="compass.success")
+                )
+                compass.console.print()
+            else:
+                compass.console.print(
+                    Text("  Usage: /config <key> <value>", style="compass.warn")
+                )
+                compass.console.print()
 
     else:
         compass.console.print(
