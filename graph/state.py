@@ -26,7 +26,8 @@ class AgentState(TypedDict):
     # ── Executor ─────────────────────────────────────────────────────────────
     is_done: bool                   # True when executor produces final answer (no tool calls)
     pending_tool_calls: list[dict]  # Current tool calls from model response
-    approval_status: str | None     # "auto" for now — Phase 4 placeholder
+    approval_status: str | None     # "approved" or "denied"
+    approved_operations: list[str]  # Cache of auto-approved commands/edits
     token_usage: dict               # Token counts from usage_metadata
 
     # ── Loop Recovery ────────────────────────────────────────────────────────

@@ -744,7 +744,7 @@ def _handle_slash_command(
     return True
 
 
-def compass_repl(resume_thread_id: str | None = None):
+async def compass_repl(resume_thread_id: str | None = None):
     """
     Launch the Compass interactive REPL.
 
@@ -833,40 +833,47 @@ def compass_repl(resume_thread_id: str | None = None):
     turn_count = session_ctx.get("turn_count", 0)
     prompt_str = _format_prompt()
 
+    resume_cmd = None
+
     while True:
         try:
-            # Get user input
-            user_input = click.prompt(
-                prompt_str,
-                prompt_suffix="",
-                default="",
-                show_default=False,
-            ).strip()
+            if not resume_cmd:
+                # Get user input
+                user_input = click.prompt(
+                    prompt_str,
+                    prompt_suffix="",
+                    default="",
+                    show_default=False,
+                ).strip()
 
-            if not user_input:
-                continue
+                if not user_input:
+                    continue
 
-            # Slash commands
-            if user_input.startswith("/"):
-                result = _handle_slash_command(
-                    compass, user_input, messages, session_ctx=session_ctx
-                )
-                if result is False:
-                    compass.print_goodbye()
-                    break
-                elif isinstance(result, str):
-                    # Switch to a different session
-                    thread_id = result
-                    config = {"configurable": {"thread_id": thread_id}}
-                    session_ctx = sm.get_session(thread_id)
-                    if session_ctx is None:
-                        session_ctx = {"thread_id": thread_id, "turn_count": 0}
-                    messages = []
-                    turn_count = session_ctx.get("turn_count", 0)
-                continue
+                # Slash commands
+                if user_input.startswith("/"):
+                    result = _handle_slash_command(
+                        compass, user_input, messages, session_ctx=session_ctx
+                    )
+                    if result is False:
+                        compass.print_goodbye()
+                        break
+                    elif isinstance(result, str):
+                        # Switch to a different session
+                        thread_id = result
+                        config = {"configurable": {"thread_id": thread_id}}
+                        session_ctx = sm.get_session(thread_id)
+                        if session_ctx is None:
+                            session_ctx = {"thread_id": thread_id, "turn_count": 0}
+                        messages = []
+                        turn_count = session_ctx.get("turn_count", 0)
+                    continue
 
-            # Add user message to history
-            messages.append({"role": "user", "content": user_input})
+                # Add user message to history
+                messages.append({"role": "user", "content": user_input})
+                input_payload = {"messages": messages}
+            else:
+                input_payload = resume_cmd
+                resume_cmd = None
 
             # Stream the agent response in real-time
             compass.console.print()
@@ -874,8 +881,8 @@ def compass_repl(resume_thread_id: str | None = None):
                 live_panel = None
                 current_text = ""
 
-                for event_type, payload in workflow.stream( # type: ignore
-                    {"messages": messages}, # type: ignore
+                async for event_type, payload in workflow.astream( # type: ignore
+                    input_payload, # type: ignore
                     config=config, # type: ignore
                     stream_mode=["messages", "updates"],
                 ):
@@ -915,6 +922,55 @@ def compass_repl(resume_thread_id: str | None = None):
                 if live_panel:
                     live_panel.stop()
 
+                # ── Handle Interrupts ───────────────────────────────────────
+                state_info = workflow.get_state(config)
+                if state_info.next and "check_safety" in state_info.next:
+                    interrupt_data = None
+                    for task in state_info.tasks:
+                        if task.name == "check_safety" and task.interrupts:
+                            interrupt_data = task.interrupts[0].value
+                            break
+                            
+                    if interrupt_data and interrupt_data.get("reason") == "approval_required":
+                        from rich.panel import Panel
+                        from rich.text import Text
+                        
+                        risky_calls = interrupt_data.get("tool_calls", [])
+                        warning_text = Text()
+                        warning_text.append("\n  ⚠️  Approval Required\n\n", style="bold red")
+                        for tc in risky_calls:
+                            warning_text.append(f"  • {tc['name']}\n", style="bold yellow")
+                            for k, v in tc.get("args", {}).items():
+                                warning_text.append(f"      {k}: {v}\n", style="dim white")
+                                
+                        compass.console.print(Panel(
+                            warning_text, 
+                            border_style="red",
+                            title="[bold red]Safety Intercept[/]",
+                            title_align="left"
+                        ))
+                        
+                        try:
+                            answer = click.prompt(
+                                click.style("  Approve execution? (y/N/always)", fg="red", bold=True),
+                                default="n",
+                                show_default=False
+                            ).strip().lower()
+                        except (KeyboardInterrupt, EOFError):
+                            answer = "n"
+                            
+                        if answer in ("y", "yes"):
+                            action = "approve"
+                        elif answer == "always":
+                            action = "always"
+                        else:
+                            action = "deny"
+                            
+                        from langgraph.types import Command
+                        resume_cmd = Command(resume={"action": action})
+                        messages = [] # clear messages list so we don't append next turn
+                        continue # loop back to workflow.stream
+
             except Exception as e:
                 compass.print_error(f"Agent error: {e}")
                 continue
@@ -948,7 +1004,7 @@ def compass_repl(resume_thread_id: str | None = None):
 
 # ─── Single-Shot Mode ────────────────────────────────────────────────────────────
 
-def run_single(message: str, resume_thread_id: str | None = None):
+async def run_single(message: str, resume_thread_id: str | None = None):
     """
     Execute a single message through the agent and display the result.
     Used for non-interactive mode: `python main.py -m "do something"`
@@ -991,45 +1047,100 @@ def run_single(message: str, resume_thread_id: str | None = None):
         live_panel = None
         current_text = ""
         turn_count = session_ctx.get("turn_count", 0)
+        
+        resume_cmd = None
+        input_payload = {"messages": [{"role": "user", "content": message}]}
+        
+        while True:
+            async for event_type, payload in workflow.astream( # type: ignore
+                input_payload, # type: ignore
+                config=config, # type: ignore
+                stream_mode=["messages", "updates"],
+            ):
+                if event_type == "messages":
+                    chunk, _ = payload
+                    if isinstance(chunk, AIMessageChunk) and getattr(chunk, "content", None) and not getattr(chunk, "tool_calls", None):
+                        if not live_panel:
+                            live_panel = Live(console=compass.console, refresh_per_second=15, transient=False)
+                            live_panel.start()
+                        content_str = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                        current_text += content_str
+                        md = Markdown(current_text)
+                        panel = Panel(
+                            md,
+                            border_style="bright_cyan",
+                            box=box.ROUNDED,
+                            title="[bold bright_cyan]🧭 Compass[/]",
+                            title_align="left",
+                            subtitle=f"[dim]turn {turn_count + 1}[/]",
+                            subtitle_align="right",
+                            padding=(1, 2),
+                        )
+                        live_panel.update(panel)
+                elif event_type == "updates":
+                    if live_panel:
+                        live_panel.stop()
+                        live_panel = None
 
-        for event_type, payload in workflow.stream( # type: ignore
-            {"messages": [{"role": "user", "content": message}]}, # type: ignore
-            config=config, # type: ignore
-            stream_mode=["messages", "updates"],
-        ):
-            if event_type == "messages":
-                chunk, _ = payload
-                if isinstance(chunk, AIMessageChunk) and getattr(chunk, "content", None) and not getattr(chunk, "tool_calls", None):
-                    if not live_panel:
-                        live_panel = Live(console=compass.console, refresh_per_second=15, transient=False)
-                        live_panel.start()
-                    content_str = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
-                    current_text += content_str
-                    md = Markdown(current_text)
-                    panel = Panel(
-                        md,
-                        border_style="bright_cyan",
-                        box=box.ROUNDED,
-                        title="[bold bright_cyan]🧭 Compass[/]",
-                        title_align="left",
-                        subtitle=f"[dim]turn {turn_count + 1}[/]",
-                        subtitle_align="right",
-                        padding=(1, 2),
-                    )
-                    live_panel.update(panel)
-            elif event_type == "updates":
-                if live_panel:
-                    live_panel.stop()
-                    live_panel = None
+                    if isinstance(payload, dict):
+                        for node_name, node_output in payload.items():
+                            _process_stream_event(compass, node_name, node_output, skip_response=bool(current_text))
+                    
+                    current_text = ""
 
-                if isinstance(payload, dict):
-                    for node_name, node_output in payload.items():
-                        _process_stream_event(compass, node_name, node_output, skip_response=bool(current_text))
+            if live_panel:
+                live_panel.stop()
                 
-                current_text = ""
-
-        if live_panel:
-            live_panel.stop()
+            # ── Handle Interrupts ───────────────────────────────────────
+            state_info = workflow.get_state(config)
+            if state_info.next and "check_safety" in state_info.next:
+                interrupt_data = None
+                for task in state_info.tasks:
+                    if task.name == "check_safety" and task.interrupts:
+                        interrupt_data = task.interrupts[0].value
+                        break
+                        
+                if interrupt_data and interrupt_data.get("reason") == "approval_required":
+                    from rich.panel import Panel
+                    from rich.text import Text
+                    
+                    risky_calls = interrupt_data.get("tool_calls", [])
+                    warning_text = Text()
+                    warning_text.append("\n  ⚠️  Approval Required\n\n", style="bold red")
+                    for tc in risky_calls:
+                        warning_text.append(f"  • {tc['name']}\n", style="bold yellow")
+                        for k, v in tc.get("args", {}).items():
+                            warning_text.append(f"      {k}: {v}\n", style="dim white")
+                            
+                    compass.console.print(Panel(
+                        warning_text, 
+                        border_style="red",
+                        title="[bold red]Safety Intercept[/]",
+                        title_align="left"
+                    ))
+                    
+                    try:
+                        answer = click.prompt(
+                            click.style("  Approve execution? (y/N/always)", fg="red", bold=True),
+                            default="n",
+                            show_default=False
+                        ).strip().lower()
+                    except (KeyboardInterrupt, EOFError):
+                        answer = "n"
+                        
+                    if answer in ("y", "yes"):
+                        action = "approve"
+                    elif answer == "always":
+                        action = "always"
+                    else:
+                        action = "deny"
+                        
+                    from langgraph.types import Command
+                    resume_cmd = Command(resume={"action": action})
+                    input_payload = resume_cmd
+                    continue
+                    
+            break # Exit loop if no interrupt
 
     except Exception as e:
         compass.print_error(f"Agent error: {e}")

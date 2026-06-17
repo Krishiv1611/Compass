@@ -37,12 +37,16 @@ def write_to_file(path:str,content:str):
         path: Path to the file to write to.
         content: The content to write to the file.
     """
-    if not os.path.exists(path):
-        return f"Error: File not found: {path}"
-    if not os.path.isfile(path):
-        return f"Error: Path is not a file: {path}"
     try:
-        with open(path,'w',encoding="='utf-8") as f:
+        # Create parent directories if they don't exist
+        parent_dir = os.path.dirname(os.path.abspath(path))
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        
+        if os.path.exists(path) and not os.path.isfile(path):
+            return f"Error: Path exists but is not a file: {path}"
+            
+        with open(path,'w',encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
         return f"Error writing to file: {e}"

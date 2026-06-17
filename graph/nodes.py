@@ -9,6 +9,7 @@ Four-agent architecture:
 """
 
 from graph.state import AgentState
+from mcp.adapter import get_mcp_tools
 from tools.file_tools import read_file, write_to_file, edit_file
 from tools.directory_tools import list_dir, find_files
 from tools.search_tools import grep_search
@@ -82,7 +83,7 @@ Do NOT call any tools. Just provide guidance text.
 
 # ─── Node Functions ──────────────────────────────────────────────────────────────
 
-def planner_node(state: AgentState):
+async def planner_node(state: AgentState):
     """
     🧠 Planner Agent — analyze the user's query and create a step-by-step plan.
 
@@ -105,7 +106,7 @@ def planner_node(state: AgentState):
     # Add the conversation messages (planner needs context)
     planner_messages.extend(messages)
 
-    response = _planner_model.invoke(planner_messages)
+    response = await _planner_model.ainvoke(planner_messages)
 
     plan_text = response.content if isinstance(response.content, str) else str(response.content)
 
@@ -119,7 +120,7 @@ def planner_node(state: AgentState):
     }
 
 
-def call_model(state: AgentState):
+async def call_model(state: AgentState):
     """
     ⚡ Executor Agent — follow the plan and call tools to accomplish the task.
 
@@ -154,8 +155,17 @@ def call_model(state: AgentState):
         context_msg = SystemMessage(content="\n\n".join(context_parts))
         messages = [context_msg] + messages
 
+    # ── Dynamically load and bind MCP tools ────────────────────────────────
+    mcp_tools = await get_mcp_tools()
+    from graph.workflow import ALL_TOOLS # we import it dynamically or we just import it at top
+    # Actually, we need to import ALL_TOOLS from workflow, but let's just do it directly.
+    # Wait, workflow imports ALL_TOOLS, so let's import it:
+    from graph.workflow import ALL_TOOLS
+    combined_tools = ALL_TOOLS + mcp_tools
+    executor_with_tools = _executor_model.bind_tools(combined_tools)
+    
     # ── Invoke the executor LLM with tools ───────────────────────────────────
-    response = _executor_with_tools.invoke(messages)
+    response = await executor_with_tools.ainvoke(messages)
 
     # ── Populate state fields ────────────────────────────────────────────────
     has_tool_calls = hasattr(response, "tool_calls") and bool(response.tool_calls)
@@ -203,7 +213,7 @@ def call_model(state: AgentState):
     return new_state
 
 
-def loop_recovery_node(state: AgentState):
+async def loop_recovery_node(state: AgentState):
     """
     🔄 Loop Recovery Agent — analyze why the executor is stuck and provide guidance.
 
@@ -249,7 +259,7 @@ def loop_recovery_node(state: AgentState):
     ]
     recovery_messages.extend(recent_messages)
 
-    response = _recovery_model.invoke(recovery_messages)
+    response = await _recovery_model.ainvoke(recovery_messages)
     guidance = response.content if isinstance(response.content, str) else str(response.content)
 
     return {
@@ -259,7 +269,7 @@ def loop_recovery_node(state: AgentState):
     }
 
 
-def summary_node(state: AgentState):
+async def summary_node(state: AgentState):
     """
     📝 Summarizer Agent — compact the conversation to free context space.
 
@@ -289,3 +299,71 @@ def summary_node(state: AgentState):
         "summary": response.content,
         "messages": [RemoveMessage(id=m.id) for m in messages_to_delete if m.id is not None],
     }
+
+async def check_safety_node(state: AgentState):
+    """
+    🛡️ Safety Node — intercepts risky tool calls and asks for user approval.
+    """
+    from langgraph.types import interrupt
+    from safety.approval import requires_approval, get_call_pattern
+    from langchain_core.messages import ToolMessage
+    
+    last_message = state["messages"][-1]
+    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+        return {"approval_status": "approved"}
+        
+    approved_ops = state.get("approved_operations", [])
+    if not isinstance(approved_ops, list):
+        approved_ops = []
+        
+    risky_calls = []
+    for tc in last_message.tool_calls:
+        if requires_approval(tc["name"], tc.get("args", {}), approved_ops):
+            risky_calls.append(tc)
+            
+    if not risky_calls:
+        return {"approval_status": "approved"}
+        
+    # We have risky calls, interrupt the graph
+    user_decision = interrupt({
+        "reason": "approval_required", 
+        "tool_calls": risky_calls
+    })
+    
+    # Check if we got a valid dict back from the interrupt
+    if not isinstance(user_decision, dict):
+        action = "deny"
+    else:
+        action = user_decision.get("action", "deny")
+        
+    if action in ("approve", "always"):
+        # Update cache if requested
+        new_approvals = list(approved_ops)
+        if action == "always":
+            for tc in risky_calls:
+                pattern = get_call_pattern(tc["name"], tc.get("args", {}))
+                if pattern not in new_approvals:
+                    new_approvals.append(pattern)
+        
+        return {
+            "approval_status": "approved",
+            "approved_operations": new_approvals
+        }
+    else:
+        # Denied
+        # Generate ToolMessages for all pending calls to indicate failure
+        tool_msgs = []
+        for tc in last_message.tool_calls:
+            tool_msgs.append(
+                ToolMessage(
+                    content="Error: User denied permission to execute this tool.",
+                    tool_call_id=tc["id"],
+                    name=tc["name"],
+                    status="error"
+                )
+            )
+            
+        return {
+            "approval_status": "denied",
+            "messages": tool_msgs
+        }

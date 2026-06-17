@@ -14,11 +14,11 @@ import os
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from tools.memory_tool import _store as memory_store
 
 from graph.state import AgentState
-from graph.nodes import planner_node, call_model, loop_recovery_node, summary_node
+from graph.nodes import planner_node, call_model, loop_recovery_node, summary_node, check_safety_node
 from tools.file_tools import read_file, write_to_file, edit_file
 from tools.directory_tools import list_dir, find_files
 from tools.search_tools import grep_search
@@ -48,13 +48,13 @@ ALL_TOOLS = [
 _SUMMARIZE_AFTER = 10  # number of messages before triggering compaction
 
 
-def _route_after_executor(state: AgentState) -> str:
+async def _route_after_executor(state: AgentState) -> str:
     """
     Route after the executor node.
 
     Priority order:
       1. Loop detected (and under recovery limit) → loop_recovery
-      2. Has tool calls (normal flow)              → tools
+      2. Has tool calls (normal flow)              → check_safety
       3. Done + long conversation                  → summary_node
       4. Done                                      → END
     """
@@ -69,7 +69,7 @@ def _route_after_executor(state: AgentState) -> str:
     last_message = state["messages"][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         if not state.get("loop_detected", False):
-            return "tools"
+            return "check_safety"
 
     # ── 3. Context compaction ────────────────────────────────────────────────
     if len(state["messages"]) > _SUMMARIZE_AFTER:
@@ -78,12 +78,18 @@ def _route_after_executor(state: AgentState) -> str:
     # ── 4. Done ──────────────────────────────────────────────────────────────
     return END
 
+async def _route_after_safety(state: AgentState) -> str:
+    """Route after check_safety node."""
+    if state.get("approval_status") == "denied":
+        return "executor"
+    return "tools"
 
 # ─── Build the graph ────────────────────────────────────────────────────────────
 builder = StateGraph(AgentState)  # type: ignore
 
 builder.add_node("planner", planner_node)
 builder.add_node("executor", call_model)
+builder.add_node("check_safety", check_safety_node)
 builder.add_node("tools", ToolNode(ALL_TOOLS))
 builder.add_node("loop_recovery", loop_recovery_node)
 builder.add_node("summary_node", summary_node)
@@ -91,6 +97,7 @@ builder.add_node("summary_node", summary_node)
 builder.add_edge(START, "planner")
 builder.add_edge("planner", "executor")
 builder.add_conditional_edges("executor", _route_after_executor)
+builder.add_conditional_edges("check_safety", _route_after_safety)
 builder.add_edge("tools", "executor")
 builder.add_edge("loop_recovery", "executor")
 builder.add_edge("summary_node", END)
@@ -108,7 +115,7 @@ if DB_URI:
     try:
         # from_conn_string() is a context manager — enter it manually
         # and keep the connection alive for the process lifetime
-        _checkpointer_ctx = PostgresSaver.from_conn_string(DB_URI)
+        _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(DB_URI)
         checkpointer = _checkpointer_ctx.__enter__()
         checkpointer.setup()
         workflow = builder.compile(checkpointer=checkpointer, **_compile_kwargs)

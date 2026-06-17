@@ -1,3 +1,4 @@
+import asyncio
 """
 Compass — AI Coding Agent CLI Entry Point.
 
@@ -56,9 +57,9 @@ def cli(message: str | None, resume: bool, session_id: str | None):
             click.echo("No previous sessions found. Starting a new session.")
 
     if message:
-        run_single(message, resume_thread_id=resume_thread_id)
+        asyncio.run(run_single(message, resume_thread_id=resume_thread_id))
     else:
-        compass_repl(resume_thread_id=resume_thread_id)
+        asyncio.run(compass_repl(resume_thread_id=resume_thread_id))
 
 
 if __name__ == "__main__":

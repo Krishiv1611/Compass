@@ -11,3 +11,19 @@ wheels/
 .env
 roadmap.md
 .vscode/*
+
+# OS/Editor
+.DS_Store
+*.swp
+*.swo
+
+# Caches and logs
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+*.log
+
+# App specific
+.antigravitycli/
+.compass/chroma/
