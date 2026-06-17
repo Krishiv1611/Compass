@@ -27,6 +27,7 @@ from tools.shell_tool import shell_execute
 from tools.memory_tool import memory
 from tools.todo_tool import todo
 from rag.retriever import codebase_search
+from tools.discovery import get_custom_tools
 
 # Load environment variables
 load_dotenv()
@@ -43,6 +44,14 @@ ALL_TOOLS = [
     memory,                                 # memory tool
     todo,                                   # todo tool
 ]
+
+# ─── Conditionally Load Custom Tools ─────────────────────────────────────────────
+
+custom_tools = get_custom_tools()
+if custom_tools:
+    print(f"[tools] Loaded {len(custom_tools)} custom tool(s).")
+    ALL_TOOLS.extend(custom_tools)
+
 
 # ─── Threshold for context compaction ───────────────────────────────────────────
 _SUMMARIZE_AFTER = 10  # number of messages before triggering compaction
@@ -102,26 +111,42 @@ builder.add_edge("tools", "executor")
 builder.add_edge("loop_recovery", "executor")
 builder.add_edge("summary_node", END)
 
-# ─── Checkpointer + Store ──────────────────────────────────────────────────────
-# Keep the connection alive for the lifetime of the process
+# ─── Async Workflow Factory ────────────────────────────────────────────────────
+# AsyncPostgresSaver requires async initialization, so we expose an async factory
+# function instead of a module-level `workflow` object.
+
 DB_URI = os.environ.get("DB_URI")
 
-# Build compile kwargs — include memory store if available
-_compile_kwargs = {}
-if memory_store is not None:
-    _compile_kwargs["store"] = memory_store
+_workflow = None  # cached after first call
 
-if DB_URI:
-    try:
-        # from_conn_string() is a context manager — enter it manually
-        # and keep the connection alive for the process lifetime
-        _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(DB_URI)
-        checkpointer = _checkpointer_ctx.__enter__()
-        checkpointer.setup()
-        workflow = builder.compile(checkpointer=checkpointer, **_compile_kwargs)
-    except Exception:
-        # Fall back to no checkpointer if DB is unavailable
-        workflow = builder.compile(**_compile_kwargs)
-else:
-    # No DB configured — run without persistence
-    workflow = builder.compile(**_compile_kwargs)
+
+async def get_workflow():
+    """
+    Build and return the compiled workflow (cached after first call).
+
+    Uses AsyncPostgresSaver for persistence when DB_URI is configured.
+    Falls back to no checkpointer if DB is unavailable.
+    """
+    global _workflow
+    if _workflow is not None:
+        return _workflow
+
+    _compile_kwargs = {}
+    if memory_store is not None:
+        _compile_kwargs["store"] = memory_store
+
+    if DB_URI:
+        try:
+            _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(DB_URI)
+            checkpointer = await _checkpointer_ctx.__aenter__()
+            await checkpointer.setup()
+            _workflow = builder.compile(checkpointer=checkpointer, **_compile_kwargs)
+        except Exception:
+            # Fall back to no checkpointer if DB is unavailable
+            _workflow = builder.compile(**_compile_kwargs)
+    else:
+        # No DB configured — run without persistence
+        _workflow = builder.compile(**_compile_kwargs)
+
+    return _workflow
+

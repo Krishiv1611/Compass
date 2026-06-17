@@ -763,7 +763,8 @@ async def compass_repl(resume_thread_id: str | None = None):
 
     # Lazy import to avoid import-time side effects (DB connection, etc.)
     try:
-        from graph.workflow import workflow
+        from graph.workflow import get_workflow
+        workflow = await get_workflow()
     except Exception as e:
         compass.print_error(f"Failed to load agent workflow: {e}")
         compass.console.print(
@@ -1017,7 +1018,8 @@ async def run_single(message: str, resume_thread_id: str | None = None):
 
     # Lazy import
     try:
-        from graph.workflow import workflow
+        from graph.workflow import get_workflow
+        workflow = await get_workflow()
     except Exception as e:
         compass.print_error(f"Failed to load agent workflow: {e}")
         sys.exit(1)

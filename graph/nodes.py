@@ -9,7 +9,7 @@ Four-agent architecture:
 """
 
 from graph.state import AgentState
-from mcp.adapter import get_mcp_tools
+from mcp_client.adapter import get_mcp_tools
 from tools.file_tools import read_file, write_to_file, edit_file
 from tools.directory_tools import list_dir, find_files
 from tools.search_tools import grep_search
@@ -21,6 +21,7 @@ from rag.retriever import codebase_search
 from model.get_llm import llm
 from langchain_core.messages import SystemMessage, AIMessage
 from context.loop_detector import is_looping, get_loop_summary
+from langchain_core.messages import BaseMessage as _BaseMessage
 
 
 # ─── Four LLM Instances ─────────────────────────────────────────────────────────
@@ -29,17 +30,8 @@ _executor_model   = llm("executor")
 _recovery_model   = llm("recovery")
 _summarizer_model = llm("summarizer")
 
-# Only the executor gets tools bound
-_executor_with_tools = _executor_model.bind_tools([
-    read_file, write_to_file, edit_file,   # file tools
-    list_dir, find_files,                   # directory tools
-    grep_search,                            # search tools
-    codebase_search,                        # RAG semantic search
-    web_search,                             # web tools
-    shell_execute,                          # shell tool
-    memory,                                 # memory tool
-    todo,                                   # todo tool
-])
+# Note: Tools are dynamically bound in call_model() using ALL_TOOLS from workflow.py
+# This ensures custom user tools and MCP tools are included at runtime.
 
 # ─── System Prompts ──────────────────────────────────────────────────────────────
 
@@ -92,8 +84,9 @@ async def planner_node(state: AgentState):
     """
     messages = state["messages"]
 
+
     # Build planner input: system prompt + the latest user message
-    planner_messages = [
+    planner_messages: list[_BaseMessage] = [
         SystemMessage(content=PLANNER_SYSTEM_PROMPT),
     ]
 
@@ -155,11 +148,8 @@ async def call_model(state: AgentState):
         context_msg = SystemMessage(content="\n\n".join(context_parts))
         messages = [context_msg] + messages
 
-    # ── Dynamically load and bind MCP tools ────────────────────────────────
+    # ── Dynamically load and bind all tools (built-in + custom + MCP) ──────
     mcp_tools = await get_mcp_tools()
-    from graph.workflow import ALL_TOOLS # we import it dynamically or we just import it at top
-    # Actually, we need to import ALL_TOOLS from workflow, but let's just do it directly.
-    # Wait, workflow imports ALL_TOOLS, so let's import it:
     from graph.workflow import ALL_TOOLS
     combined_tools = ALL_TOOLS + mcp_tools
     executor_with_tools = _executor_model.bind_tools(combined_tools)
@@ -247,7 +237,7 @@ async def loop_recovery_node(state: AgentState):
     # Get last several messages for context (tool calls + results)
     recent_messages = messages[-8:] if len(messages) > 8 else messages
 
-    recovery_messages = [
+    recovery_messages: list[_BaseMessage] = [
         SystemMessage(content=RECOVERY_SYSTEM_PROMPT),
         SystemMessage(
             content=(
