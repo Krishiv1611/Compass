@@ -45,12 +45,26 @@ ALL_TOOLS = [
     todo,                                   # todo tool
 ]
 
+from tools.create_skill_tool import create_skill
+ALL_TOOLS.append(create_skill)              # skill creation tool
+
 # ─── Conditionally Load Custom Tools ─────────────────────────────────────────────
 
 custom_tools = get_custom_tools()
 if custom_tools:
     print(f"[tools] Loaded {len(custom_tools)} custom tool(s).")
     ALL_TOOLS.extend(custom_tools)
+
+# ─── Load Skills ───────────────────────────────────────────────────────────────
+
+from skills import skill_registry, SubAgentFactory, SkillManagerAgent
+
+skill_count = skill_registry.load_all()
+if skill_count:
+    print(f"[skills] Loaded {skill_count} skill(s).")
+
+_skill_factory = SubAgentFactory(ALL_TOOLS)
+_skill_manager = SkillManagerAgent(_skill_factory, skill_registry)
 
 
 # ─── Threshold for context compaction ───────────────────────────────────────────
@@ -93,10 +107,17 @@ async def _route_after_safety(state: AgentState) -> str:
         return "executor"
     return "tools"
 
+async def _route_after_planner(state: AgentState) -> str:
+    """Route after planner: skill_manager if a skill is active, else executor."""
+    if state.get("active_skill"):
+        return "skill_manager"
+    return "executor"
+
 # ─── Build the graph ────────────────────────────────────────────────────────────
 builder = StateGraph(AgentState)  # type: ignore
 
 builder.add_node("planner", planner_node)
+builder.add_node("skill_manager", _skill_manager)
 builder.add_node("executor", call_model)
 builder.add_node("check_safety", check_safety_node)
 builder.add_node("tools", ToolNode(ALL_TOOLS))
@@ -104,7 +125,8 @@ builder.add_node("loop_recovery", loop_recovery_node)
 builder.add_node("summary_node", summary_node)
 
 builder.add_edge(START, "planner")
-builder.add_edge("planner", "executor")
+builder.add_conditional_edges("planner", _route_after_planner)
+builder.add_edge("skill_manager", "executor")
 builder.add_conditional_edges("executor", _route_after_executor)
 builder.add_conditional_edges("check_safety", _route_after_safety)
 builder.add_edge("tools", "executor")

@@ -21,16 +21,13 @@ from langchain_openrouter import ChatOpenRouter
 
 load_dotenv()
 
-# ─── Model Registry ─────────────────────────────────────────────────────────────
-# Each agent role maps to an OpenRouter model name.
-# Change any entry independently without touching other code.
-MODELS: dict[str, str] = {
-    "planner":    "google/gemma-4-31b-it:free",
-    "executor":   "google/gemma-4-31b-it:free",
-    "recovery":   "google/gemma-4-31b-it:free",
-    "summarizer": "google/gemma-4-31b-it:free",
-}
+from config.settings import settings
 
+def _get_model_name(role: str) -> str:
+    """Helper to fetch the current model name for a role."""
+    key = f"model.{role}"
+    # Fallback to executor if role not found
+    return settings.get(key, settings.get("model.executor", "google/gemma-4-31b-it:free"))
 
 def llm(role: str = "executor") -> ChatOpenRouter:
     """
@@ -43,7 +40,7 @@ def llm(role: str = "executor") -> ChatOpenRouter:
     Returns:
         A ChatOpenRouter instance configured for the given role.
     """
-    model_name = MODELS.get(role, MODELS["executor"])
+    model_name = _get_model_name(role)
     return ChatOpenRouter(
         api_key=os.getenv("OPENROUTER_API_KEY"),
         model=model_name,

@@ -8,12 +8,16 @@ langgraph-checkpoint-postgres
 # Configuration & Env
 pydantic
 pydantic-settings
+email-validator
 tomli
+tomli-w
 platformdirs
 python-dotenv
 pyyaml
 psycopg[binary]
 psycopg-pool
+sqlalchemy
+alembic
 tavily
 
 # CLI & UI
@@ -33,6 +37,13 @@ langchain-mcp-adapters
 langchain-chroma
 langchain-text-splitters
 tiktoken
+
+# Backend API
+fastapi
+uvicorn[standard]
+bcrypt
+python-jose[cryptography]
+httpx
 
 # Development & Testing
 # pytest

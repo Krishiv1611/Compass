@@ -1,7 +1,6 @@
 import os
 from langchain_core.tools import tool
 from tavily import TavilyClient
-from duckduckgo_search import DDGS
 @tool
 def web_search(query: str, max_results: int = 5) -> str:
     """Search the web for current information.
@@ -32,7 +31,7 @@ def web_search(query: str, max_results: int = 5) -> str:
                 return "Web search results (via Tavily):\n\n" + "\n".join(formatted)
         except ImportError:
             pass
-        except Exception as e:
+        except Exception:
             pass
     try:
         from duckduckgo_search import DDGS

@@ -34,3 +34,7 @@ class AgentState(TypedDict):
     loop_detected: bool     # Set by loop detector in call_model
     loop_count: int         # Consecutive loop detections (hard break at 3)
     recovery_guidance: str  # Guidance message from the loop recovery agent
+
+    # ── Skills ───────────────────────────────────────────────────────────────
+    active_skill: dict | None       # {"name": "code-review", "arguments": "src/"} or None
+    skill_result: dict | None       # Result from sub-agent execution, or None

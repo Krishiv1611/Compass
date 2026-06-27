@@ -14,7 +14,6 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv

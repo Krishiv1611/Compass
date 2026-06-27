@@ -3,10 +3,7 @@ import re
 from langchain_core.tools import tool
 
 
-import os
-import re
 from fnmatch import fnmatch
-from langchain_core.tools import tool
 
 
 @tool

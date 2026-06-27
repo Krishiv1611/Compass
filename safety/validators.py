@@ -1,7 +1,6 @@
 """
 Safety validators for path boundaries and sensitive file access.
 """
-import os
 from pathlib import Path
 
 def validate_path(target_path: str, workspace_root: str = ".") -> bool:

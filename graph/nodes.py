@@ -10,14 +10,6 @@ Four-agent architecture:
 
 from graph.state import AgentState
 from mcp_client.adapter import get_mcp_tools
-from tools.file_tools import read_file, write_to_file, edit_file
-from tools.directory_tools import list_dir, find_files
-from tools.search_tools import grep_search
-from tools.web_tools import web_search
-from tools.shell_tool import shell_execute
-from tools.memory_tool import memory
-from tools.todo_tool import todo
-from rag.retriever import codebase_search
 from model.get_llm import llm
 from langchain_core.messages import SystemMessage, AIMessage
 from context.loop_detector import is_looping, get_loop_summary
@@ -55,6 +47,17 @@ Plan:
 1. Use `read_file` to read the contents of `main.py`.
 2. Analyze the code structure, focusing on CLI argument parsing.
 3. Respond with a clear explanation of how the CLI works.
+
+## Registered Skills
+These skills are available as specialized sub-agents. If the user's request clearly
+matches one of these, add a line at the END of your plan:
+  SKILL: <skill-name> <arguments>
+
+The Skill Manager will automatically invoke the matching sub-agent.
+If no skill matches, do NOT add a SKILL line — the executor will handle it normally.
+
+Available skills:
+{skill_list}
 """
 
 RECOVERY_SYSTEM_PROMPT = """\
@@ -86,8 +89,13 @@ async def planner_node(state: AgentState):
 
 
     # Build planner input: system prompt + the latest user message
+    from skills import skill_registry
+    skill_list = skill_registry.get_skill_names_descriptions()
+    
     planner_messages: list[_BaseMessage] = [
-        SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+        SystemMessage(content=PLANNER_SYSTEM_PROMPT.format(
+            skill_list=skill_list if skill_list else "No skills registered."
+        )),
     ]
 
     # Include summary if available for context
@@ -103,7 +111,10 @@ async def planner_node(state: AgentState):
 
     plan_text = response.content if isinstance(response.content, str) else str(response.content)
 
-    return {
+    # Parse SKILL: directive from the plan
+    active_skill = _parse_skill_directive(plan_text)
+
+    update = {
         "plan": plan_text,
         "current_step": 0,
         "loop_count": 0,
@@ -111,7 +122,27 @@ async def planner_node(state: AgentState):
         "recovery_guidance": "",
         "messages": [response],
     }
+    
+    # Only update active_skill if planner found a directive.
+    # We do NOT want to overwrite it with None if a slash command already set it!
+    if active_skill:
+        update["active_skill"] = active_skill
 
+    return update
+
+
+def _parse_skill_directive(plan_text: str) -> dict | None:
+    """Extract 'SKILL: name args' from the plan text."""
+    for line in plan_text.strip().splitlines():
+        line = line.strip()
+        if line.upper().startswith("SKILL:"):
+            parts = line[6:].strip().split(maxsplit=1)
+            if parts:
+                return {
+                    "name": parts[0],
+                    "arguments": parts[1] if len(parts) > 1 else "",
+                }
+    return None
 
 async def call_model(state: AgentState):
     """

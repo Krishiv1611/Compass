@@ -6,11 +6,9 @@ Provides an interactive REPL with styled output, tool call visualization,
 and slash command support.
 """
 
-import json
 import os
 import sys
 import time
-import uuid
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
@@ -22,13 +20,11 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 from rich.live import Live
 from rich.spinner import Spinner
-from rich.columns import Columns
 from rich.align import Align
 from rich import box
 from langchain_core.messages import AIMessageChunk, AIMessage, ToolMessage
@@ -418,7 +414,6 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
 
     # ── Planner Agent ────────────────────────────────────────────────────────
     if node_name == "planner":
-        plan = node_output.get("plan", "")
         # The planner also emits an AIMessage — show it as the plan
         for msg in messages:
             if isinstance(msg, AIMessage) and msg.content:
@@ -437,6 +432,18 @@ def _process_stream_event(compass: CompassConsole, node_name: str, node_output: 
                     )
                     compass.console.print()
                     compass.console.print(panel)
+        return
+
+    # ── Skill Manager Node ───────────────────────────────────────────────────
+    if node_name == "skill_manager":
+        result = node_output.get("skill_result")
+        if result:
+            header = Text()
+            header.append("  🎯 ", style="bold bright_green")
+            header.append(f"Skill: {result['skill_name']}", style="bold bright_white")
+            header.append(f" ({result['turns_used']} turns, "
+                          f"{result['tool_calls_made']} tool calls)", style="dim")
+            compass.console.print(header)
         return
 
     # ── Loop Recovery Agent ──────────────────────────────────────────────────
@@ -734,7 +741,40 @@ def _handle_slash_command(
                 )
                 compass.console.print()
 
+    elif cmd == "/skills":
+        from skills import skill_registry
+        if not arg or arg == "list":
+            table = Table(
+                title="[bold bright_cyan]🎯 Registered Skills[/]",
+                box=box.SIMPLE_HEAVY,
+                border_style="bright_black",
+                header_style="bold bright_cyan",
+                padding=(0, 2),
+                show_edge=False,
+            )
+            table.add_column("Command", style="bold cyan")
+            table.add_column("Description", style="bright_white")
+            for s in skill_registry.list_skills():
+                table.add_row(s.slash_command, s.description)
+            compass.console.print()
+            compass.console.print(table)
+            compass.console.print()
+        elif arg == "reload":
+            count = skill_registry.reload()
+            compass.console.print(Text(f"  ✔ Reloaded {count} skills.", style="compass.success"))
+            compass.console.print()
+            for s in skill_registry.list_skills():
+                SLASH_COMMANDS[s.slash_command] = s.description
+        else:
+            compass.console.print(Text("  Usage: /skills [list|reload]", style="compass.warn"))
+            compass.console.print()
+
     else:
+        from skills import skill_registry
+        skill = skill_registry.get(cmd.lstrip("/"))
+        if skill:
+            return {"skill": skill.name, "arguments": arg}
+            
         compass.console.print(
             Text(f"  Unknown command: {cmd}. Type /help for available commands.",
                  style="compass.warn")
@@ -771,6 +811,12 @@ async def compass_repl(resume_thread_id: str | None = None):
             Text("  Tip: Make sure your .env file has DB_URI set.", style="dim"),
         )
         sys.exit(1)
+
+    # ── Register skill slash commands ───────────────────────────────────────
+    from skills import skill_registry
+    for skill in skill_registry.list_skills():
+        SLASH_COMMANDS[skill.slash_command] = skill.description
+    SLASH_COMMANDS["/skills"] = "List registered skills, reload, or get info"
 
     sm = SessionManager()
 
@@ -867,11 +913,21 @@ async def compass_repl(resume_thread_id: str | None = None):
                             session_ctx = {"thread_id": thread_id, "turn_count": 0}
                         messages = []
                         turn_count = session_ctx.get("turn_count", 0)
-                    continue
-
-                # Add user message to history
-                messages.append({"role": "user", "content": user_input})
-                input_payload = {"messages": messages}
+                        continue
+                    elif isinstance(result, dict) and "skill" in result:
+                        new_msg = {"role": "user", "content": user_input}
+                        messages.append(new_msg)
+                        input_payload = {
+                            "messages": [new_msg],
+                            "active_skill": {"name": result["skill"], "arguments": result["arguments"], "source": "slash_command"}
+                        }
+                    else:
+                        continue
+                else:
+                    # Add user message to history
+                    new_msg = {"role": "user", "content": user_input}
+                    messages.append(new_msg)
+                    input_payload = {"messages": [new_msg]}
             else:
                 input_payload = resume_cmd
                 resume_cmd = None
@@ -933,8 +989,6 @@ async def compass_repl(resume_thread_id: str | None = None):
                             break
                             
                     if interrupt_data and interrupt_data.get("reason") == "approval_required":
-                        from rich.panel import Panel
-                        from rich.text import Text
                         
                         risky_calls = interrupt_data.get("tool_calls", [])
                         warning_text = Text()
@@ -1103,8 +1157,7 @@ async def run_single(message: str, resume_thread_id: str | None = None):
                         break
                         
                 if interrupt_data and interrupt_data.get("reason") == "approval_required":
-                    from rich.panel import Panel
-                    from rich.text import Text
+                    # wait for approval
                     
                     risky_calls = interrupt_data.get("tool_calls", [])
                     warning_text = Text()

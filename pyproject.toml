@@ -10,3 +10,6 @@ dependencies = []
 venvPath = "."
 venv = ".venv"
 
+[tool.ruff.lint]
+ignore = ["E402"]
+

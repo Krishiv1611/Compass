@@ -7,7 +7,6 @@ in the database — this module just tracks which thread_ids exist.
 """
 
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
