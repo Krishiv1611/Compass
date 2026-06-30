@@ -18,6 +18,7 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     turn_count: int
     summary: str
+    mode: str               # "normal" or "plan"
 
     # ── Planner ──────────────────────────────────────────────────────────────
     plan: str               # Step-by-step plan from the planner agent

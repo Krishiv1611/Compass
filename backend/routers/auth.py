@@ -14,6 +14,7 @@ from backend.auth.oauth import (
     exchange_github_code,
     get_or_create_oauth_user,
 )
+from backend.config import settings
 from backend.db import get_db
 from backend.models.user import User
 from backend.schemas.auth import (
@@ -117,6 +118,42 @@ def logout():
 
 
 # ── OAuth Endpoints ──────────────────────────────────────────────────────────────
+
+@router.get("/oauth/google/url")
+def get_google_auth_url(redirect_uri: str):
+    """Generate the Google OAuth authorization URL."""
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google OAuth is not configured on the backend (missing GOOGLE_CLIENT_ID)"
+        )
+    url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={settings.google_client_id}&"
+        f"redirect_uri={redirect_uri}&"
+        f"response_type=code&"
+        f"scope=openid%20email%20profile&"
+        f"state=google"
+    )
+    return {"url": url}
+
+
+@router.get("/oauth/github/url")
+def get_github_auth_url():
+    """Generate the GitHub OAuth authorization URL."""
+    if not settings.github_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub OAuth is not configured on the backend (missing GITHUB_CLIENT_ID)"
+        )
+    url = (
+        f"https://github.com/login/oauth/authorize?"
+        f"client_id={settings.github_client_id}&"
+        f"scope=user:email&"
+        f"state=github"
+    )
+    return {"url": url}
+
 
 @router.post("/oauth/google", response_model=TokenResponse)
 async def oauth_google(code: str, redirect_uri: str, db: Session = Depends(get_db)):

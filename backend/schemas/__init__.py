@@ -17,6 +17,7 @@ from backend.schemas.chat import (
     ToolCallData,
     MessageResponse,
 )
+from backend.schemas.upload import UploadCapabilityResponse, UploadResponse
 
 __all__ = [
     "LoginRequest",
@@ -32,4 +33,6 @@ __all__ = [
     "StreamEvent",
     "ToolCallData",
     "MessageResponse",
+    "UploadCapabilityResponse",
+    "UploadResponse",
 ]

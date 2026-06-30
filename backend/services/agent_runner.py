@@ -13,10 +13,10 @@ from backend.schemas.chat import StreamEvent, StreamEventType, ToolCallData
 
 logger = logging.getLogger(__name__)
 
-
-async def run_agent(
+async def run_agent_stream(
     user_message: str,
     thread_id: str,
+    mode: str = "normal",
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Invoke the LangGraph agent and yield StreamEvent objects.
@@ -27,7 +27,7 @@ async def run_agent(
 
     workflow = await get_workflow()
     config = {"configurable": {"thread_id": thread_id}}
-    input_msg = {"messages": [HumanMessage(content=user_message)]}
+    input_msg = {"messages": [HumanMessage(content=user_message)], "mode": mode}
 
     try:
         async for event in workflow.astream_events(input_msg, config=config, version="v2"):
@@ -86,6 +86,7 @@ async def run_agent(
 async def run_agent_sync(
     user_message: str,
     thread_id: str,
+    mode: str = "normal",
 ) -> list[BaseMessage]:
     """
     Invoke the LangGraph agent and return all response messages (non-streaming).
@@ -96,7 +97,7 @@ async def run_agent_sync(
 
     workflow = await get_workflow()
     config = {"configurable": {"thread_id": thread_id}}
-    input_msg = {"messages": [HumanMessage(content=user_message)]}
+    input_msg = {"messages": [HumanMessage(content=user_message)], "mode": mode}
 
     result = await workflow.ainvoke(input_msg, config=config)
     messages = result.get("messages", [])

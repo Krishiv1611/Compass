@@ -117,9 +117,11 @@ from backend.routers.sessions import router as sessions_router
 from backend.routers.chat import router as chat_router
 from backend.routers.tools import router as tools_router
 from backend.routers.settings import router as settings_router
+from backend.routers.uploads import router as uploads_router
 
 app.include_router(auth_router)
 app.include_router(sessions_router)
 app.include_router(chat_router)
 app.include_router(tools_router)
 app.include_router(settings_router)
+app.include_router(uploads_router)

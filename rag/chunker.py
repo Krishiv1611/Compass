@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import Any, List
 
 from langchain_core.documents import Document
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
@@ -20,31 +20,40 @@ EXTENSION_MAPPING = {
     ".rs": Language.RUST,
 }
 
-def chunk_file(filepath: str, content: str) -> List[Document]:
+
+def chunk_file(
+    filepath: str,
+    content: str,
+    metadata: dict[str, Any] | None = None,
+) -> List[Document]:
     """
     Chunk a file's content into smaller, code-aware chunks using Langchain.
     Returns a list of Document objects with metadata.
     """
     _, ext = os.path.splitext(filepath)
     ext = ext.lower()
-    
+
     # Check if the file type supports code-aware splitting
     if ext in EXTENSION_MAPPING:
         language = EXTENSION_MAPPING[ext]
         splitter = RecursiveCharacterTextSplitter.from_language(
             language=language,
             chunk_size=1000,
-            chunk_overlap=200
+            chunk_overlap=200,
         )
     else:
         # Fallback for generic text splitting
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
-            chunk_overlap=200
+            chunk_overlap=200,
         )
-        
+
+    doc_metadata = {"source": filepath}
+    if metadata:
+        doc_metadata.update(metadata)
+
     documents = splitter.create_documents(
         texts=[content],
-        metadatas=[{"source": filepath}]
+        metadatas=[doc_metadata],
     )
     return documents

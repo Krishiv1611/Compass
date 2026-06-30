@@ -1,5 +1,5 @@
-"""
-Chat router — non-streaming POST endpoint + WebSocket streaming.
+﻿"""
+Chat router â€” non-streaming POST endpoint + WebSocket streaming.
 """
 
 import logging
@@ -92,10 +92,15 @@ async def send_message(
     _persist_message(db, chat_session.id, role="user", content=body.content)
 
     # Run agent
-    response_messages = await agent_runner.run_agent_sync(
-        user_message=body.content,
-        thread_id=chat_session.thread_id,
-    )
+    try:
+        response_messages = await agent_runner.run_agent_sync(
+            user_message=body.content,
+            thread_id=chat_session.thread_id,
+            mode=body.mode,
+        )
+    except Exception as e:
+        logger.exception("Agent run failed")
+        raise HTTPException(status_code=500, detail=f"Agent Error: {str(e)}")
 
     # Persist and collect response messages
     result_messages = []
@@ -160,7 +165,7 @@ async def websocket_chat(
     Client sends: {"type": "message", "content": "..."}
     Server sends: {"type": "token|tool_call|tool_result|done|error", ...}
     """
-    # ── Authenticate ─────────────────────────────────────────────────────────
+    # â”€â”€ Authenticate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if not token:
         await websocket.close(code=4001, reason="Missing token")
         return
@@ -175,7 +180,7 @@ async def websocket_chat(
         await websocket.close(code=4001, reason="Invalid or expired token")
         return
 
-    # ── Validate session ownership ───────────────────────────────────────────
+    # â”€â”€ Validate session ownership â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     db = SessionLocal()
     try:
         chat_session = (
@@ -194,7 +199,7 @@ async def websocket_chat(
     finally:
         db.close()
 
-    # ── Connect ──────────────────────────────────────────────────────────────
+    # â”€â”€ Connect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     await manager.connect(websocket, session_id)
 
     try:
@@ -208,6 +213,11 @@ async def websocket_chat(
 
             client_msg = WsClientMessage(**raw)
 
+            if client_msg.type == "tool_result" and client_msg.call_id:
+                # Handle RPC response from EDGE client
+                manager.resolve_call(client_msg.call_id, client_msg.result, client_msg.error)
+                continue
+
             if client_msg.type == "message" and client_msg.content:
                 # Persist user message
                 db = SessionLocal()
@@ -218,9 +228,10 @@ async def websocket_chat(
 
                 # Stream agent response
                 full_content = []
-                async for event in agent_runner.run_agent(
+                async for event in agent_runner.run_agent_stream(
                     user_message=client_msg.content,
                     thread_id=thread_id,
+                    mode=client_msg.mode,
                 ):
                     await manager.send_event(websocket, event)
 
@@ -262,3 +273,5 @@ async def websocket_chat(
             pass
     finally:
         manager.disconnect(websocket, session_id)
+
+

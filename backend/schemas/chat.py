@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field
+from typing import Any
 
 
 # ── Enums ─────────────────────────────────────────────────
@@ -10,6 +11,7 @@ class StreamEventType(str, Enum):
     TOKEN = "token"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    RPC_CALL = "rpc_call"
     DONE = "done"
     ERROR = "error"
 
@@ -20,12 +22,17 @@ class ChatRequest(BaseModel):
     """POST /chat/send  —  non-streaming fallback."""
     session_id: str
     content: str = Field(..., min_length=1)
+    mode: str = "normal"
 
 
 class WsClientMessage(BaseModel):
     """Message sent by the client over WebSocket."""
-    type: str = "message"  # "message" | "cancel"
+    type: str = "message"  # "message" | "cancel" | "tool_result"
     content: str | None = None
+    call_id: str | None = None
+    result: Any | None = None
+    error: str | None = None
+    mode: str = "normal"
 
 
 # ── Responses ─────────────────────────────────────────────

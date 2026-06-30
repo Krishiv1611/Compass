@@ -13,12 +13,13 @@ import os
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
-from langgraph.prebuilt import ToolNode
+from graph.remote_tool_node import RemoteToolNode
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from tools.memory_tool import _store as memory_store
 
 from graph.state import AgentState
-from graph.nodes import planner_node, call_model, loop_recovery_node, summary_node, check_safety_node
+from graph.nodes import planner_node, call_model, loop_recovery_node, summary_node, check_safety_node, direct_chat_node
+from model.get_llm import llm
 from tools.file_tools import read_file, write_to_file, edit_file
 from tools.directory_tools import list_dir, find_files
 from tools.search_tools import grep_search
@@ -113,18 +114,48 @@ async def _route_after_planner(state: AgentState) -> str:
         return "skill_manager"
     return "executor"
 
+async def _route_start(state: AgentState) -> str:
+    """Route from START based on mode and intent."""
+    if state.get("mode") == "plan":
+        return "planner"
+    
+    # "normal" mode: fast intent routing
+    messages = state["messages"]
+    if not messages:
+        return "executor"
+        
+    last_msg = messages[-1].content.lower()
+    
+    # Fast heuristic for chat vs task
+    chat_keywords = ["hi", "hello", "hey", "who are you", "what can you do", "thanks", "thank you", "goodbye", "bye"]
+    if any(last_msg.strip().startswith(kw) for kw in chat_keywords) and len(last_msg) < 50:
+        return "direct_chat"
+        
+    # Use LLM for intent routing if not obvious
+    try:
+        router_llm = llm("planner") # Reuse planner model
+        prompt = f"Is the following user message a simple chat/greeting (reply 'chat') or a task requiring codebase/tool access (reply 'task')? Message: '{last_msg}'"
+        response = await router_llm.ainvoke(prompt)
+        if "chat" in response.content.lower() and "task" not in response.content.lower():
+            return "direct_chat"
+    except Exception:
+        pass # Fallback to executor if routing fails
+        
+    return "executor"
+
 # ─── Build the graph ────────────────────────────────────────────────────────────
 builder = StateGraph(AgentState)  # type: ignore
 
 builder.add_node("planner", planner_node)
 builder.add_node("skill_manager", _skill_manager)
 builder.add_node("executor", call_model)
+builder.add_node("direct_chat", direct_chat_node)
 builder.add_node("check_safety", check_safety_node)
-builder.add_node("tools", ToolNode(ALL_TOOLS))
+builder.add_node("tools", RemoteToolNode(ALL_TOOLS))
 builder.add_node("loop_recovery", loop_recovery_node)
 builder.add_node("summary_node", summary_node)
 
-builder.add_edge(START, "planner")
+builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
 builder.add_edge("skill_manager", "executor")
 builder.add_conditional_edges("executor", _route_after_executor)
@@ -132,6 +163,7 @@ builder.add_conditional_edges("check_safety", _route_after_safety)
 builder.add_edge("tools", "executor")
 builder.add_edge("loop_recovery", "executor")
 builder.add_edge("summary_node", END)
+builder.add_edge("direct_chat", END)
 
 # ─── Async Workflow Factory ────────────────────────────────────────────────────
 # AsyncPostgresSaver requires async initialization, so we expose an async factory

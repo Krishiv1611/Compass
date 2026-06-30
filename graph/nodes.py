@@ -388,3 +388,31 @@ async def check_safety_node(state: AgentState):
             "approval_status": "denied",
             "messages": tool_msgs
         }
+
+
+async def direct_chat_node(state: AgentState):
+    """
+    Direct Chat Agent — replies instantly without tools.
+    Used for simple conversations to save tokens and latency.
+    """
+    messages = state["messages"]
+    
+    # We use the executor model but without binding tools
+    system_msg = SystemMessage(content="You are Compass, a helpful AI coding assistant. Answer the user's question directly.")
+    response = await _executor_model.ainvoke([system_msg] + messages)
+    
+    token_usage = {}
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
+        usage = response.usage_metadata
+        token_usage = {
+            "prompt_tokens": getattr(usage, "input_tokens", 0),
+            "completion_tokens": getattr(usage, "output_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        }
+        
+    return {
+        "messages": [response],
+        "turn_count": state.get("turn_count", 0) + 1,
+        "is_done": True,
+        "token_usage": token_usage,
+    }

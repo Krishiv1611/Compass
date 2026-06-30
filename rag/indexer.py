@@ -1,5 +1,5 @@
 """
-Compass RAG — Codebase Indexer.
+Compass RAG - Codebase Indexer.
 
 Traverses the workspace, chunks source files with code-aware splitting,
 and indexes them into a local ChromaDB vector store for semantic search.
@@ -17,26 +17,13 @@ from dataclasses import dataclass, field
 from typing import List
 
 from dotenv import load_dotenv
-from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
 
 from rag.chunker import chunk_file
+from rag.vector_store import WORKSPACE_DIR, delete_chunks_by_filter, get_vector_store
 
 load_dotenv()
 
-# Embedding configuration mirroring memory_tool
-_embeddings = OpenAIEmbeddings(
-    model="nvidia/llama-nemotron-embed-vl-1b-v2:free",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-    check_embedding_ctx_length=False,
-    chunk_size=16
-)
-
-# Configuration
-WORKSPACE_DIR = os.getcwd()  # Default to cwd
-CHROMA_PERSIST_DIR = os.path.join(WORKSPACE_DIR, ".compass", "chroma")
 INDEX_STATE_FILE = os.path.join(WORKSPACE_DIR, ".compass", "index_state.json")
 
 # Directories to ignore during traversal
@@ -87,21 +74,9 @@ def is_text_file(filepath: str) -> bool:
     return ext.lower() in valid_extensions
 
 
-def _delete_chunks_by_source(vector_store: Chroma, source_path: str) -> int:
-    """
-    Delete all chunks from ChromaDB that have a matching 'source' metadata field.
-    Returns the number of chunks deleted.
-    """
-    try:
-        # Query for document IDs matching this source
-        results = vector_store.get(where={"source": source_path})
-        ids = results.get("ids", [])
-        if ids:
-            vector_store.delete(ids=ids)
-            return len(ids)
-    except Exception:
-        pass
-    return 0
+def _delete_chunks_by_source(source_path: str) -> int:
+    """Delete all chunks for a source path from ChromaDB."""
+    return delete_chunks_by_filter({"source": source_path})
 
 
 def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
@@ -117,11 +92,10 @@ def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
     new_state = {}
 
     documents_to_index: List[Document] = []
-    modified_files: List[str] = []  # files that need re-indexing
+    modified_files: List[str] = []
 
-    # ── Phase 1: Traverse and collect changed files ─────────────────────────
+    # Phase 1: Traverse and collect changed files
     for root, dirs, files in os.walk(workspace_path):
-        # Modify dirs in-place to ignore specified directories
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
 
         for file in files:
@@ -135,56 +109,49 @@ def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
             try:
                 mtime = os.path.getmtime(filepath)
 
-                # Check for incremental updates
                 if filepath in state and state[filepath] == mtime:
-                    # File hasn't changed — carry forward
                     new_state[filepath] = mtime
                     stats.files_skipped += 1
                     continue
 
-                # Read and chunk the file
                 with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
 
-                chunks = chunk_file(filepath, content)
-                # Filter out empty chunks to prevent OpenRouter API errors
+                chunks = chunk_file(
+                    filepath,
+                    content,
+                    metadata={"source_type": "workspace"},
+                )
                 chunks = [c for c in chunks if c.page_content.strip()]
                 documents_to_index.extend(chunks)
                 modified_files.append(filepath)
 
-                # Update the new state
                 new_state[filepath] = mtime
                 stats.files_indexed += 1
 
             except Exception as e:
                 stats.errors.append(f"{filepath}: {e}")
 
-    # ── Phase 2: Update ChromaDB ────────────────────────────────────────────
-    os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
-    vector_store = Chroma(
-        collection_name="compass_workspace",
-        embedding_function=_embeddings,
-        persist_directory=CHROMA_PERSIST_DIR
-    )
+    # Phase 2: Update ChromaDB
+    vector_store = get_vector_store(create=True)
+    if vector_store is None:
+        stats.errors.append("Vector store could not be initialized.")
+        stats.elapsed_seconds = time.time() - start_time
+        return stats
 
-    # Delete old chunks for modified files (prevents duplicates)
     for filepath in modified_files:
-        removed = _delete_chunks_by_source(vector_store, filepath)
-        stats.chunks_removed += removed
+        stats.chunks_removed += _delete_chunks_by_source(filepath)
 
-    # Delete chunks for files that no longer exist (stale cleanup)
     stale_files = set(state.keys()) - set(new_state.keys())
     for filepath in stale_files:
-        removed = _delete_chunks_by_source(vector_store, filepath)
-        stats.chunks_removed += removed
+        stats.chunks_removed += _delete_chunks_by_source(filepath)
         stats.files_removed += 1
 
-    # Add new/updated chunks
     if documents_to_index:
         vector_store.add_documents(documents=documents_to_index)
         stats.chunks_added = len(documents_to_index)
 
-    # ── Phase 3: Save state ─────────────────────────────────────────────────
+    # Phase 3: Save state
     save_index_state(new_state)
     stats.elapsed_seconds = time.time() - start_time
 

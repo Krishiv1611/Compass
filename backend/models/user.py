@@ -50,6 +50,9 @@ class User(Base):
     sessions = relationship(
         "ChatSession", back_populates="user", cascade="all, delete-orphan"
     )
+    uploads = relationship(
+        "UploadedFile", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<User id={self.id!r} email={self.email!r}>"
