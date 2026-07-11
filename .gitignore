@@ -27,3 +27,5 @@ roadmap.md
 # App specific
 .antigravitycli/
 .compass/chroma/
+.compass/
+.vscode/
