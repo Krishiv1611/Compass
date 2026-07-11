@@ -27,7 +27,9 @@ from backend.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+)
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
     """Create a new user account and return JWT tokens."""
     existing = db.query(User).filter(User.email == body.email).first()
@@ -119,13 +121,14 @@ def logout():
 
 # ── OAuth Endpoints ──────────────────────────────────────────────────────────────
 
+
 @router.get("/oauth/google/url")
 def get_google_auth_url(redirect_uri: str):
     """Generate the Google OAuth authorization URL."""
     if not settings.google_client_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google OAuth is not configured on the backend (missing GOOGLE_CLIENT_ID)"
+            detail="Google OAuth is not configured on the backend (missing GOOGLE_CLIENT_ID)",
         )
     url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
@@ -144,7 +147,7 @@ def get_github_auth_url():
     if not settings.github_client_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub OAuth is not configured on the backend (missing GITHUB_CLIENT_ID)"
+            detail="GitHub OAuth is not configured on the backend (missing GITHUB_CLIENT_ID)",
         )
     url = (
         f"https://github.com/login/oauth/authorize?"
@@ -161,9 +164,14 @@ async def oauth_google(code: str, redirect_uri: str, db: Session = Depends(get_d
     try:
         info = await exchange_google_code(code, redirect_uri)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)
+        )
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Google OAuth failed: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Google OAuth failed: {exc}",
+        )
 
     user = get_or_create_oauth_user(
         db,
@@ -182,9 +190,14 @@ async def oauth_github(code: str, db: Session = Depends(get_db)):
     try:
         info = await exchange_github_code(code)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)
+        )
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"GitHub OAuth failed: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"GitHub OAuth failed: {exc}",
+        )
 
     if not info.get("email"):
         raise HTTPException(

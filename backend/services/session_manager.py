@@ -186,7 +186,7 @@ def auto_title(
             "Reply with ONLY the title, no quotes or punctuation."
         )
         response = summarizer.invoke(prompt)
-        title = response.content.strip().strip('"\'')[:200]
+        title = response.content.strip().strip("\"'")[:200]
 
         session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
         if session and title:

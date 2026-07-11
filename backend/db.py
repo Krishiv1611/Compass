@@ -8,7 +8,7 @@ engine = create_engine(
     settings.sqlalchemy_db_uri,
     pool_pre_ping=True,  # recommended to gracefully handle disconnects
     pool_size=5,
-    max_overflow=10
+    max_overflow=10,
 )
 
 # Create a configured "Session" class
@@ -16,6 +16,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create a Base class for declarative models
 Base = declarative_base()
+
 
 def get_db():
     """

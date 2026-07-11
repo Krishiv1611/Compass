@@ -10,6 +10,7 @@ class User(Base):
     """
     User account — supports email/password and OAuth logins.
     """
+
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(
@@ -19,15 +20,18 @@ class User(Base):
         String(320), unique=True, nullable=False, index=True
     )
     hashed_password: Mapped[str | None] = mapped_column(
-        Text, nullable=True  # nullable for OAuth-only users
+        Text,
+        nullable=True,  # nullable for OAuth-only users
     )
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     oauth_provider: Mapped[str | None] = mapped_column(
-        String(20), nullable=True  # "google", "github", or None
+        String(20),
+        nullable=True,  # "google", "github", or None
     )
     oauth_provider_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True  # ID from the OAuth provider
+        String(255),
+        nullable=True,  # ID from the OAuth provider
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -42,7 +46,9 @@ class User(Base):
         nullable=False,
     )
     preferences: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, default=None,
+        JSON,
+        nullable=True,
+        default=None,
         comment="User preferences (theme, model, language, etc.)",
     )
 

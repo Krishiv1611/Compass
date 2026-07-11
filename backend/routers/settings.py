@@ -15,6 +15,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 class UserPreferences(BaseModel):
     """User preferences schema."""
+
     theme: str = "dark"
     model: str = "google/gemma-4-31b-it:free"
     language: str = "en"

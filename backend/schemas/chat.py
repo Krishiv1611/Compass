@@ -6,8 +6,10 @@ from typing import Any
 
 # ── Enums ─────────────────────────────────────────────────
 
+
 class StreamEventType(str, Enum):
     """Event types pushed over the WebSocket."""
+
     TOKEN = "token"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
@@ -18,8 +20,10 @@ class StreamEventType(str, Enum):
 
 # ── Requests ──────────────────────────────────────────────
 
+
 class ChatRequest(BaseModel):
     """POST /chat/send  —  non-streaming fallback."""
+
     session_id: str
     content: str = Field(..., min_length=1)
     mode: str = "normal"
@@ -27,6 +31,7 @@ class ChatRequest(BaseModel):
 
 class WsClientMessage(BaseModel):
     """Message sent by the client over WebSocket."""
+
     type: str = "message"  # "message" | "cancel" | "tool_result"
     content: str | None = None
     call_id: str | None = None
@@ -37,8 +42,10 @@ class WsClientMessage(BaseModel):
 
 # ── Responses ─────────────────────────────────────────────
 
+
 class ToolCallData(BaseModel):
     """Serialized representation of a single tool invocation."""
+
     id: str
     name: str
     args: dict
@@ -46,6 +53,7 @@ class ToolCallData(BaseModel):
 
 class MessageResponse(BaseModel):
     """A complete message returned by the non-streaming endpoint."""
+
     id: str
     role: str
     content: str | None = None
@@ -58,6 +66,7 @@ class MessageResponse(BaseModel):
 
 class ChatResponse(BaseModel):
     """POST /chat/send response (non-streaming)."""
+
     messages: list[MessageResponse]
 
 
@@ -72,6 +81,7 @@ class StreamEvent(BaseModel):
         {"type": "done"}
         {"type": "error",       "content": "something went wrong"}
     """
+
     type: StreamEventType
     content: str | None = None
     tool_call: ToolCallData | None = None

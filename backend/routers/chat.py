@@ -1,11 +1,19 @@
-﻿"""
+"""
 Chat router â€” non-streaming POST endpoint + WebSocket streaming.
 """
 
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    Query,
+    status,
+)
 from jose import JWTError
 from sqlalchemy.orm import Session
 
@@ -107,7 +115,11 @@ async def send_message(
     first_ai_content = None
 
     for msg in response_messages:
-        role = "assistant" if hasattr(msg, "tool_calls") and not hasattr(msg, "tool_call_id") else getattr(msg, "type", "assistant")
+        role = (
+            "assistant"
+            if hasattr(msg, "tool_calls") and not hasattr(msg, "tool_call_id")
+            else getattr(msg, "type", "assistant")
+        )
         if role == "ai":
             role = "assistant"
         elif role == "tool":
@@ -115,7 +127,10 @@ async def send_message(
 
         tc_data = None
         if hasattr(msg, "tool_calls") and msg.tool_calls:
-            tc_data = [{"id": tc["id"], "name": tc["name"], "args": tc["args"]} for tc in msg.tool_calls]
+            tc_data = [
+                {"id": tc["id"], "name": tc["name"], "args": tc["args"]}
+                for tc in msg.tool_calls
+            ]
 
         saved = _persist_message(
             db,
@@ -124,7 +139,9 @@ async def send_message(
             content=getattr(msg, "content", None),
             tool_calls=tc_data,
             tool_call_id=getattr(msg, "tool_call_id", None),
-            model=getattr(msg, "response_metadata", {}).get("model", None) if hasattr(msg, "response_metadata") else None,
+            model=getattr(msg, "response_metadata", {}).get("model", None)
+            if hasattr(msg, "response_metadata")
+            else None,
         )
 
         if role == "assistant" and first_ai_content is None:
@@ -215,14 +232,18 @@ async def websocket_chat(
 
             if client_msg.type == "tool_result" and client_msg.call_id:
                 # Handle RPC response from EDGE client
-                manager.resolve_call(client_msg.call_id, client_msg.result, client_msg.error)
+                manager.resolve_call(
+                    client_msg.call_id, client_msg.result, client_msg.error
+                )
                 continue
 
             if client_msg.type == "message" and client_msg.content:
                 # Persist user message
                 db = SessionLocal()
                 try:
-                    _persist_message(db, session_id, role="user", content=client_msg.content)
+                    _persist_message(
+                        db, session_id, role="user", content=client_msg.content
+                    )
                 finally:
                     db.close()
 
@@ -244,14 +265,26 @@ async def websocket_chat(
                     assistant_text = "".join(full_content)
                     db = SessionLocal()
                     try:
-                        _persist_message(db, session_id, role="assistant", content=assistant_text)
+                        _persist_message(
+                            db, session_id, role="assistant", content=assistant_text
+                        )
 
                         # Auto-title on first message
-                        cs = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+                        cs = (
+                            db.query(ChatSession)
+                            .filter(ChatSession.id == session_id)
+                            .first()
+                        )
                         if cs and cs.title in ("New Chat", None):
-                            msg_count = db.query(Message).filter(Message.session_id == session_id).count()
+                            msg_count = (
+                                db.query(Message)
+                                .filter(Message.session_id == session_id)
+                                .count()
+                            )
                             if msg_count <= 3:
-                                session_manager.auto_title(db, session_id, client_msg.content, assistant_text)
+                                session_manager.auto_title(
+                                    db, session_id, client_msg.content, assistant_text
+                                )
 
                         # Update session timestamp
                         if cs:
@@ -273,5 +306,3 @@ async def websocket_chat(
             pass
     finally:
         manager.disconnect(websocket, session_id)
-
-

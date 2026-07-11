@@ -18,7 +18,9 @@ from backend.models.user import User
 async def exchange_google_code(code: str, redirect_uri: str) -> dict:
     """Exchange a Google OAuth2 authorization code for user info."""
     if not settings.google_client_id or not settings.google_client_secret:
-        raise ValueError("Google OAuth is not configured (missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)")
+        raise ValueError(
+            "Google OAuth is not configured (missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)"
+        )
 
     async with httpx.AsyncClient() as client:
         # Exchange code for tokens
@@ -47,7 +49,9 @@ async def exchange_google_code(code: str, redirect_uri: str) -> dict:
 async def exchange_github_code(code: str) -> dict:
     """Exchange a GitHub OAuth2 authorization code for user info."""
     if not settings.github_client_id or not settings.github_client_secret:
-        raise ValueError("GitHub OAuth is not configured (missing GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET)")
+        raise ValueError(
+            "GitHub OAuth is not configured (missing GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET)"
+        )
 
     async with httpx.AsyncClient() as client:
         # Exchange code for access token
@@ -78,7 +82,9 @@ async def exchange_github_code(code: str) -> dict:
         )
         email_resp.raise_for_status()
         emails = email_resp.json()
-        primary = next((e for e in emails if e.get("primary")), emails[0] if emails else None)
+        primary = next(
+            (e for e in emails if e.get("primary")), emails[0] if emails else None
+        )
         profile["email"] = primary["email"] if primary else None
 
         return profile

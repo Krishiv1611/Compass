@@ -25,6 +25,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         if auth_header.startswith("Bearer "):
             try:
                 from backend.auth.jwt import decode_token
+
                 payload = decode_token(auth_header[7:])
                 user_id = payload.get("sub", "-")
             except Exception:

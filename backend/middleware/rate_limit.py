@@ -18,8 +18,8 @@ from jose import JWTError
 logger = logging.getLogger(__name__)
 
 # Configuration
-MAX_REQUESTS = 60        # max requests per window
-WINDOW_SECONDS = 60      # window size in seconds
+MAX_REQUESTS = 60  # max requests per window
+WINDOW_SECONDS = 60  # window size in seconds
 
 
 class _TokenBucket:
@@ -93,6 +93,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             token = auth_header[7:]
             try:
                 from backend.auth.jwt import decode_token
+
                 payload = decode_token(token)
                 return f"user:{payload.get('sub', 'unknown')}"
             except (JWTError, Exception):

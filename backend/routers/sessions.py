@@ -57,7 +57,9 @@ def get_session(
     """Get a session with its full message history."""
     detail = session_manager.get_session_detail(db, current_user.id, session_id)
     if not detail:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
     return detail
 
 
@@ -71,7 +73,9 @@ def rename_session(
     """Rename a session."""
     s = session_manager.rename_session(db, current_user.id, session_id, body.title)
     if not s:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
     # Re-fetch full detail for consistent response
     return session_manager.get_session_detail(db, current_user.id, session_id)
 
@@ -85,5 +89,7 @@ def delete_session(
     """Soft-delete a session."""
     deleted = session_manager.delete_session(db, current_user.id, session_id)
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
     return None

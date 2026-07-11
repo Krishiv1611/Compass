@@ -7,6 +7,7 @@ from alembic import context
 
 # -- Import your settings & models so Alembic can autogenerate --
 from backend.config import settings
+
 # Importing models/__init__.py registers all models with Base.metadata
 from backend.models import Base  # noqa: F401 — side-effect import
 

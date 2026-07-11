@@ -1,0 +1,55 @@
+{
+  "name": "compass-vscode",
+  "displayName": "Compass AI",
+  "description": "Compass AI Coding Agent Integration",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "compass.startSession",
+        "title": "Compass: New Session"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "compass-sidebar-view",
+          "title": "Compass",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "compass-sidebar-view": [
+        {
+          "type": "webview",
+          "id": "compass.sidebar",
+          "name": "Compass Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "build:webview": "cd webview && npm run build",
+    "build:all": "npm run build:webview && npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "18.x",
+    "@types/vscode": "^1.80.0",
+    "esbuild": "^0.18.20",
+    "typescript": "^5.1.3"
+  }
+}

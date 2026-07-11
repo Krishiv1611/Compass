@@ -16,17 +16,25 @@ class UploadedFile(Base):
         String(36), primary_key=True, default=lambda: uuid.uuid4().hex
     )
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     session_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+        String(36),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="processing",
+        String(20),
+        nullable=False,
+        default="processing",
         comment="processing, ready, or failed",
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

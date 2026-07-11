@@ -10,6 +10,7 @@ class Message(Base):
     """
     A single message (user, assistant, or tool) within a chat session.
     """
+
     __tablename__ = "messages"
 
     id: Mapped[str] = mapped_column(
@@ -22,23 +23,28 @@ class Message(Base):
         index=True,
     )
     role: Mapped[str] = mapped_column(
-        String(20), nullable=False,
+        String(20),
+        nullable=False,
         comment="One of: user, assistant, system, tool",
     )
     content: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="Text content of the message (may be null for pure tool-call messages)",
     )
     tool_calls: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True,
+        JSON,
+        nullable=True,
         comment="Serialized tool call invocations (name, args, id) when role=assistant",
     )
     tool_call_id: Mapped[str | None] = mapped_column(
-        String(64), nullable=True,
+        String(64),
+        nullable=True,
         comment="ID of the tool call this message responds to (when role=tool)",
     )
     model: Mapped[str | None] = mapped_column(
-        String(100), nullable=True,
+        String(100),
+        nullable=True,
         comment="LLM model that generated this message (for assistant messages)",
     )
     token_count: Mapped[int | None] = mapped_column(

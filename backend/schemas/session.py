@@ -4,20 +4,25 @@ from pydantic import BaseModel, Field
 
 # ── Requests ──────────────────────────────────────────────
 
+
 class SessionCreate(BaseModel):
     """POST /sessions"""
+
     title: str | None = Field(None, max_length=200)
 
 
 class SessionRename(BaseModel):
     """PATCH /sessions/{id}"""
+
     title: str = Field(..., min_length=1, max_length=200)
 
 
 # ── Responses ─────────────────────────────────────────────
 
+
 class SessionSummary(BaseModel):
     """Lightweight session item for list views (GET /sessions)."""
+
     id: str
     title: str | None
     created_at: datetime
@@ -29,6 +34,7 @@ class SessionSummary(BaseModel):
 
 class MessageInSession(BaseModel):
     """Message embedded inside SessionDetail."""
+
     id: str
     role: str
     content: str | None = None
@@ -42,6 +48,7 @@ class MessageInSession(BaseModel):
 
 class SessionDetail(BaseModel):
     """Full session with messages (GET /sessions/{id})."""
+
     id: str
     title: str | None
     thread_id: str

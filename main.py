@@ -1,4 +1,5 @@
 import asyncio
+
 """
 Compass — AI Coding Agent CLI Entry Point.
 
@@ -11,23 +12,28 @@ Usage:
 """
 
 import click
+from agent.sessions import SessionManager
+from agent.ui.tui import compass_repl, run_single
 
 
 @click.command()
 @click.option(
-    "-m", "--message",
+    "-m",
+    "--message",
     type=str,
     default=None,
     help="Run a single message and exit (non-interactive mode).",
 )
 @click.option(
-    "-r", "--resume",
+    "-r",
+    "--resume",
     is_flag=True,
     default=False,
     help="Resume the most recent session.",
 )
 @click.option(
-    "-s", "--session",
+    "-s",
+    "--session",
     "session_id",
     type=str,
     default=None,
@@ -35,8 +41,6 @@ import click
 )
 def cli(message: str | None, resume: bool, session_id: str | None):
     """Compass - AI Coding Agent powered by LangGraph."""
-    from sessions import SessionManager
-    from ui.tui import compass_repl, run_single
 
     sm = SessionManager()
     resume_thread_id = None

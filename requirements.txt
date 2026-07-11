@@ -23,6 +23,7 @@ tavily
 # CLI & UI
 click
 rich
+prompt_toolkit
 
 # Tools & Web
 aiohttp

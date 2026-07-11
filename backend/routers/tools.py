@@ -13,6 +13,7 @@ router = APIRouter(prefix="/tools", tags=["tools"])
 
 class ToolInfo(BaseModel):
     """Description of an available agent tool."""
+
     name: str
     description: str
 

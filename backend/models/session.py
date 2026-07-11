@@ -11,19 +11,26 @@ class ChatSession(Base):
     A single chat conversation belonging to a user.
     Maps 1:1 to a LangGraph thread_id for checkpointer continuity.
     """
+
     __tablename__ = "chat_sessions"
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: uuid.uuid4().hex
     )
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     title: Mapped[str | None] = mapped_column(
         String(200), nullable=True, default="New Chat"
     )
     thread_id: Mapped[str] = mapped_column(
-        String(36), unique=True, nullable=False, default=lambda: uuid.uuid4().hex,
+        String(36),
+        unique=True,
+        nullable=False,
+        default=lambda: uuid.uuid4().hex,
         comment="LangGraph checkpointer thread identifier",
     )
     is_deleted: Mapped[bool] = mapped_column(
@@ -44,11 +51,15 @@ class ChatSession(Base):
     # Relationships
     user = relationship("User", back_populates="sessions")
     messages = relationship(
-        "Message", back_populates="session", cascade="all, delete-orphan",
+        "Message",
+        back_populates="session",
+        cascade="all, delete-orphan",
         order_by="Message.created_at",
     )
     uploads = relationship(
-        "UploadedFile", back_populates="session", cascade="all, delete-orphan",
+        "UploadedFile",
+        back_populates="session",
+        cascade="all, delete-orphan",
         order_by="UploadedFile.created_at",
     )
 

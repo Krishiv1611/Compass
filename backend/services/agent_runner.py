@@ -13,6 +13,7 @@ from backend.schemas.chat import StreamEvent, StreamEventType, ToolCallData
 
 logger = logging.getLogger(__name__)
 
+
 async def run_agent_stream(
     user_message: str,
     thread_id: str,
@@ -30,7 +31,9 @@ async def run_agent_stream(
     input_msg = {"messages": [HumanMessage(content=user_message)], "mode": mode}
 
     try:
-        async for event in workflow.astream_events(input_msg, config=config, version="v2"):
+        async for event in workflow.astream_events(
+            input_msg, config=config, version="v2"
+        ):
             kind = event.get("event", "")
 
             # ── Token streaming from the executor LLM ────────────────────────
@@ -43,7 +46,11 @@ async def run_agent_stream(
                     )
 
                 # Check for tool calls in streamed chunks
-                if chunk and hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                if (
+                    chunk
+                    and hasattr(chunk, "tool_call_chunks")
+                    and chunk.tool_call_chunks
+                ):
                     for tc in chunk.tool_call_chunks:
                         if tc.get("name"):  # Only emit on the first chunk with a name
                             yield StreamEvent(

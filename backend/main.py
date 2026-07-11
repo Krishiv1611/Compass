@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # ── Lifespan (startup / shutdown) ────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
@@ -74,14 +75,17 @@ app.add_middleware(
 
 # Rate limiter
 from backend.middleware.rate_limit import RateLimitMiddleware
+
 app.add_middleware(RateLimitMiddleware)
 
 # Request logging
 from backend.middleware.logging import LoggingMiddleware
+
 app.add_middleware(LoggingMiddleware)
 
 
 # ── Exception handlers ───────────────────────────────────────────────────────────
+
 
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError):
@@ -103,6 +107,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 # ── Health check ─────────────────────────────────────────────────────────────────
+
 
 @app.get("/health", tags=["system"])
 def health_check():
