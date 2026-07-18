@@ -1,4 +1,4 @@
-﻿import { useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { File as FileIcon, GitCommit, Loader2, Paperclip, Send, Sparkles, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -57,8 +57,8 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   return (
     <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 md:px-8">
       <div
-        className={`mx-auto max-w-3xl overflow-hidden rounded-lg border bg-card shadow-sm transition-colors ${
-          isDragging ? "border-primary ring-2 ring-primary/20" : "border-border focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20"
+        className={`glass-input-container mx-auto max-w-3xl overflow-hidden transition-all duration-300 relative ${
+          isDragging ? "border-primary ring-2 ring-primary/20" : "focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10"
         } ${isLoading ? "opacity-80" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -78,17 +78,20 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
           </div>
         )}
 
-        <textarea
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isDragging ? "Drop files here" : "Ask Compass to inspect, edit, build, or explain..."}
-          className="max-h-44 min-h-20 w-full resize-none bg-transparent px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-          disabled={isLoading}
-        />
+        <div className="relative flex items-start pt-3 px-4">
+          <Sparkles className="h-5 w-5 mt-1 mr-3 text-primary shrink-0" />
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isDragging ? "Drop files here" : "Ask Anything..."}
+            className="max-h-44 min-h-20 w-full resize-none bg-transparent text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground/60"
+            disabled={isLoading}
+          />
+        </div>
 
-        <div className="flex items-center justify-between border-t border-border bg-background/60 px-2 py-2">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between px-4 pb-3">
+          <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -100,19 +103,19 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
               }}
               disabled={isLoading}
             />
-            <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
-              <Paperclip className="h-4 w-4" /> Attach
+            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-3 h-8" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
+              <Paperclip className="h-4 w-4 mr-1.5" /> Attach
             </Button>
-            <div className="ml-1 flex rounded-lg border border-border bg-card p-0.5">
+            <div className="flex items-center">
               <button
-                className={`flex min-h-11 items-center gap-1 rounded-md px-2 md:h-7 md:min-h-0 text-xs font-medium transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 ${mode === "normal" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-all duration-300 ${mode === "normal" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
                 onClick={() => setMode("normal")}
                 disabled={isLoading}
               >
                 <Zap className="h-3.5 w-3.5" /> Normal
               </button>
               <button
-                className={`flex min-h-11 items-center gap-1 rounded-md px-2 md:h-7 md:min-h-0 text-xs font-medium transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 ${mode === "plan" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-all duration-300 ${mode === "plan" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
                 onClick={() => setMode("plan")}
                 disabled={isLoading}
               >
@@ -121,9 +124,8 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
             </div>
           </div>
 
-          <Button size="sm" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "plan" ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-            Send
+          <Button size="icon" className="h-9 w-9 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(147,51,234,0.4)] transition-all" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}>
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "plan" ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4 ml-0.5" />}
           </Button>
         </div>
       </div>

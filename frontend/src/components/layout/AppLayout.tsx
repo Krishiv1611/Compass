@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bot,
@@ -204,23 +204,23 @@ export default function AppLayout() {
 
   const SidebarContent = (
     <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-3 border-b border-border px-4">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <div className="flex h-14 items-center gap-3 border-b border-border/50 px-4">
+        <div className="flex size-8 items-center justify-center rounded-full bg-primary/20 text-primary ring-1 ring-primary/50 shadow-[0_0_10px_rgba(147,51,234,0.3)]">
           <Compass className="h-4 w-4" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">Compass</div>
-          <div className="text-[11px] text-muted-foreground">agentic workspace</div>
+          <div className="truncate text-sm font-semibold tracking-wide">Compass</div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-widest">agentic workspace</div>
         </div>
       </div>
 
-      <div className="space-y-2 border-b border-border p-3">
-        <Button className="h-9 w-full justify-start" onClick={handleNewChat}>
-          <Plus className="h-4 w-4" /> New Chat
+      <div className="space-y-3 border-b border-border/50 p-4">
+        <Button className="h-10 w-full justify-start rounded-full bg-muted/50 hover:bg-muted text-foreground border border-border/50 transition-all duration-300 hover:border-primary/50 hover:shadow-[0_0_15px_rgba(147,51,234,0.15)]" onClick={handleNewChat}>
+          <Plus className="h-4 w-4 mr-2" /> New Chat
         </Button>
         <div className="grid grid-cols-1 gap-2">
-          <Button variant="outline" className="h-9 w-full justify-start" onClick={handleOpenFolder}>
-            <FolderOpen className="h-4 w-4" /> Folder
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={handleOpenFolder}>
+            <FolderOpen className="h-4 w-4 mr-2" /> Folder
           </Button>
         </div>
       </div>
@@ -243,10 +243,10 @@ export default function AppLayout() {
                 return (
                   <div
                     key={session.id}
-                    className={`group flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-colors ${
+                    className={`group flex items-center gap-1 rounded-xl px-3 py-2 transition-all duration-300 ${
                       active
-                        ? "border-l-2 border-l-primary border-primary/30 bg-primary/8 text-foreground"
-                        : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground"
+                        ? "bg-primary/10 text-primary font-medium shadow-[inset_2px_0_0_var(--primary)]"
+                        : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                     }`}
                   >
                     <button
@@ -293,25 +293,25 @@ export default function AppLayout() {
         </div>
       </ScrollArea>
 
-      <div className="border-t border-border p-3">
-        <Button variant="ghost" className="h-9 w-full justify-start" onClick={() => setSettingsOpen(true)}>
-          <Settings className="h-4 w-4" /> Settings
+      <div className="border-t border-border/50 p-4">
+        <Button variant="ghost" className="h-10 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => setSettingsOpen(true)}>
+          <Settings className="h-4 w-4 mr-2" /> Settings
         </Button>
       </div>
     </aside>
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground selection:bg-primary/20">
+    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground selection:bg-primary/20 font-sans">
       {isDesktopSidebarOpen && (
-        <div className="hidden md:block w-[280px] shrink-0 border-r border-border">
+        <div className="hidden md:block w-[280px] shrink-0 border-r border-border/50">
           {SidebarContent}
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="glass-header flex h-14 shrink-0 items-center justify-between px-3">
-          <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-col relative z-0">
+        <header className="absolute inset-x-0 top-0 z-10 flex h-16 shrink-0 items-center justify-between px-6 bg-transparent">
+          <div className="flex min-w-0 items-center gap-3">
             <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
               <SheetTrigger className="inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted md:hidden">
                 <Menu className="h-5 w-5" />
@@ -328,15 +328,15 @@ export default function AppLayout() {
               <Menu className="h-5 w-5" />
             </button>
 
-            <div className="flex min-w-0 items-center gap-2 text-sm">
-              <Bot className="h-4 w-4 text-primary" />
-              <span className="truncate font-medium">{activeSession?.title || "New Chat"}</span>
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="hidden truncate text-muted-foreground sm:inline">Workspace</span>
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <Bot className="h-4 w-4 text-primary opacity-80" />
+              <span className="truncate">{activeSession?.title || "New Chat"}</span>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-50" />
+              <span className="hidden truncate text-muted-foreground opacity-50 sm:inline">Workspace</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {backendOffline && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500"
@@ -348,13 +348,13 @@ export default function AppLayout() {
             <Badge variant="outline" className="hidden gap-1 text-muted-foreground lg:inline-flex">
               <Terminal className="h-3 w-3" /> tools enabled
             </Badge>
-            <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
+            <Button variant="ghost" size="icon" className="rounded-full bg-white/5 hover:bg-white/10" onClick={() => setSettingsOpen(true)} title="Settings">
               {user ? <UserCircle className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
             </Button>
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-hidden">
+        <main className="min-h-0 flex-1 overflow-hidden pt-16">
           <Outlet context={{ user, refreshUser: fetchUser }} />
         </main>
       </div>

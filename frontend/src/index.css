@@ -65,18 +65,18 @@
 
   /* ─── Dark mode ─────────────────────────────────────────────────────────── */
   .dark {
-    --background: #0d0e11;
-    --card: #16181d;
-    --sidebar: #111217;
-    --border: #252830;
-    --muted: #1e2028;
-    --primary: #6366f1;
+    --background: #0f0b15;
+    --card: #161320;
+    --sidebar: #120e1a;
+    --border: #2c253e;
+    --muted: #241d33;
+    --primary: #9333ea;
     --primary-foreground: #ffffff;
-    --accent: #8b5cf6;
-    --muted-foreground: #7c8396;
-    --foreground: #e8eaf0;
-    --ring: #6366f1;
-    --header: rgba(13, 14, 17, 0.8);
+    --accent: #a855f7;
+    --muted-foreground: #8b7fa3;
+    --foreground: #f3effc;
+    --ring: #9333ea;
+    --header: rgba(15, 11, 21, 0.8);
 
     /* Legacy aliases */
     --bg: var(--background);
@@ -227,4 +227,39 @@ a,
 .optimize-list {
   content-visibility: auto;
   contain-intrinsic-size: 1px 200px;
+}
+
+/* ─── Zyricon Animations & Effects ───────────────────────────────────────── */
+.glow-orb {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #c084fc, #9333ea, #3b0764);
+  box-shadow: 
+    0 0 20px 5px rgba(168, 85, 247, 0.4),
+    0 0 40px 15px rgba(147, 51, 234, 0.2),
+    inset 0 0 20px rgba(255, 255, 255, 0.4);
+  animation: float 4s ease-in-out infinite;
+  margin: 0 auto;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+.glass-input-container {
+  background: rgba(30, 24, 45, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 1.2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }

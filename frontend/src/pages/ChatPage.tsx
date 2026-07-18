@@ -56,6 +56,30 @@ export default function ChatPage() {
   const [pendingApproval, setPendingApproval] = useState<any | null>(null);
   const [pendingPatchCount, setPendingPatchCount] = useState(0);
   const [mobilePanel, setMobilePanel] = useState<"files" | "diffs" | "logs" | null>(null);
+  const [sandboxWidth, setSandboxWidth] = useState(520);
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      // Calculate width based on distance from right edge
+      const newWidth = document.body.clientWidth - e.clientX;
+      setSandboxWidth(Math.max(320, Math.min(newWidth, document.body.clientWidth * 0.7)));
+    };
+    const handleMouseUp = () => setIsResizing(false);
+    
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    
+    // Disable text selection while resizing
+    document.body.style.userSelect = "none";
+    
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing]);
 
 
   const refreshPendingPatches = async (currentSessionId: string) => {
@@ -450,13 +474,11 @@ export default function ChatPage() {
           <ScrollArea className="h-full px-4 py-5 md:px-8">
             <div className="mx-auto flex max-w-3xl flex-col gap-5">
             {visibleMessages.length === 0 ? (
-              <div className="flex h-[52vh] flex-col items-center justify-center text-center">
-                <div className="mb-4 flex size-12 items-center justify-center rounded-lg border border-border bg-card text-primary">
-                  <Sparkles className="h-6 w-6" />
-                </div>
-                <h1 className="text-xl font-semibold tracking-tight">What are we building?</h1>
-                <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-                  Ask for code changes, upload project docs, open a folder, or switch to plan mode for deeper agent work.
+              <div className="flex h-[70vh] flex-col items-center justify-center text-center">
+                <div className="mb-12 glow-orb"></div>
+                <h1 className="text-3xl font-light tracking-tight text-white mb-3">Ready to Create Something New?</h1>
+                <p className="max-w-md text-sm leading-6 text-muted-foreground">
+                  Ask Compass to inspect, edit, build, or explain...
                 </p>
               </div>
             ) : (
@@ -605,7 +627,15 @@ export default function ChatPage() {
       </div>
 
       {showSandbox && (
-        <aside className="hidden w-[520px] shrink-0 flex-col bg-card/70 lg:flex border-l border-border h-full min-h-0">
+        <aside 
+          className="hidden shrink-0 flex-col bg-card/70 lg:flex border-l border-border h-full min-h-0 relative"
+          style={{ width: `${sandboxWidth}px` }}
+        >
+          {/* Resize handle */}
+          <div 
+            className="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/50 active:bg-primary z-10 transition-colors"
+            onMouseDown={() => setIsResizing(true)}
+          />
           <Tabs defaultValue="sandbox" className="flex h-full flex-col w-full">
             <div className="px-3 pt-3">
               <TabsList className="w-full grid grid-cols-2">
