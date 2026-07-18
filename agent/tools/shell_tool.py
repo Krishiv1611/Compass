@@ -52,8 +52,11 @@ def _truncate(text: str, limit: int = _MAX_OUTPUT_CHARS) -> str:
     )
 
 
+from langchain_core.runnables.config import RunnableConfig
+from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
+
 @tool
-def shell_execute(command: str, timeout: int = 120, cwd: str = ".") -> str:
+def shell_execute(command: str, timeout: int = 120, cwd: str = ".", config: RunnableConfig = None) -> str:
     """Execute a shell command and return its output.
 
     Use this to run terminal commands like git, pip, python, npm, etc.
@@ -65,6 +68,9 @@ def shell_execute(command: str, timeout: int = 120, cwd: str = ".") -> str:
         timeout: Max seconds to wait before killing the process (default 120).
         cwd: Working directory for the command (default current directory).
     """
+    if config and config.get("configurable", {}).get("session_id"):
+        return "Error: Shell execution is disabled for web users for security reasons. Only file and directory tools are allowed."
+
     if not command or not command.strip():
         return "Error: No command provided."
 

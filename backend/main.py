@@ -9,7 +9,7 @@ Main entry point for the web API. Includes:
   - Global exception handlers
 """
 
-import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -21,13 +21,25 @@ from sqlalchemy import text
 from backend.config import settings
 from backend.db import engine
 
-# ── Configure logging ────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+import structlog
+import sys
+
+import logging
+
+# ── Configure structlog ────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+structlog.configure(
+    processors=[
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.JSONRenderer(),
+    ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
 )
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # ── Lifespan (startup / shutdown) ────────────────────────────────────────────────
@@ -44,7 +56,7 @@ async def lifespan(app: FastAPI):
         logger.info("Database connection verified ✓")
     except Exception as exc:
         logger.error(f"Database connection failed: {exc}")
-
+        
     yield
 
     # Shutdown
@@ -73,15 +85,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate limiter
-from backend.middleware.rate_limit import RateLimitMiddleware
 
-app.add_middleware(RateLimitMiddleware)
 
 # Request logging
 from backend.middleware.logging import LoggingMiddleware
+from backend.middleware.rate_limit import RateLimitMiddleware
 
 app.add_middleware(LoggingMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 
 # ── Exception handlers ───────────────────────────────────────────────────────────
@@ -120,13 +131,14 @@ def health_check():
 from backend.routers.auth import router as auth_router
 from backend.routers.sessions import router as sessions_router
 from backend.routers.chat import router as chat_router
-from backend.routers.tools import router as tools_router
-from backend.routers.settings import router as settings_router
+from backend.routers.core import router as core_router
 from backend.routers.uploads import router as uploads_router
+from backend.routers.workspaces import router as workspaces_router
 
+# Set up routers
 app.include_router(auth_router)
 app.include_router(sessions_router)
 app.include_router(chat_router)
-app.include_router(tools_router)
-app.include_router(settings_router)
+app.include_router(core_router)
 app.include_router(uploads_router)
+app.include_router(workspaces_router)

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from agent.llm import llm
 from backend.models.session import ChatSession
 from backend.models.message import Message
 from backend.schemas.session import SessionSummary, SessionDetail, MessageInSession
@@ -175,7 +176,6 @@ def auto_title(
 
     Returns the generated title, or None on failure.
     """
-    from model.get_llm import llm
 
     try:
         summarizer = llm("summarizer")

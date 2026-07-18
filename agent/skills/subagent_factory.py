@@ -3,7 +3,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
 from agent.skills.models import SkillDefinition, SubAgentState
-from agent.model.get_llm import llm
+from agent.llm import llm
 
 
 class SubAgentFactory:

@@ -1,16 +1,21 @@
-import asyncio
+﻿import asyncio
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 """
-Compass — AI Coding Agent CLI Entry Point.
+Compass â€” AI Coding Agent CLI Entry Point.
 
 Usage:
-    python main.py              → Interactive REPL (new session)
-    python main.py -r           → Resume last session
-    python main.py -s abc123    → Resume session by ID prefix
-    python main.py -m "query"   → Single-shot mode (new session)
-    python main.py -r -m "msg"  → Single-shot, resume last session
+    python main.py              â†’ Interactive REPL (new session)
+    python main.py -r           â†’ Resume last session
+    python main.py -s abc123    â†’ Resume session by ID prefix
+    python main.py -m "query"   â†’ Single-shot mode (new session)
+    python main.py -r -m "msg"  â†’ Single-shot, resume last session
 """
 
+import os
 import click
 from agent.sessions import SessionManager
 from agent.ui.tui import compass_repl, run_single
@@ -32,6 +37,14 @@ from agent.ui.tui import compass_repl, run_single
     help="Resume the most recent session.",
 )
 @click.option(
+    "-w",
+    "--workspace",
+    "workspace",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Workspace directory to run Compass from.",
+)
+@click.option(
     "-s",
     "--session",
     "session_id",
@@ -39,8 +52,11 @@ from agent.ui.tui import compass_repl, run_single
     default=None,
     help="Resume a specific session by thread_id or prefix.",
 )
-def cli(message: str | None, resume: bool, session_id: str | None):
+def cli(message: str | None, resume: bool, workspace: str | None, session_id: str | None):
     """Compass - AI Coding Agent powered by LangGraph."""
+
+    if workspace:
+        os.chdir(workspace)
 
     sm = SessionManager()
     resume_thread_id = None
@@ -68,3 +84,4 @@ def cli(message: str | None, resume: bool, session_id: str | None):
 
 if __name__ == "__main__":
     cli()
+

@@ -35,7 +35,6 @@ duckduckgo-search
 langchain-mcp-adapters
 
 # RAG & Codebase Intelligence
-langchain-chroma
 langchain-text-splitters
 tiktoken
 
@@ -50,3 +49,14 @@ httpx
 # pytest
 # pytest-asyncio
 # ruff
+
+# LLMOps & Guardrails
+nemoguardrails>=0.17.0
+langsmith>=0.3.0
+
+structlog
+
+langchain-community
+langchain-postgres
+
+

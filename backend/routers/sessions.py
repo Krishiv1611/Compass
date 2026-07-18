@@ -93,3 +93,5 @@ def delete_session(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
     return None
+
+

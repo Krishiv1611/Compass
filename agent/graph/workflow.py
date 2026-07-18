@@ -1,12 +1,13 @@
 """
-Compass Agent Workflow — LangGraph StateGraph assembly.
+Compass Agent Workflow â€” LangGraph StateGraph assembly.
 
-Four-agent graph:
-    START → planner → executor → route:
-                                   → tools → executor (loop)
-                                   → loop_recovery → executor (retry)
-                                   → summary_node → END
-                                   → END
+Graph flow:
+    START â†’ guardrails_input â†’ route:
+        [blocked] â†’ END
+        [safe]    â†’ planner / executor / direct_chat
+                    â†’ executor â†’ check_safety (HITL) â†’ tools â†’ executor
+                    â†’ loop_recovery â†’ executor
+                    â†’ guardrails_output â†’ END
 """
 
 import os
@@ -15,7 +16,9 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
 from agent.graph.remote_tool_node import RemoteToolNode
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
 from agent.tools.memory_tool import _store as memory_store
+from agent.graph.tools_registry import ALL_TOOLS
 
 from agent.graph.state import AgentState
 from agent.graph.nodes import (
@@ -25,49 +28,21 @@ from agent.graph.nodes import (
     summary_node,
     check_safety_node,
     direct_chat_node,
+    guardrails_input_node,
+    guardrails_output_node,
+    evaluator_node,
+    clarifier_node,
+    context_injector_node,
+    title_generator_node,
+    linter_node,
 )
-from agent.model.get_llm import llm
-from agent.tools.file_tools import read_file, write_to_file, edit_file
-from agent.tools.directory_tools import list_dir, find_files
-from agent.tools.search_tools import grep_search
-from agent.tools.web_tools import web_search
-from agent.tools.shell_tool import shell_execute
-from agent.tools.memory_tool import memory
-from agent.tools.todo_tool import todo
-from agent.rag.retriever import codebase_search
-from agent.tools.discovery import get_custom_tools
+from agent.telemetry import configure_tracing
 
-# Load environment variables
-load_dotenv()
+# Enable LangSmith tracing if configured
+configure_tracing()
+# Tools are now managed in agent.graph.tools_registry
 
-# ─── All tools the agent can use ────────────────────────────────────────────────
-# IMPORTANT: This list must match the tools bound in nodes.py _executor_with_tools
-ALL_TOOLS = [
-    read_file,
-    write_to_file,
-    edit_file,  # file tools
-    list_dir,
-    find_files,  # directory tools
-    grep_search,  # search tools
-    codebase_search,  # RAG semantic search
-    web_search,  # web tools
-    shell_execute,  # shell tool
-    memory,  # memory tool
-    todo,  # todo tool
-]
-
-from agent.tools.create_skill_tool import create_skill
-
-ALL_TOOLS.append(create_skill)  # skill creation tool
-
-# ─── Conditionally Load Custom Tools ─────────────────────────────────────────────
-
-custom_tools = get_custom_tools()
-if custom_tools:
-    print(f"[tools] Loaded {len(custom_tools)} custom tool(s).")
-    ALL_TOOLS.extend(custom_tools)
-
-# ─── Load Skills ───────────────────────────────────────────────────────────────
+# â”€â”€â”€ Load Skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 from agent.skills import skill_registry, SubAgentFactory, SkillManagerAgent
 
@@ -79,7 +54,7 @@ _skill_factory = SubAgentFactory(ALL_TOOLS)
 _skill_manager = SkillManagerAgent(_skill_factory, skill_registry)
 
 
-# ─── Threshold for context compaction ───────────────────────────────────────────
+# â”€â”€â”€ Threshold for context compaction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _SUMMARIZE_AFTER = 10  # number of messages before triggering compaction
 
 
@@ -88,35 +63,50 @@ async def _route_after_executor(state: AgentState) -> str:
     Route after the executor node.
 
     Priority order:
-      1. Loop detected (and under recovery limit) → loop_recovery
-      2. Has tool calls (normal flow)              → check_safety
-      3. Done + long conversation                  → summary_node
-      4. Done                                      → END
+      1. Loop detected (and under recovery limit) â†’ loop_recovery
+      2. Has tool calls (normal flow)              â†’ check_safety
+      3. Done + long conversation                  â†’ summary_node
+      4. Done                                      â†’ guardrails_output
     """
-    # ── 1. Loop recovery ─────────────────────────────────────────────────────
+    if state.get("turn_count", 0) >= state.get("max_turns", 25):
+        return "guardrails_output"
+    if state.get("total_tokens_used", 0) >= state.get("token_budget", 50000):
+        return "guardrails_output"
+
+    # ── 1. Loop recovery & Hard Loop Escalation ────────────────────────────────
     if state.get("loop_detected", False):
         loop_count = state.get("loop_count", 0)
-        if loop_count < 3:
-            return "loop_recovery"
-        # loop_count >= 3: fall through to END (hard break)
+        if loop_count >= 2:
+            return "clarifier"
+        return "loop_recovery"
 
-    # ── 2. Normal tool execution ─────────────────────────────────────────────
+    # ── 2. Normal tool execution ───────────────────────────────────────────────
     last_message = state["messages"][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         if not state.get("loop_detected", False):
             return "check_safety"
 
-    # ── 3. Context compaction ────────────────────────────────────────────────
-    if len(state["messages"]) > _SUMMARIZE_AFTER:
-        return "summary_node"
+    # ── 3. Done — route to evaluator before ending ──────────────────────────────
+    return "evaluator"
 
-    # ── 4. Done ──────────────────────────────────────────────────────────────
-    return END
+
+async def _route_after_linter(state: AgentState) -> str:
+    """Context Compaction Check before returning to executor"""
+    if len(state.get("messages", [])) > _SUMMARIZE_AFTER:
+        return "summary_node"
+    return "executor"
+
+
+async def _route_after_evaluator(state: AgentState) -> str:
+    """Route after evaluator node."""
+    if not state.get("is_done", True):
+        return "executor"
+    return "guardrails_output"
 
 
 async def _route_after_safety(state: AgentState) -> str:
-    """Route after check_safety node."""
-    if state.get("approval_status") == "denied":
+    """Route after check_safety node. Denied and skipped go back to executor."""
+    if state.get("approval_status") in ("denied", "skipped"):
         return "executor"
     return "tools"
 
@@ -128,29 +118,33 @@ async def _route_after_planner(state: AgentState) -> str:
     return "executor"
 
 
-async def _route_start(state: AgentState) -> str:
-    """Route from START based on mode and intent."""
-    if state.get("mode") == "plan":
-        return "planner"
+async def _route_after_guardrails_input(state: AgentState) -> str:
+    """Route after guardrails_input. If blocked, go to END. Otherwise, route by intent."""
+    res = state.get("guardrails_input_result")
+    if res and not res.get("safe", True):
+        return END
 
-    # "normal" mode: fast intent routing
-    messages = state["messages"]
+    messages = state.get("messages", [])
+
+    if len(messages) == 1:
+        return "title_generator"
+
+    # ── Safe: route by mode and intent (merged from _route_start) ────────────
+    if state.get("mode") == "plan":
+        return "context_injector"
+
     if not messages:
         return "executor"
 
     last_msg = messages[-1].content.lower()
 
-    # Fast heuristic for chat vs task
+    # If there is a plan or an ongoing workflow, always route to executor
+    if state.get("plan") or state.get("pending_tool_calls"):
+        return "executor"
+
     chat_keywords = [
-        "hi",
-        "hello",
-        "hey",
-        "who are you",
-        "what can you do",
-        "thanks",
-        "thank you",
-        "goodbye",
-        "bye",
+        "hi", "hello", "hey", "who are you", "what can you do",
+        "thanks", "thank you", "goodbye", "bye",
     ]
     if (
         any(last_msg.strip().startswith(kw) for kw in chat_keywords)
@@ -158,51 +152,65 @@ async def _route_start(state: AgentState) -> str:
     ):
         return "direct_chat"
 
-    # Use LLM for intent routing if not obvious
-    try:
-        router_llm = llm("planner")  # Reuse planner model
-        prompt = f"Is the following user message a simple chat/greeting (reply 'chat') or a task requiring codebase/tool access (reply 'task')? Message: '{last_msg}'"
-        response = await router_llm.ainvoke(prompt)
-        if (
-            "chat" in response.content.lower()
-            and "task" not in response.content.lower()
-        ):
-            return "direct_chat"
-    except Exception:
-        pass  # Fallback to executor if routing fails
+    if len(messages) == 1:
+        return "title_generator"
 
     return "executor"
 
 
-# ─── Build the graph ────────────────────────────────────────────────────────────
+async def _route_after_title_generator(state: AgentState) -> str:
+    if state.get("mode") == "plan":
+        return "context_injector"
+    return "executor"
+
+
+
+
+
+# â”€â”€â”€ Build the graph â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 builder = StateGraph(AgentState)  # type: ignore
 
+builder.add_node("guardrails_input", guardrails_input_node)
+builder.add_node("guardrails_output", guardrails_output_node)
+builder.add_node("context_injector", context_injector_node)
 builder.add_node("planner", planner_node)
+builder.add_node("clarifier", clarifier_node)
 builder.add_node("skill_manager", _skill_manager)
 builder.add_node("executor", call_model)
 builder.add_node("direct_chat", direct_chat_node)
 builder.add_node("check_safety", check_safety_node)
 builder.add_node("tools", RemoteToolNode(ALL_TOOLS))
 builder.add_node("loop_recovery", loop_recovery_node)
+builder.add_node("evaluator", evaluator_node)
 builder.add_node("summary_node", summary_node)
+builder.add_node("linter_node", linter_node)
+builder.add_node("title_generator", title_generator_node)
 
-builder.add_conditional_edges(START, _route_start)
+builder.add_edge(START, "guardrails_input")
+builder.add_conditional_edges("guardrails_input", _route_after_guardrails_input)
 builder.add_conditional_edges("planner", _route_after_planner)
 builder.add_edge("skill_manager", "executor")
 builder.add_conditional_edges("executor", _route_after_executor)
 builder.add_conditional_edges("check_safety", _route_after_safety)
-builder.add_edge("tools", "executor")
+builder.add_edge("tools", "linter_node")
+builder.add_conditional_edges("linter_node", _route_after_linter)
+builder.add_edge("clarifier", "executor")
+builder.add_edge("context_injector", "planner")
 builder.add_edge("loop_recovery", "executor")
-builder.add_edge("summary_node", END)
-builder.add_edge("direct_chat", END)
+builder.add_conditional_edges("evaluator", _route_after_evaluator)
+builder.add_edge("summary_node", "executor")
+builder.add_conditional_edges("title_generator", _route_after_title_generator)
+builder.add_edge("direct_chat", "guardrails_output")
+builder.add_edge("guardrails_output", END)
 
-# ─── Async Workflow Factory ────────────────────────────────────────────────────
+# â”€â”€â”€ Async Workflow Factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # AsyncPostgresSaver requires async initialization, so we expose an async factory
 # function instead of a module-level `workflow` object.
 
 DB_URI = os.environ.get("DB_URI")
 
 _workflow = None  # cached after first call
+_checkpointer_ctx = None  # keep context manager alive to prevent pool closure
 
 
 async def get_workflow():
@@ -212,7 +220,7 @@ async def get_workflow():
     Uses AsyncPostgresSaver for persistence when DB_URI is configured.
     Falls back to no checkpointer if DB is unavailable.
     """
-    global _workflow
+    global _workflow, _checkpointer_ctx
     if _workflow is not None:
         return _workflow
 
@@ -223,14 +231,18 @@ async def get_workflow():
     if DB_URI:
         try:
             _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(DB_URI)
-            checkpointer = await _checkpointer_ctx.__aenter__()
-            await checkpointer.setup()
-            _workflow = builder.compile(checkpointer=checkpointer, **_compile_kwargs)
-        except Exception:
+            pg_checkpointer = await _checkpointer_ctx.__aenter__()
+            await pg_checkpointer.setup()
+            
+            _workflow = builder.compile(checkpointer=pg_checkpointer, **_compile_kwargs)
+        except Exception as exc:
             # Fall back to no checkpointer if DB is unavailable
+            print(f"[workflow] Warning: Persistence setup failed: {exc}")
             _workflow = builder.compile(**_compile_kwargs)
     else:
-        # No DB configured — run without persistence
+        # No DB configured â€” run without persistence
         _workflow = builder.compile(**_compile_kwargs)
 
     return _workflow
+
+

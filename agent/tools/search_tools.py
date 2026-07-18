@@ -4,6 +4,8 @@ from langchain_core.tools import tool
 
 
 from fnmatch import fnmatch
+from langchain_core.runnables.config import RunnableConfig
+from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
 
 
 @tool
@@ -14,11 +16,18 @@ def grep_search(
     ignore_case: bool = False,
     is_regex: bool = False,
     max_results: int = 50,
+    config: RunnableConfig = None,
 ) -> str:
     """Search for text across files."""
+    try:
+        workspace = get_workspace_for_tool(config)
+        path = resolve_workspace_path(workspace, path)
+    except PermissionError as e:
+        return str(e)
 
     if not os.path.exists(path):
         return f"Error: Path not found: {path}"
+
 
     try:
         pattern = re.compile(

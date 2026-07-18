@@ -1,5 +1,5 @@
-"""
-Chat router â€” non-streaming POST endpoint + WebSocket streaming.
+﻿"""
+Chat router -- non-streaming POST endpoint + WebSocket streaming.
 """
 
 import logging
@@ -104,11 +104,22 @@ async def send_message(
         response_messages = await agent_runner.run_agent_sync(
             user_message=body.content,
             thread_id=chat_session.thread_id,
+            session_id=chat_session.id,
+            user_id=current_user.id,
             mode=body.mode,
+            user_prefs=current_user.preferences,
         )
-    except Exception as e:
+    except Exception as exc:
+        error_msg = str(exc)
         logger.exception("Agent run failed")
-        raise HTTPException(status_code=500, detail=f"Agent Error: {str(e)}")
+
+        if "UnauthorizedResponseError" in error_msg or "User not found" in error_msg or "401" in error_msg:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid LLM API Key. Please update your API key in Settings.",
+            )
+
+        raise HTTPException(status_code=500, detail="Agent execution failed.")
 
     # Persist and collect response messages
     result_messages = []
@@ -182,7 +193,7 @@ async def websocket_chat(
     Client sends: {"type": "message", "content": "..."}
     Server sends: {"type": "token|tool_call|tool_result|done|error", ...}
     """
-    # â”€â”€ Authenticate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # -- Authenticate --
     if not token:
         await websocket.close(code=4001, reason="Missing token")
         return
@@ -197,7 +208,7 @@ async def websocket_chat(
         await websocket.close(code=4001, reason="Invalid or expired token")
         return
 
-    # â”€â”€ Validate session ownership â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # -- Validate session ownership --
     db = SessionLocal()
     try:
         chat_session = (
@@ -216,7 +227,7 @@ async def websocket_chat(
     finally:
         db.close()
 
-    # â”€â”€ Connect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # -- Connect --
     await manager.connect(websocket, session_id)
 
     try:
@@ -237,28 +248,82 @@ async def websocket_chat(
                 )
                 continue
 
-            if client_msg.type == "message" and client_msg.content:
-                # Persist user message
-                db = SessionLocal()
-                try:
-                    _persist_message(
-                        db, session_id, role="user", content=client_msg.content
-                    )
-                finally:
-                    db.close()
+            if client_msg.type in ("message", "resume"):
+                if client_msg.type == "message" and client_msg.content:
+                    # Persist user message
+                    db = SessionLocal()
+                    try:
+                        _persist_message(
+                            db, session_id, role="user", content=client_msg.content
+                        )
+                    finally:
+                        db.close()
 
                 # Stream agent response
                 full_content = []
-                async for event in agent_runner.run_agent_stream(
-                    user_message=client_msg.content,
-                    thread_id=thread_id,
-                    mode=client_msg.mode,
-                ):
-                    await manager.send_event(websocket, event)
 
-                    # Accumulate tokens for persistence
-                    if event.type == StreamEventType.TOKEN and event.content:
-                        full_content.append(event.content)
+                db_sync = SessionLocal()
+                try:
+                    user = db_sync.query(User).filter(User.id == chat_session.user_id).first()
+                    user_prefs = user.preferences if user else None
+                finally:
+                    db_sync.close()
+
+                # -- Local Execution (No Redis/Celery) --
+                from backend.services.run_manager import (
+                    create_agent_run,
+                    end_agent_run,
+                    persist_run_event,
+                )
+
+                db_fallback = SessionLocal()
+                run = None
+                try:
+                    run = create_agent_run(db_fallback, session_id=session_id)
+                    async for event in agent_runner.run_agent_stream(
+                        user_message=client_msg.content or "",
+                        thread_id=thread_id,
+                        session_id=session_id,
+                        user_id=user_id,
+                        mode=client_msg.mode,
+                        resume_action=client_msg.action,
+                        user_prefs=user_prefs,
+                        run_id=run.id,
+                    ):
+                        event.run_id = run.id
+                        event.session_id = session_id
+                        await manager.send_event(websocket, event)
+
+                        event_dict = event.model_dump(exclude_none=True)
+                        persist_run_event(
+                            db_fallback,
+                            run_id=run.id,
+                            event_type=event_dict.get("type", "unknown"),
+                            content=event_dict,
+                        )
+
+                        if event.type == StreamEventType.TOKEN and event.content:
+                            full_content.append(event.content)
+
+                    # Collect final token usage from run events
+                    final_token_usage: dict | None = None
+                    try:
+                        from agent.graph.workflow import get_workflow
+                        from agent.telemetry import get_run_config
+                        wf = await get_workflow()
+                        cfg = get_run_config(thread_id=thread_id)
+                        state = await wf.aget_state(cfg)
+                        if state and state.values:
+                            final_token_usage = state.values.get("token_usage")
+                    except Exception:
+                        pass
+                    end_agent_run(db_fallback, run_id=run.id, status="completed", token_usage=final_token_usage)
+                except Exception as e:
+                    if run:
+                        end_agent_run(db_fallback, run_id=run.id, status="error")
+                    raise e
+                finally:
+                    db_fallback.close()
 
                 # Persist assistant response
                 if full_content:
@@ -306,3 +371,4 @@ async def websocket_chat(
             pass
     finally:
         manager.disconnect(websocket, session_id)
+

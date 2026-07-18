@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { authApi } from "@/api";
@@ -31,7 +31,12 @@ export default function AuthCallback() {
         }
 
         // Store JWT token
-        localStorage.setItem("compass_access_token", tokenResponse.access_token);
+        sessionStorage.setItem("compass_access_token", tokenResponse.access_token);
+        if (tokenResponse.refresh_token) {
+          sessionStorage.setItem("compass_refresh_token", tokenResponse.refresh_token);
+        }
+        
+        window.dispatchEvent(new Event("auth-changed"));
         
         // Redirect to chat
         navigate("/chat", { replace: true });
@@ -69,3 +74,6 @@ export default function AuthCallback() {
     </div>
   );
 }
+
+
+

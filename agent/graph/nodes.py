@@ -9,11 +9,12 @@ Four-agent architecture:
 """
 
 from agent.graph.state import AgentState
-from agent.mcp_client.adapter import get_mcp_tools
-from agent.model.get_llm import llm
+from agent.mcp import get_mcp_tools
+from agent.llm import llm
 from langchain_core.messages import SystemMessage, AIMessage
-from agent.context.loop_detector import is_looping, get_loop_summary
+from agent.loop_detector import is_looping, get_loop_summary
 from langchain_core.messages import BaseMessage as _BaseMessage
+from langchain_core.runnables import RunnableConfig
 
 
 # ─── Four LLM Instances ─────────────────────────────────────────────────────────
@@ -150,7 +151,7 @@ def _parse_skill_directive(plan_text: str) -> dict | None:
     return None
 
 
-async def call_model(state: AgentState):
+async def call_model(state: AgentState, config: RunnableConfig):
     """
     ⚡ Executor Agent — follow the plan and call tools to accomplish the task.
 
@@ -181,16 +182,38 @@ async def call_model(state: AgentState):
             f"Please try a DIFFERENT approach based on this guidance."
         )
 
+    workspace = config.get("configurable", {}).get("workspace_dir") or settings.get("workspace_dir")
+    if workspace:
+        context_parts.append(
+            f"⚠️ CRITICAL INSTRUCTION: You must operate entirely within the user's workspace directory: `{workspace}`. "
+            f"All files created, edited, and shell commands executed MUST be inside this absolute path unless explicitly requested otherwise."
+        )
+
     if context_parts:
         context_msg = SystemMessage(content="\n\n".join(context_parts))
         messages = [context_msg] + messages
 
     # ── Dynamically load and bind all tools (built-in + custom + MCP) ──────
     mcp_tools = await get_mcp_tools()
-    from graph.workflow import ALL_TOOLS
+    from agent.graph.tools_registry import ALL_TOOLS
 
     combined_tools = ALL_TOOLS + mcp_tools
-    executor_with_tools = _executor_model.bind_tools(combined_tools)
+    api_key = config.get("configurable", {}).get("api_key")
+    executor_with_tools = llm("executor", api_key=api_key).bind_tools(combined_tools)
+
+    # ── Check for Cooperative Cancellation ──────────────────────────────────
+    run_id = config.get("configurable", {}).get("run_id")
+    if run_id:
+        from backend.services.run_manager import get_cancel_signal
+        if get_cancel_signal(run_id).is_set():
+            cancel_msg = AIMessage(content="Run cancelled by user.")
+            return {
+                "messages": [cancel_msg],
+                "turn_count": state.get("turn_count", 0) + 1,
+                "is_done": True,
+                "token_usage": {},
+                "pending_tool_calls": []
+            }
 
     # ── Invoke the executor LLM with tools ───────────────────────────────────
     response = await executor_with_tools.ainvoke(messages)
@@ -208,11 +231,18 @@ async def call_model(state: AgentState):
     token_usage = {}
     if hasattr(response, "usage_metadata") and response.usage_metadata:
         usage = response.usage_metadata
-        token_usage = {
-            "prompt_tokens": getattr(usage, "input_tokens", 0),
-            "completion_tokens": getattr(usage, "output_tokens", 0),
-            "total_tokens": getattr(usage, "total_tokens", 0),
-        }
+        if isinstance(usage, dict):
+            token_usage = {
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+        else:
+            token_usage = {
+                "prompt_tokens": getattr(usage, "input_tokens", 0),
+                "completion_tokens": getattr(usage, "output_tokens", 0),
+                "total_tokens": getattr(usage, "total_tokens", 0),
+            }
 
     # ── Build state update ───────────────────────────────────────────────────
     new_state = {
@@ -393,18 +423,21 @@ async def check_safety_node(state: AgentState):
         return {"approval_status": "denied", "messages": tool_msgs}
 
 
-async def direct_chat_node(state: AgentState):
+async def direct_chat_node(state: AgentState, config: RunnableConfig):
     """
     Direct Chat Agent — replies instantly without tools.
     Used for simple conversations to save tokens and latency.
     """
     messages = state["messages"]
 
-    # We use the executor model but without binding tools
+    # We use a fast model alias (e.g., evaluator/chat) to slash latency
+    api_key = config.get("configurable", {}).get("api_key")
+    fast_model = llm("evaluator", api_key=api_key)
+
     system_msg = SystemMessage(
         content="You are Compass, a helpful AI coding assistant. Answer the user's question directly."
     )
-    response = await _executor_model.ainvoke([system_msg] + messages)
+    response = await fast_model.ainvoke([system_msg] + messages)
 
     token_usage = {}
     if hasattr(response, "usage_metadata") and response.usage_metadata:
@@ -421,3 +454,256 @@ async def direct_chat_node(state: AgentState):
         "is_done": True,
         "token_usage": token_usage,
     }
+
+
+import subprocess
+import os
+
+async def linter_node(state: AgentState, config: RunnableConfig):
+    """
+    Proactive Linter Agent — runs syntax checks if files were modified.
+    Provides deterministic grounding for the evaluator.
+    """
+    messages = state["messages"]
+    if not messages:
+        return {}
+
+    # Check if the last messages are ToolMessages from write/edit tools
+    modifications = False
+    for msg in reversed(messages):
+        if not isinstance(msg, ToolMessage):
+            break
+        if msg.name in ("write_to_file", "edit_file"):
+            modifications = True
+            break
+
+    if not modifications:
+        return {}
+
+    workspace_dir = config.get("configurable", {}).get("workspace_dir")
+    if not workspace_dir or not os.path.isdir(workspace_dir):
+        return {}
+
+    errors = []
+    # Check TypeScript
+    if os.path.exists(os.path.join(workspace_dir, "tsconfig.json")):
+        try:
+            result = subprocess.run(
+                ["npx", "tsc", "--noEmit"],
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                errors.append(f"TypeScript Errors:\n{result.stdout}\n{result.stderr}")
+        except Exception as e:
+            pass
+
+    # Check Python syntax
+    try:
+        result = subprocess.run(
+            ["python", "-m", "compileall", "-q", "."],
+            cwd=workspace_dir,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode != 0:
+            errors.append(f"Python Syntax Errors:\n{result.stderr}")
+    except Exception as e:
+        pass
+
+    if errors:
+        linter_msg = (
+            "LINTER FAILED! Please fix the following syntax errors before continuing:\n\n" + 
+            "\n".join(errors)
+        )
+        # We append a ToolMessage pretending to be a linter output, or just a SystemMessage
+        # A SystemMessage is best to guide the executor on the next loop
+        return {"messages": [SystemMessage(content=linter_msg[:2000])]}
+    
+    return {"messages": [SystemMessage(content="LINTER PASSED. No syntax errors detected.")]}
+
+async def evaluator_node(state: AgentState, config: RunnableConfig):
+    """
+    Evaluator Agent — verifies if the task was completed successfully.
+    """
+    messages = state["messages"]
+    
+    if not state.get("plan"):
+        return {}
+
+    eval_prompt = (
+        "You are the Evaluator Agent.\n"
+        f"Original Plan:\n{state.get('plan')}\n\n"
+        "Review the conversation above. Has the executor fully and successfully completed the task?\n"
+        "If yes, reply with exactly 'SUCCESS'.\n"
+        "If no, provide a concise list of what is missing or failed (e.g. missing variables, syntax errors) so the executor can self-correct."
+    )
+
+    eval_messages = messages[-10:] + [SystemMessage(content=eval_prompt)]
+
+    api_key = config.get("configurable", {}).get("api_key")
+    response = await llm("evaluator", api_key=api_key).ainvoke(eval_messages)
+    
+    content = str(response.content).strip()
+    
+    if content.upper().startswith("SUCCESS"):
+        return {"is_done": True, "evaluator_feedback": ""}
+    
+    return {
+        "is_done": False, 
+        "evaluator_feedback": content,
+        "messages": [AIMessage(content=f"Evaluator Feedback: {content}")]
+    }
+
+
+async def clarifier_node(state: AgentState, config: RunnableConfig):
+    """
+    Clarifier Agent — asks the user for clarification via interrupt.
+    """
+    from langgraph.types import interrupt
+    from langchain_core.messages import HumanMessage
+    
+    user_response = interrupt({
+        "reason": "clarification_required",
+        "description": "The agent needs clarification before proceeding.",
+    })
+    
+    if isinstance(user_response, dict) and "action" in user_response:
+        msg = user_response["action"]
+    else:
+        msg = str(user_response)
+        
+    return {
+        "messages": [HumanMessage(content=f"User clarification: {msg}")],
+        "is_done": False
+    }
+
+
+async def context_injector_node(state: AgentState, config: RunnableConfig):
+    """
+    Context Injector Agent — injects relevant codebase context before routing to planner.
+    """
+    workspace = config.get("configurable", {}).get("workspace_dir")
+    messages = list(state.get("messages", []))
+    if workspace and messages:
+        try:
+            import os
+            tree = []
+            for item in os.listdir(workspace):
+                if item.startswith('.') or item == '__pycache__':
+                    continue
+                path = os.path.join(workspace, item)
+                if os.path.isdir(path):
+                    tree.append(f"{item}/")
+                else:
+                    tree.append(item)
+            
+            tree_str = ", ".join(sorted(tree))
+            if tree_str:
+                sys_msg = SystemMessage(
+                    content=f"Background Context:\nThe current workspace is `{workspace}`. It contains: {tree_str}"
+                )
+                return {"messages": [sys_msg]}
+        except Exception:
+            pass
+    return {}
+
+
+async def _generate_title_async(session_id: str, content: str, api_key: str):
+    prompt = f"Generate a short 3-5 word title for a chat session starting with this message. Do not use quotes or punctuation.\n\nMessage: {content}"
+    try:
+        response = await llm("evaluator", api_key=api_key).ainvoke([SystemMessage(content=prompt)])
+        title = response.content.strip().strip('"').strip("'")[:100]
+        
+        from backend.db import SessionLocal
+        from backend.models.session import ChatSession
+        db = SessionLocal()
+        try:
+            session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+            if session and session.title in ["New Chat", None, ""]:
+                session.title = title
+                db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to generate title: {e}")
+
+async def title_generator_node(state: AgentState, config: RunnableConfig):
+    """
+    Title Generator Agent — asynchronously generates a title for the session.
+    Fires off a background task to avoid blocking the user stream.
+    """
+    session_id = config.get("configurable", {}).get("session_id")
+    if not session_id or not state.get("messages"):
+        return {}
+
+    first_msg = state["messages"][0]
+    if getattr(first_msg, "type", "") != "human":
+        return {}
+
+    api_key = config.get("configurable", {}).get("api_key")
+    
+    # Fire and forget
+    import asyncio
+    asyncio.create_task(_generate_title_async(session_id, first_msg.content, api_key))
+
+    return {}
+
+
+from agent.guardrails.engine import GuardrailsEngine
+_guardrails_engine = GuardrailsEngine()
+
+async def guardrails_input_node(state: AgentState):
+    """Checks input safety using NeMo Guardrails."""
+    messages = state["messages"]
+    if not messages:
+        return {}
+    
+    last_user_msg = ""
+    for msg in reversed(messages):
+        if msg.type == "human":
+            last_user_msg = msg.content
+            break
+            
+    if not last_user_msg:
+        return {}
+
+    result = await _guardrails_engine.check_input(last_user_msg)
+    
+    if not result.safe:
+        return {
+            "guardrails_input_result": {"safe": False, "reason": result.reason},
+            "messages": [SystemMessage(content=f"Input blocked by guardrails: {result.reason}")]
+        }
+        
+    return {"guardrails_input_result": {"safe": True}}
+
+async def guardrails_output_node(state: AgentState):
+    """Checks output safety before finalizing."""
+    messages = state["messages"]
+    if not messages:
+        return {"is_done": True}
+        
+    last_ai_msg = ""
+    for msg in reversed(messages):
+        if msg.type == "ai":
+            last_ai_msg = str(msg.content)
+            break
+            
+    if not last_ai_msg:
+        return {"is_done": True}
+
+    result = await _guardrails_engine.check_output(last_ai_msg)
+    
+    if not result.safe:
+        return {
+            "guardrails_output_result": {"safe": False, "reason": result.reason},
+            "messages": [SystemMessage(content=f"Output sanitized by guardrails: {result.reason}")],
+            "is_done": True
+        }
+        
+    return {"guardrails_output_result": {"safe": True}, "is_done": True}

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import AIMessage
 
 if TYPE_CHECKING:
-    from graph.state import AgentState
+    from agent.graph.state import AgentState
 
 
 def _hash_tool_call(tool_call: dict) -> str:

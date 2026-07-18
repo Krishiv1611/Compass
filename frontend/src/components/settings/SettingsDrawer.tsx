@@ -1,5 +1,19 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { Brain, Check, Loader2, Settings, Sparkles, UserCircle, Wrench } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Brain,
+  Check,
+  Loader2,
+  Settings,
+  Sparkles,
+  UserCircle,
+  Wrench,
+  LogOut,
+  Paperclip,
+  Trash2,
+  Globe,
+  Terminal as TerminalIcon,
+  Shield,
+} from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,39 +26,70 @@ import {
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { settingsApi, toolsApi } from "@/api";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { settingsApi, toolsApi, uploadsApi, authApi } from "@/api";
 import { useTheme } from "@/components/ThemeProvider";
 
 type SettingsDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user: any | null;
+  sessionId?: string | null;
 };
 
 type ToolInfo = {
   name: string;
   description: string;
+  environment?: string;
+};
+
+type UploadInfo = {
+  id: string;
+  filename: string;
+  size_bytes: number;
+  status: string;
+  chunk_count?: number;
 };
 
 const defaultSettings = {
   theme: "dark",
   model: "google/gemma-4-31b-it:free",
   language: "en",
+  guardrails_enabled: true,
   long_term_memory: [] as string[],
 };
 
-export default function SettingsDrawer({ open, onOpenChange, user }: SettingsDrawerProps) {
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
+}
+
+export default function SettingsDrawer({
+  open,
+  onOpenChange,
+  user,
+  sessionId,
+}: SettingsDrawerProps) {
   const [settings, setSettings] = useState<Record<string, any>>(defaultSettings);
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [uploads, setUploads] = useState<UploadInfo[]>([]);
+  const [uploadCaps, setUploadCaps] = useState<any>(null);
   const [memoryText, setMemoryText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeletingUpload, setIsDeletingUpload] = useState<string | null>(null);
   const { setTheme } = useTheme();
 
-  const displayName = user?.display_name || user?.email?.split("@")[0] || "Unsigned user";
+  const displayName =
+    user?.display_name || user?.email?.split("@")[0] || "Signed out";
   const accountMeta = useMemo(() => {
     if (!user) return "Sign in to persist sessions, files, preferences, and memory.";
-    const createdAt = user.created_at ? new Date(user.created_at).toLocaleDateString() : "recently";
+    const createdAt = user.created_at
+      ? new Date(user.created_at).toLocaleDateString()
+      : "recently";
     return `${user.email} joined ${createdAt}`;
   }, [user]);
 
@@ -54,15 +99,27 @@ export default function SettingsDrawer({ open, onOpenChange, user }: SettingsDra
     const load = async () => {
       setIsLoading(true);
       try {
-        const [settingsData, toolData] = await Promise.all([
+        const promises: Promise<any>[] = [
           settingsApi.getSettings(),
           toolsApi.listTools(),
-        ]);
+        ];
+        if (sessionId) {
+          promises.push(uploadsApi.listUploads(sessionId));
+          promises.push(uploadsApi.getCapabilities(sessionId));
+        }
+
+        const [settingsData, toolData, uploadData, capsData] =
+          await Promise.all(promises);
+
         const merged = { ...defaultSettings, ...settingsData };
-        const memory = Array.isArray(merged.long_term_memory) ? merged.long_term_memory : [];
+        const memory = Array.isArray(merged.long_term_memory)
+          ? merged.long_term_memory
+          : [];
         setSettings(merged);
         setMemoryText(memory.join("\n"));
         setTools(toolData);
+        if (uploadData) setUploads(uploadData);
+        if (capsData) setUploadCaps(capsData);
       } catch (error: any) {
         toast.error(error?.response?.data?.detail || "Could not load settings");
       } finally {
@@ -71,20 +128,30 @@ export default function SettingsDrawer({ open, onOpenChange, user }: SettingsDra
     };
 
     load();
-  }, [open, user]);
+  }, [open, user, sessionId]);
 
   const saveSettings = async () => {
     if (!user) return;
+    if (!settings.model?.trim()) {
+      toast.error("Model is required.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const longTermMemory = memoryText
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean);
-      const nextSettings: Record<string, unknown> = { ...settings, long_term_memory: longTermMemory };
+      const nextSettings: Record<string, unknown> = {
+        ...settings,
+        long_term_memory: longTermMemory,
+      };
       const saved = await settingsApi.updateSettings(nextSettings);
       setSettings({ ...defaultSettings, ...saved });
-      setTheme((String(nextSettings.theme || "dark") as "dark" | "light" | "system"));
+      setTheme(
+        String(nextSettings.theme || "dark") as "dark" | "light" | "system"
+      );
       toast.success("Settings saved");
     } catch (error: any) {
       toast.error(error?.response?.data?.detail || "Could not save settings");
@@ -93,123 +160,409 @@ export default function SettingsDrawer({ open, onOpenChange, user }: SettingsDra
     }
   };
 
+  const handleDeleteUpload = async (uploadId: string) => {
+    if (!sessionId) return;
+    setIsDeletingUpload(uploadId);
+    try {
+      await uploadsApi.deleteUpload(sessionId, uploadId);
+      setUploads((prev) => prev.filter((u) => u.id !== uploadId));
+      toast.success("Attachment removed");
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || "Could not remove attachment");
+    } finally {
+      setIsDeletingUpload(null);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full border-l border-border bg-card p-0 sm:max-w-[520px]" showCloseButton>
-        <SheetHeader className="border-b border-border px-5 py-4">
+      <SheetContent
+        side="right"
+        className="flex h-full flex-col w-full border-l border-border bg-card p-0 sm:max-w-[540px]"
+        showCloseButton
+      >
+        <SheetHeader className="border-b border-border px-5 py-4 shrink-0">
           <SheetTitle className="flex items-center gap-2 text-sm font-semibold">
             <Settings className="h-4 w-4 text-primary" /> Settings
           </SheetTitle>
           <SheetDescription className="text-xs">
-            Account, personalization memory, model defaults, and agent capabilities.
+            Account, model defaults, attachments, and agent capabilities.
           </SheetDescription>
         </SheetHeader>
 
-        <ScrollArea className="flex-1">
-          <div className="space-y-5 p-5">
-            <section className="rounded-lg border border-border bg-background/60 p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex size-10 items-center justify-center rounded-lg bg-primary/12 text-primary">
-                  <UserCircle className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-sm font-semibold">{displayName}</h3>
-                    {user?.oauth_provider && <Badge variant="outline">{user.oauth_provider}</Badge>}
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{accountMeta}</p>
-                </div>
+        {/* Account section — always visible */}
+        <div className="px-5 pt-4 shrink-0">
+          <section className="rounded-lg border border-border bg-background/60 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <UserCircle className="h-5 w-5" />
               </div>
-            </section>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="truncate text-sm font-semibold">{displayName}</h3>
+                  {user?.oauth_provider && (
+                    <Badge variant="outline">{user.oauth_provider}</Badge>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{accountMeta}</p>
+              </div>
+              {user && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={async () => {
+                    await authApi.logout();
+                    onOpenChange(false);
+                  }}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </Button>
+              )}
+            </div>
+          </section>
+        </div>
 
-            {!user ? (
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
-                Sign in before editing memory or persistent preferences.
-              </div>
-            ) : isLoading ? (
-              <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading settings
-              </div>
-            ) : (
-              <>
-                <section className="rounded-lg border border-border bg-background/60 p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-semibold">Defaults</h3>
-                  </div>
-                  <div className="grid gap-3">
-                    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                      Model
-                      <Input
-                        value={settings.model || ""}
-                        onChange={(event) => setSettings((prev) => ({ ...prev, model: event.target.value }))}
-                        className="h-9 text-foreground"
-                      />
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
+        {!user ? (
+          <div className="px-5 pt-4 pb-2 shrink-0">
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+              Sign in before editing memory or persistent preferences.
+            </div>
+          </div>
+        ) : isLoading ? (
+          <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading settings
+          </div>
+        ) : (
+          <Tabs defaultValue="defaults" className="flex flex-col flex-1 min-h-0">
+            <div className="px-5 pt-3 shrink-0">
+              <TabsList className="w-full grid grid-cols-3">
+                <TabsTrigger value="defaults">Defaults</TabsTrigger>
+                <TabsTrigger value="attachments">
+                  Attachments
+                  {uploads.length > 0 && (
+                    <Badge className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+                      {uploads.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="tools">Tools</TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* ── Defaults Tab ──────────────────────────────────────────── */}
+            <TabsContent
+              value="defaults"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="space-y-5 p-5">
+                  <section className="rounded-lg border border-border bg-background/60 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      <h3 className="text-sm font-semibold">Model & API</h3>
+                    </div>
+                    <div className="grid gap-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          Model
+                          <Input
+                            value={settings.model || ""}
+                            onChange={(e) =>
+                              setSettings((p) => ({ ...p, model: e.target.value }))
+                            }
+                            className="h-9"
+                            placeholder="e.g. google/gemma-4-31b-it:free"
+                          />
+                        </label>
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          OpenRouter API Key
+                          <Input
+                            type="password"
+                            value={settings.api_key || ""}
+                            onChange={(e) =>
+                              setSettings((p) => ({ ...p, api_key: e.target.value }))
+                            }
+                            className="h-9"
+                            placeholder="sk-or-v1-..."
+                          />
+                        </label>
+                      </div>
                       <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                        Theme
-                        <select
-                          value={settings.theme || "dark"}
-                          onChange={(event) => setSettings((prev) => ({ ...prev, theme: event.target.value }))}
-                          className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                        >
-                          <option value="dark">Dark</option>
-                          <option value="light">Light</option>
-                          <option value="system">System</option>
-                        </select>
-                      </label>
-                      <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                        Language
+                        Workspace Directory
                         <Input
-                          value={settings.language || "en"}
-                          onChange={(event) => setSettings((prev) => ({ ...prev, language: event.target.value }))}
-                          className="h-9 text-foreground"
+                          value={settings.workspace_dir || ""}
+                          onChange={(e) =>
+                            setSettings((p) => ({ ...p, workspace_dir: e.target.value }))
+                          }
+                          className="h-9"
+                          placeholder="e.g. C:\Users\user\my-project"
                         />
                       </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          Theme
+                          <select
+                            value={settings.theme || "dark"}
+                            onChange={(e) =>
+                              setSettings((p) => ({ ...p, theme: e.target.value }))
+                            }
+                            className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                          >
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                            <option value="system">System</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                          Language
+                          <Input
+                            value={settings.language || "en"}
+                            onChange={(e) =>
+                              setSettings((p) => ({ ...p, language: e.target.value }))
+                            }
+                            className="h-9"
+                          />
+                        </label>
+                      </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
 
-                <section className="rounded-lg border border-border bg-background/60 p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Brain className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-semibold">Long-Term Memory</h3>
-                  </div>
-                  <textarea
-                    value={memoryText}
-                    onChange={(event) => setMemoryText(event.target.value)}
-                    placeholder="One memory per line, for example: Prefers concise technical answers."
-                    className="min-h-36 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30"
-                  />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    These notes are exposed as editable personalization memory in user preferences.
-                  </p>
-                </section>
+                  <section className="rounded-lg border border-border bg-background/60 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-primary" />
+                      <h3 className="text-sm font-semibold">Guardrails</h3>
+                    </div>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div>
+                        <div className="text-sm font-medium">Enable input/output guardrails</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          Screen messages for safety and policy compliance
+                        </div>
+                      </div>
+                      <button
+                        role="switch"
+                        aria-checked={settings.guardrails_enabled !== false}
+                        onClick={() =>
+                          setSettings((p) => ({
+                            ...p,
+                            guardrails_enabled: !p.guardrails_enabled,
+                          }))
+                        }
+                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                          settings.guardrails_enabled !== false
+                            ? "bg-primary"
+                            : "bg-muted-foreground/30"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                            settings.guardrails_enabled !== false
+                              ? "translate-x-4"
+                              : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </label>
 
-                <section className="rounded-lg border border-border bg-background/60 p-4">
-                  <div className="mb-3 flex items-center gap-2">
+                    <div className="mt-4 border-t border-border pt-4">
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div>
+                          <div className="text-sm font-medium">Safe Mode (File Protection)</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Require manual review before applying file patches
+                          </div>
+                        </div>
+                        <button
+                          role="switch"
+                          aria-checked={settings.safe_mode === true}
+                          onClick={() =>
+                            setSettings((p) => ({
+                              ...p,
+                              safe_mode: !p.safe_mode,
+                            }))
+                          }
+                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                            settings.safe_mode === true
+                              ? "bg-primary"
+                              : "bg-muted-foreground/30"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                              settings.safe_mode === true
+                                ? "translate-x-4"
+                                : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg border border-border bg-background/60 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Brain className="h-4 w-4 text-primary" />
+                      <h3 className="text-sm font-semibold">Long-Term Memory</h3>
+                    </div>
+                    <textarea
+                      value={memoryText}
+                      onChange={(e) => setMemoryText(e.target.value)}
+                      placeholder="One memory per line — e.g. Prefers concise technical answers."
+                      className="min-h-32 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30"
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Injected as personalization context on every turn.
+                    </p>
+                  </section>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            {/* ── Attachments Tab ───────────────────────────────────────── */}
+            <TabsContent
+              value="attachments"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Paperclip className="h-4 w-4 text-primary" />
+                      <h3 className="text-sm font-semibold">Session Attachments</h3>
+                    </div>
+                    {uploadCaps && (
+                      <span
+                        className="text-[10px] text-muted-foreground"
+                        title={`Supported: ${uploadCaps.supported_extensions?.join(", ")}`}
+                      >
+                        Max {Math.round(uploadCaps.max_upload_bytes / 1024 / 1024)} MB
+                      </span>
+                    )}
+                  </div>
+
+                  {!sessionId ? (
+                    <p className="text-xs text-muted-foreground">
+                      Open a chat session to manage attachments.
+                    </p>
+                  ) : uploads.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
+                      <Paperclip className="h-8 w-8 opacity-30" />
+                      No files attached to this session yet.
+                    </div>
+                  ) : (
+                    uploads.map((upload) => (
+                      <div
+                        key={upload.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/60 px-3 py-2.5"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium text-foreground">
+                            {upload.filename}
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                            <span>{formatBytes(upload.size_bytes)}</span>
+                            {upload.chunk_count != null && (
+                              <span>{upload.chunk_count} chunks</span>
+                            )}
+                            <Badge
+                              variant="outline"
+                              className={`h-4 px-1 text-[10px] ${
+                                upload.status === "ready"
+                                  ? "text-green-500 border-green-500/30"
+                                  : upload.status === "failed"
+                                  ? "text-red-500 border-red-500/30"
+                                  : "text-amber-500 border-amber-500/30"
+                              }`}
+                            >
+                              {upload.status}
+                            </Badge>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Remove ${upload.filename}`}
+                          onClick={() => handleDeleteUpload(upload.id)}
+                          disabled={isDeletingUpload === upload.id}
+                          className="shrink-0 text-muted-foreground hover:text-red-500 focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          {isDeletingUpload === upload.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            {/* ── Tools Tab ────────────────────────────────────────────── */}
+            <TabsContent
+              value="tools"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
                     <Wrench className="h-4 w-4 text-primary" />
                     <h3 className="text-sm font-semibold">Agent Powers</h3>
                     <Badge variant="outline">{tools.length}</Badge>
                   </div>
-                  <div className="grid gap-2">
-                    {tools.slice(0, 12).map((tool) => (
-                      <div key={tool.name} className="rounded-md border border-border/70 bg-card/60 p-3">
-                        <div className="text-xs font-semibold text-foreground">{tool.name}</div>
-                        <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{tool.description}</div>
+                  {tools.map((tool) => (
+                    <div
+                      key={tool.name}
+                      className="rounded-md border border-border/70 bg-card/60 p-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-foreground">
+                          {tool.name}
+                        </span>
+                        {tool.environment === "tui" ? (
+                          <Badge
+                            variant="outline"
+                            className="h-4 px-1.5 text-[10px] text-amber-500 border-amber-500/30 bg-amber-500/8"
+                            title="Only available in TUI mode"
+                          >
+                            <TerminalIcon className="h-2.5 w-2.5 mr-0.5" />
+                            TUI only
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="h-4 px-1.5 text-[10px] text-green-500 border-green-500/30 bg-green-500/8"
+                          >
+                            <Globe className="h-2.5 w-2.5 mr-0.5" />
+                            web
+                          </Badge>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              </>
-            )}
-          </div>
-        </ScrollArea>
+                      <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {tool.description}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        )}
 
-        <div className="border-t border-border p-4">
-          <Button className="w-full" onClick={saveSettings} disabled={!user || isSaving}>
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+        <div className="border-t border-border p-4 shrink-0">
+          <Button
+            className="w-full"
+            onClick={saveSettings}
+            disabled={!user || isSaving}
+          >
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Check className="h-4 w-4" />
+            )}
             Save Settings
           </Button>
         </div>
@@ -217,4 +570,3 @@ export default function SettingsDrawer({ open, onOpenChange, user }: SettingsDra
     </Sheet>
   );
 }
-

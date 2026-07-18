@@ -39,3 +39,11 @@ class AgentState(TypedDict):
     # ── Skills ───────────────────────────────────────────────────────────────
     active_skill: dict | None  # {"name": "code-review", "arguments": "src/"} or None
     skill_result: dict | None  # Result from sub-agent execution, or None
+
+    # ── Guardrails ────────────────────────────────────────────────────────
+    guardrails_input_result: dict | None  # {safe: bool, reason: str | None}
+    guardrails_output_result: dict | None  # {safe: bool, sanitized: str | None}
+
+    # ── HITL (Human-in-the-Loop) ─────────────────────────────────────────
+    hitl_session_approvals: list[str]  # Patterns auto-approved via "Always Yes"
+    hitl_skip_count: int  # Number of skipped actions this session

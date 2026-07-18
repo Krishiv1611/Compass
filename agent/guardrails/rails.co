@@ -1,0 +1,23 @@
+define bot refuse to respond
+  "I cannot fulfill this request as it violates my safety guidelines."
+
+define flow jailbreak detection
+  user ...
+  $is_jailbreak = execute check_jailbreak
+  if $is_jailbreak
+    bot refuse to respond
+    abort
+
+define flow input moderation
+  user ...
+  $is_harmful = execute check_input_harmful
+  if $is_harmful
+    bot refuse to respond
+    abort
+
+define flow output moderation
+  bot ...
+  $is_toxic = execute check_output_toxic
+  if $is_toxic
+    bot refuse to respond
+    abort

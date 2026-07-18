@@ -13,6 +13,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
+from langchain_classic.embeddings import CacheBackedEmbeddings
 
 # Note: We now use PGVector instead of Chroma
 from langchain_postgres.vectorstores import PGVector
@@ -22,13 +23,23 @@ load_dotenv()
 WORKSPACE_DIR = os.getcwd()
 COLLECTION_NAME = "compass_workspace"
 
-_embeddings = OpenAIEmbeddings(
+_raw_embeddings = OpenAIEmbeddings(
     model="nvidia/llama-nemotron-embed-vl-1b-v2:free",
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
     check_embedding_ctx_length=False,
     chunk_size=16,
 )
+
+_embeddings = None
+
+def _get_embeddings():
+    global _embeddings
+    if _embeddings is not None:
+        return _embeddings
+    
+    _embeddings = _raw_embeddings
+    return _embeddings
 
 _vector_store: Optional[PGVector] = None
 
@@ -53,7 +64,7 @@ def get_vector_store(create: bool = False) -> Optional[PGVector]:
         sync_uri = sync_uri.replace("postgresql://", "postgresql+psycopg://")
 
     _vector_store = PGVector(
-        embeddings=_embeddings,
+        embeddings=_get_embeddings(),
         collection_name=COLLECTION_NAME,
         connection=sync_uri,
         use_jsonb=True,

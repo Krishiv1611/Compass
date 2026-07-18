@@ -11,9 +11,16 @@ class StreamEventType(str, Enum):
     """Event types pushed over the WebSocket."""
 
     TOKEN = "token"
+    ASSISTANT_DELTA = "assistant_delta"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    APPROVAL_REQUIRED = "approval_required"
     RPC_CALL = "rpc_call"
+    WORKSPACE_PATCH = "workspace_patch"
+    PLAN_CREATED = "plan_created"
+    PLAN_STEP = "plan_step"
+    LOOP_DETECTED = "loop_detected"
+    STATUS = "status"
     DONE = "done"
     ERROR = "error"
 
@@ -38,6 +45,7 @@ class WsClientMessage(BaseModel):
     result: Any | None = None
     error: str | None = None
     mode: str = "normal"
+    action: str | None = None
 
 
 # ── Responses ─────────────────────────────────────────────
@@ -73,16 +81,16 @@ class ChatResponse(BaseModel):
 class StreamEvent(BaseModel):
     """
     A single event pushed over the WebSocket connection.
-
-    Examples:
-        {"type": "token",       "content": "Hello"}
-        {"type": "tool_call",   "tool_call": {"id": "...", "name": "read_file", "args": {...}}}
-        {"type": "tool_result", "tool_call_id": "...", "content": "file contents..."}
-        {"type": "done"}
-        {"type": "error",       "content": "something went wrong"}
     """
 
     type: StreamEventType
     content: str | None = None
     tool_call: ToolCallData | None = None
     tool_call_id: str | None = None
+    data: Any | None = None
+    node: str | None = None
+    run_id: str | None = None
+    session_id: str | None = None
+    thread_id: str | None = None
+    message_id: str | None = None
+    seq: int | None = None

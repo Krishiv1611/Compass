@@ -20,8 +20,34 @@ def set_change_tracker(tracker):
     _change_tracker = tracker
 
 
+from langchain_core.runnables.config import RunnableConfig
+from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
+
+def _append_to_patch(workspace_id: str, run_id: str | None, change: dict):
+    from backend.db import SessionLocal
+    from backend.models.patch import WorkspacePatch
+    from backend.services.patch_manager import create_patch
+    
+    db = SessionLocal()
+    try:
+        if run_id:
+            patch = db.query(WorkspacePatch).filter(
+                WorkspacePatch.run_id == run_id, 
+                WorkspacePatch.status == "pending"
+            ).first()
+        else:
+            patch = None
+            
+        if patch:
+            patch.changes = patch.changes + [change]
+            db.commit()
+        else:
+            create_patch(db, workspace_id, run_id, [change])
+    finally:
+        db.close()
+
 @tool
-def read_file(path: str, offset: int = 1, limit: int | None = None) -> str:
+def read_file(path: str, offset: int = 1, limit: int | None = None, config: RunnableConfig = None) -> str:
     """Read file contents with line numbers. Binary files rejected.
 
     Args:
@@ -29,6 +55,12 @@ def read_file(path: str, offset: int = 1, limit: int | None = None) -> str:
         offset: The line number to start reading from (1-indexed). Defaults to 1.
         limit: The maximum number of lines to read. Defaults to reading the whole file.
     """
+    try:
+        workspace = get_workspace_for_tool(config)
+        path = resolve_workspace_path(workspace, path)
+    except PermissionError as e:
+        return str(e)
+        
     if not os.path.exists(path):
         return f"Error: File not found: {path}"
     if not os.path.isfile(path):
@@ -54,16 +86,37 @@ def read_file(path: str, offset: int = 1, limit: int | None = None) -> str:
 
 
 @tool
-def write_to_file(path: str, content: str):
+def write_to_file(path: str, content: str, config: RunnableConfig = None):
     """Write content to a file. Overwrite existing file
     Args:
         path: Path to the file to write to.
         content: The content to write to the file.
     """
+    try:
+        workspace = get_workspace_for_tool(config)
+        path = resolve_workspace_path(workspace, path)
+    except PermissionError as e:
+        return str(e)
+
     # Snapshot before write for change tracking
     old_content = None
     if _change_tracker is not None:
         old_content = _change_tracker.snapshot_before_write(path)
+
+    cloud_mode = os.environ.get("COMPASS_CLOUD_MODE", "false").lower() == "true"
+    safe_mode = config.get("configurable", {}).get("safe_mode", False)
+    
+    if cloud_mode or safe_mode:
+        _append_to_patch(
+            workspace_id=workspace.id,
+            run_id=config.get("configurable", {}).get("run_id"),
+            change={
+                "type": "create" if not os.path.exists(path) else "edit",
+                "path": os.path.relpath(path, workspace.storage_path),
+                "content": content
+            }
+        )
+        return f"Proposed write to {path} (pending review in Safe Mode)"
 
     try:
         # Create parent directories if they don't exist
@@ -87,7 +140,7 @@ def write_to_file(path: str, content: str):
 
 
 @tool
-def edit_file(path: str, old_content: str, new_content: str) -> str:
+def edit_file(path: str, old_content: str, new_content: str, config: RunnableConfig = None) -> str:
     """Replace a specific block of text in a file.
 
     The old_content must appear EXACTLY once in the file (including whitespace
@@ -101,6 +154,12 @@ def edit_file(path: str, old_content: str, new_content: str) -> str:
         old_content: The exact existing text to find (must be unique in the file).
         new_content: The text to replace it with.
     """
+    try:
+        workspace = get_workspace_for_tool(config)
+        path = resolve_workspace_path(workspace, path)
+    except PermissionError as e:
+        return str(e)
+        
     if not os.path.exists(path):
         return f"Error: File not found: {path}"
     if not os.path.isfile(path):
@@ -131,6 +190,21 @@ def edit_file(path: str, old_content: str, new_content: str) -> str:
         _change_tracker.snapshot_before_write(path)
 
     updated_content = file_content.replace(old_content, new_content, 1)
+
+    cloud_mode = os.environ.get("COMPASS_CLOUD_MODE", "false").lower() == "true"
+    safe_mode = config.get("configurable", {}).get("safe_mode", False)
+    
+    if cloud_mode or safe_mode:
+        _append_to_patch(
+            workspace_id=workspace.id,
+            run_id=config.get("configurable", {}).get("run_id"),
+            change={
+                "type": "edit",
+                "path": os.path.relpath(path, workspace.storage_path),
+                "content": updated_content
+            }
+        )
+        return f"Proposed edit to {path} (pending review in Safe Mode)"
 
     try:
         with open(path, "w", encoding="utf-8") as f:

@@ -1,9 +1,10 @@
-"""
-Auth router — registration, login, token refresh, profile, OAuth.
+﻿"""
+Auth router â€” registration, login, token refresh, profile, OAuth.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from jose import JWTError
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.auth.jwt import create_token_pair, decode_token
@@ -23,6 +24,11 @@ from backend.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+
+class RefreshRequest(BaseModel):
+    """Refresh token request body."""
+    token: str
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -75,10 +81,10 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(token: str, db: Session = Depends(get_db)):
+def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     """Exchange a valid refresh token for a new token pair."""
     try:
-        payload = decode_token(token)
+        payload = decode_token(body.token)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -119,7 +125,7 @@ def logout():
     return None
 
 
-# ── OAuth Endpoints ──────────────────────────────────────────────────────────────
+# â”€â”€ OAuth Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get("/oauth/google/url")
@@ -214,3 +220,4 @@ async def oauth_github(code: str, db: Session = Depends(get_db)):
         avatar_url=info.get("avatar_url"),
     )
     return create_token_pair(user.id)
+

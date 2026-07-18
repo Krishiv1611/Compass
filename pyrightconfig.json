@@ -1,0 +1,13 @@
+{
+    "typeCheckingMode": "off",
+    "reportMissingImports": false,
+    "reportMissingModuleSource": false,
+    "reportGeneralTypeIssues": false,
+    "reportArgumentType": false,
+    "reportReturnType": false,
+    "reportAttributeAccessIssue": false,
+    "reportCallIssue": false,
+    "reportOptionalCall": false,
+    "reportPossiblyUnboundVariable": false,
+    "reportIncompatibleMethodOverride": false
+}

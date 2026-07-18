@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bot,
@@ -10,14 +10,12 @@ import {
   MessageSquare,
   MoreHorizontal,
   Pencil,
-  Plug,
   Plus,
   Settings,
   Terminal,
   Trash2,
   UserCircle,
-  Zap,
-  Lock,
+  WifiOff,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
@@ -31,8 +29,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import SettingsDrawer from "@/components/settings/SettingsDrawer";
-import LoginModal from "@/components/auth/LoginModal";
-import { authApi, sessionsApi } from "@/api";
+import Modal from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
+import { API_BASE_URL, authApi, sessionsApi } from "@/api";
 
 type SessionSummary = {
   id: string;
@@ -50,13 +49,17 @@ export default function AppLayout() {
   const [searchParams] = useSearchParams();
   const activeSessionId = searchParams.get("session");
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isPackageDownloaded, setIsPackageDownloaded] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
+  const [sessionToRename, setSessionToRename] = useState<SessionSummary | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<SessionSummary | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [user, setUser] = useState<any | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [sessionsPage, setSessionsPage] = useState(1);
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [backendOffline, setBackendOffline] = useState(false);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -64,7 +67,7 @@ export default function AppLayout() {
   );
 
   const fetchUser = useCallback(async () => {
-    const token = localStorage.getItem("compass_access_token");
+    const token = sessionStorage.getItem("compass_access_token");
     if (!token) {
       setUser(null);
       return;
@@ -72,22 +75,26 @@ export default function AppLayout() {
     try {
       const userData = await authApi.getMe();
       setUser(userData);
-    } catch {
-      localStorage.removeItem("compass_access_token");
+    } catch (error: any) {
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        sessionStorage.removeItem("compass_access_token");
+      }
       setUser(null);
     }
   }, []);
 
   const fetchSessions = useCallback(async () => {
-    const token = localStorage.getItem("compass_access_token");
+    const token = sessionStorage.getItem("compass_access_token");
     if (!token) {
       setSessions([]);
       return;
     }
     setIsLoadingSessions(true);
     try {
-      const data = await sessionsApi.listSessions();
+      const data = await sessionsApi.listSessions(1, 20);
       setSessions(data);
+      setSessionsPage(1);
+      setHasMoreSessions(data.length === 20);
     } catch {
       setSessions([]);
     } finally {
@@ -95,7 +102,39 @@ export default function AppLayout() {
     }
   }, []);
 
+  const loadMoreSessions = useCallback(async () => {
+    const nextPage = sessionsPage + 1;
+    setIsLoadingSessions(true);
+    try {
+      const data = await sessionsApi.listSessions(nextPage, 20);
+      setSessions((prev) => [...prev, ...data]);
+      setSessionsPage(nextPage);
+      setHasMoreSessions(data.length === 20);
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, [sessionsPage]);
 
+
+  useEffect(() => {
+    let active = true;
+
+    const checkHealth = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/health`, { cache: "no-store" });
+        if (active) setBackendOffline(!response.ok);
+      } catch {
+        if (active) setBackendOffline(true);
+      }
+    };
+
+    checkHealth();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     fetchUser();
@@ -118,32 +157,45 @@ export default function AppLayout() {
     setIsMobileOpen(false);
   };
 
-  const handleRename = async (session: SessionSummary) => {
-    const title = window.prompt("Rename chat", session.title || "Untitled chat")?.trim();
-    if (!title) return;
+  const executeRename = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!sessionToRename || !renameTitle.trim()) return;
     try {
-      await sessionsApi.renameSession(session.id, title);
+      await sessionsApi.renameSession(sessionToRename.id, renameTitle.trim());
       toast.success("Chat renamed");
       fetchSessions();
     } catch (error: any) {
       toast.error(error?.response?.data?.detail || "Could not rename chat");
+    } finally {
+      setSessionToRename(null);
+      setRenameTitle("");
     }
   };
 
-  const handleDelete = async (session: SessionSummary) => {
-    const confirmed = window.confirm(`Delete "${session.title || "Untitled chat"}"?`);
-    if (!confirmed) return;
+  const handleRename = (session: SessionSummary) => {
+    setSessionToRename(session);
+    setRenameTitle(session.title || "");
+  };
+
+  const executeDelete = async () => {
+    if (!sessionToDelete) return;
     try {
-      await sessionsApi.deleteSession(session.id);
+      await sessionsApi.deleteSession(sessionToDelete.id);
       toast.success("Chat deleted");
-      if (activeSessionId === session.id) {
+      if (activeSessionId === sessionToDelete.id) {
         navigate("/chat");
         sidebarEvent("new-chat");
       }
       fetchSessions();
     } catch (error: any) {
       toast.error(error?.response?.data?.detail || "Could not delete chat");
+    } finally {
+      setSessionToDelete(null);
     }
+  };
+
+  const handleDelete = (session: SessionSummary) => {
+    setSessionToDelete(session);
   };
 
   const handleOpenFolder = () => {
@@ -166,12 +218,9 @@ export default function AppLayout() {
         <Button className="h-9 w-full justify-start" onClick={handleNewChat}>
           <Plus className="h-4 w-4" /> New Chat
         </Button>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <Button variant="outline" className="h-9 w-full justify-start" onClick={handleOpenFolder}>
             <FolderOpen className="h-4 w-4" /> Folder
-          </Button>
-          <Button variant="outline" className="h-9 w-full justify-start" onClick={() => toast.info("Connectors (MCPs) coming soon!")}>
-            <Plug className="h-4 w-4" /> Connectors
           </Button>
         </div>
       </div>
@@ -196,7 +245,7 @@ export default function AppLayout() {
                     key={session.id}
                     className={`group flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-colors ${
                       active
-                        ? "border-primary/30 bg-primary/10 text-foreground"
+                        ? "border-l-2 border-l-primary border-primary/30 bg-primary/8 text-foreground"
                         : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground"
                     }`}
                   >
@@ -226,6 +275,19 @@ export default function AppLayout() {
                   </div>
                 );
               })}
+              {hasMoreSessions && (
+                <button
+                  onClick={loadMoreSessions}
+                  disabled={isLoadingSessions}
+                  className="w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground flex items-center justify-center gap-1"
+                >
+                  {isLoadingSessions ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Load more"
+                  )}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -248,7 +310,7 @@ export default function AppLayout() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-header px-3 backdrop-blur">
+        <header className="glass-header flex h-14 shrink-0 items-center justify-between px-3">
           <div className="flex min-w-0 items-center gap-2">
             <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
               <SheetTrigger className="inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted md:hidden">
@@ -260,7 +322,8 @@ export default function AppLayout() {
             </Sheet>
             <button
               onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)}
-              className="hidden md:inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted"
+              aria-label={isDesktopSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              className="hidden md:inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -274,23 +337,14 @@ export default function AppLayout() {
           </div>
 
           <div className="flex items-center gap-2">
-            {!user && (
-              <Button variant="ghost" size="sm" onClick={() => setShowLogin(true)}>
-                Sign In
-              </Button>
+            {backendOffline && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500"
+                title="Backend health check failed"
+              >
+                <WifiOff className="h-3 w-3" /> Offline
+              </span>
             )}
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className={`hidden sm:inline-flex border-dashed ${isPackageDownloaded ? "border-amber-500/50 bg-amber-500/10 text-amber-500 hover:text-amber-400" : "text-muted-foreground"}`}
-              onClick={() => setIsPackageDownloaded(!isPackageDownloaded)}
-            >
-              {isPackageDownloaded ? (
-                <><Zap className="h-4 w-4 mr-2 fill-amber-500" /> Powers Unlocked</>
-              ) : (
-                <><Lock className="h-4 w-4 mr-2" /> Unlock all powers</>
-              )}
-            </Button>
             <Badge variant="outline" className="hidden gap-1 text-muted-foreground lg:inline-flex">
               <Terminal className="h-3 w-3" /> tools enabled
             </Badge>
@@ -305,15 +359,59 @@ export default function AppLayout() {
         </main>
       </div>
 
-      <SettingsDrawer open={settingsOpen} onOpenChange={setSettingsOpen} user={user} />
-      <LoginModal
-        isOpen={showLogin}
-        onClose={() => setShowLogin(false)}
-        onSuccess={async () => {
-          await fetchUser();
-          window.dispatchEvent(new Event("auth-changed"));
-        }}
+      <SettingsDrawer
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        user={user}
+        sessionId={activeSessionId}
       />
+
+      {/* Rename Dialog */}
+      <Modal
+        open={!!sessionToRename}
+        onClose={() => setSessionToRename(null)}
+        ariaLabel="Rename chat"
+      >
+        <h3 className="text-lg font-semibold mb-4">Rename Chat</h3>
+        <form onSubmit={executeRename} className="flex flex-col gap-4">
+          <Input
+            autoFocus
+            type="text"
+            value={renameTitle}
+            onChange={(e) => setRenameTitle(e.target.value)}
+            className="h-9 focus-visible:ring-2 focus-visible:ring-primary/40"
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setSessionToRename(null)}>
+              Cancel
+            </Button>
+            <Button type="submit">Rename</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Dialog */}
+      <Modal
+        open={!!sessionToDelete}
+        onClose={() => setSessionToDelete(null)}
+        ariaLabel="Delete chat"
+      >
+        <h3 className="text-lg font-semibold mb-2">Delete Chat</h3>
+        <p className="text-sm text-muted-foreground mb-6">
+          Are you sure you want to delete &ldquo;
+          {sessionToDelete?.title || "Untitled chat"}&rdquo;? This action
+          cannot be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setSessionToDelete(null)}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={executeDelete}>
+            Delete
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
+

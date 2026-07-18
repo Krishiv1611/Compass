@@ -62,6 +62,17 @@ class ChatSession(Base):
         cascade="all, delete-orphan",
         order_by="UploadedFile.created_at",
     )
+    workspaces = relationship(
+        "Workspace",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    runs = relationship(
+        "AgentRun",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="AgentRun.started_at",
+    )
 
     def __repr__(self) -> str:
         return f"<ChatSession id={self.id!r} title={self.title!r}>"

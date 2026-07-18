@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 from typing import Any
+from pathlib import Path
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import ToolNode
 from langchain_core.runnables.config import RunnableConfig
@@ -31,18 +32,51 @@ class RemoteToolNode(ToolNode):
         "create_skill",
     }
 
+    def _enforce_workspace_paths(self, tool_call: dict, workspace_dir: str | None) -> ToolMessage | None:
+        if not workspace_dir:
+            return None
+        base = Path(workspace_dir).resolve()
+        args = tool_call.get("args") or {}
+        for key in ("path", "file_path", "cwd"):
+            value = args.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            target = Path(value)
+            if not target.is_absolute():
+                target = base / target
+            resolved = target.resolve()
+            if base != resolved and base not in resolved.parents:
+                return ToolMessage(
+                    content=f"Error: Access denied. Path '{value}' is outside workspace_dir.",
+                    name=tool_call["name"],
+                    tool_call_id=tool_call["id"],
+                    status="error",
+                )
+        return None
     async def _ainvoke_tool(
         self, tool_call: dict, config: RunnableConfig, **kwargs: Any
     ) -> ToolMessage:
 
         tool_name = tool_call["name"]
+        workspace_dir = config["configurable"].get("workspace_dir")
+        
+        path_violation = self._enforce_workspace_paths(tool_call, workspace_dir)
+        if path_violation:
+            return path_violation
 
         if tool_name not in self.EDGE_TOOLS:
             # Execute Cloud/Universal tools locally in the backend
             return await super()._ainvoke_tool(tool_call, config, **kwargs)
 
         # Handle EDGE tools via WebSocket RPC
-        session_id = config["configurable"].get("thread_id")
+        session_id = config["configurable"].get("session_id") or config["configurable"].get("thread_id")
+        thread_id = config["configurable"].get("thread_id")
+        user_id = config["configurable"].get("user_id")
+        
+        # If we have a user_id, this is a web session. We execute server-side within the isolated workspace.
+        if user_id and session_id:
+            return await super()._ainvoke_tool(tool_call, config, **kwargs)
+        
         if not session_id:
             return ToolMessage(
                 content="Error: No session_id found for Remote Tool Execution.",
@@ -69,6 +103,8 @@ class RemoteToolNode(ToolNode):
             type="rpc_call",
             node="tools",
             data={"call_id": call_id, "name": tool_name, "args": tool_call["args"]},
+            session_id=session_id,
+            thread_id=thread_id,
         )
 
         try:
@@ -102,3 +138,4 @@ class RemoteToolNode(ToolNode):
                 tool_call_id=tool_call["id"],
                 status="error",
             )
+

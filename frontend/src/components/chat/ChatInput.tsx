@@ -55,7 +55,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   };
 
   return (
-    <div className="px-4 pb-4 pt-2 md:px-8">
+    <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 md:px-8">
       <div
         className={`mx-auto max-w-3xl overflow-hidden rounded-lg border bg-card shadow-sm transition-colors ${
           isDragging ? "border-primary ring-2 ring-primary/20" : "border-border focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20"
@@ -83,7 +83,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={isDragging ? "Drop files here" : "Ask Compass to inspect, edit, build, or explain..."}
-          className="max-h-44 min-h-20 w-full resize-none bg-transparent px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+          className="max-h-44 min-h-20 w-full resize-none bg-transparent px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
           disabled={isLoading}
         />
 
@@ -105,14 +105,14 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
             </Button>
             <div className="ml-1 flex rounded-lg border border-border bg-card p-0.5">
               <button
-                className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium ${mode === "normal" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex min-h-11 items-center gap-1 rounded-md px-2 md:h-7 md:min-h-0 text-xs font-medium transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 ${mode === "normal" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setMode("normal")}
                 disabled={isLoading}
               >
                 <Zap className="h-3.5 w-3.5" /> Normal
               </button>
               <button
-                className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium ${mode === "plan" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex min-h-11 items-center gap-1 rounded-md px-2 md:h-7 md:min-h-0 text-xs font-medium transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40 ${mode === "plan" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 onClick={() => setMode("plan")}
                 disabled={isLoading}
               >
@@ -130,3 +130,4 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
     </div>
   );
 }
+

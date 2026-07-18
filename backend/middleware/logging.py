@@ -5,16 +5,14 @@ Logs each request with method, path, status code, duration, and user ID.
 """
 
 import time
-import logging
-
+import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-logger = logging.getLogger("backend.access")
-
+logger = structlog.get_logger("backend.access")
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Log every request with timing and user context."""
+    """Log every request with timing and user context as JSON."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
         start = time.perf_counter()
@@ -25,23 +23,35 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         if auth_header.startswith("Bearer "):
             try:
                 from backend.auth.jwt import decode_token
-
                 payload = decode_token(auth_header[7:])
                 user_id = payload.get("sub", "-")
             except Exception:
                 user_id = "invalid-token"
 
-        response: Response = await call_next(request)
-        duration_ms = (time.perf_counter() - start) * 1000
-
-        logger.info(
-            "%s %s %d %.1fms user=%s",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-            user_id,
+        # Bind context to the logger
+        log = logger.bind(
+            method=request.method,
+            path=request.url.path,
+            user_id=user_id,
+            client_ip=request.client.host if request.client else "unknown"
         )
 
-        response.headers["X-Request-Duration-Ms"] = f"{duration_ms:.1f}"
-        return response
+        try:
+            response: Response = await call_next(request)
+            duration_ms = (time.perf_counter() - start) * 1000
+            
+            log.info(
+                "request_completed",
+                status_code=response.status_code,
+                duration_ms=round(duration_ms, 2)
+            )
+            response.headers["X-Request-Duration-Ms"] = f"{duration_ms:.1f}"
+            return response
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start) * 1000
+            log.error(
+                "request_failed",
+                error=str(e),
+                duration_ms=round(duration_ms, 2)
+            )
+            raise

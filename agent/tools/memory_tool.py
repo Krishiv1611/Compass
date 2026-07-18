@@ -16,13 +16,14 @@ from langgraph.store.postgres import PostgresStore
 
 load_dotenv()
 
-
-_embeddings = OpenAIEmbeddings(
+_raw_embeddings = OpenAIEmbeddings(
     model="nvidia/llama-nemotron-embed-vl-1b-v2:free",
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_API_KEY"],
     check_embedding_ctx_length=False,
 )
+
+_embeddings = _raw_embeddings
 
 # ─── PostgreStore with semantic index ──────────────────────────────────────────
 DB_URI = os.environ.get("DB_URI")

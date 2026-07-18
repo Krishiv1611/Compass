@@ -1,82 +1,97 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
-  --color-background: var(--bg);
-  --color-foreground: var(--fg);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
   --color-card: var(--card);
-  --color-card-foreground: var(--card-fg);
+  --color-card-foreground: var(--foreground);
   --color-popover: var(--card);
-  --color-popover-foreground: var(--card-fg);
+  --color-popover-foreground: var(--foreground);
   --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-fg);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-fg);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--muted);
+  --color-secondary-foreground: var(--foreground);
   --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-fg);
+  --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-fg);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-fg);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
   --color-border: var(--border);
-  --color-input: var(--input);
+  --color-input: var(--border);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-fg);
+  --color-sidebar-foreground: var(--foreground);
   --color-header: var(--header);
-  --color-panel: var(--panel);
+  --color-panel: var(--card);
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
 }
 
+/* ─── Light mode ──────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --bg: #f6f7f9;
-    --fg: #111827;
+    --background: #f5f6fa;
     --card: #ffffff;
-    --card-fg: #111827;
-    --primary: #2563eb;
-    --primary-fg: #ffffff;
-    --secondary: #e5e7eb;
-    --secondary-fg: #111827;
-    --muted: #edf0f4;
-    --muted-fg: #667085;
-    --accent: #e8f1ff;
-    --accent-fg: #174ea6;
-    --destructive: #dc2626;
+    --sidebar: #f0f1f6;
+    --border: #e4e5ec;
+    --muted: #f0f1f6;
+    --primary: #4f46e5;
+    --primary-foreground: #ffffff;
+    --accent: #7c3aed;
+    --muted-foreground: #6b7280;
+    --foreground: #111215;
+    --ring: #4f46e5;
+    --header: rgba(245, 246, 250, 0.85);
+
+    /* Legacy aliases kept for backward compat */
+    --bg: var(--background);
+    --fg: var(--foreground);
+    --card-fg: var(--foreground);
+    --primary-fg: var(--primary-foreground);
+    --secondary: var(--muted);
+    --secondary-fg: var(--foreground);
+    --muted-fg: var(--muted-foreground);
+    --accent-fg: var(--foreground);
+    --destructive: #ef4444;
     --destructive-fg: #ffffff;
-    --border: #d8dde6;
-    --input: #d8dde6;
-    --ring: #3b82f6;
-    --sidebar: #f0f2f6;
-    --sidebar-fg: #182230;
-    --header: rgba(255, 255, 255, 0.88);
-    --panel: #ffffff;
+    --input: var(--border);
+    --sidebar-fg: var(--foreground);
+    --panel: var(--card);
   }
 
+  /* ─── Dark mode ─────────────────────────────────────────────────────────── */
   .dark {
-    --bg: #0b0f14;
-    --fg: #e7edf5;
-    --card: #111821;
-    --card-fg: #e7edf5;
-    --primary: #7aa2ff;
-    --primary-fg: #07111f;
-    --secondary: #1a2430;
-    --secondary-fg: #d9e4f2;
-    --muted: #18212c;
-    --muted-fg: #8f9cad;
-    --accent: #162235;
-    --accent-fg: #c8d8ff;
-    --destructive: #ff6b6b;
-    --destructive-fg: #190909;
-    --border: #243041;
-    --input: #2a3647;
-    --ring: #7aa2ff;
-    --sidebar: #0f151d;
-    --sidebar-fg: #d7e0ed;
-    --header: rgba(15, 21, 29, 0.9);
-    --panel: #0f151d;
+    --background: #0d0e11;
+    --card: #16181d;
+    --sidebar: #111217;
+    --border: #252830;
+    --muted: #1e2028;
+    --primary: #6366f1;
+    --primary-foreground: #ffffff;
+    --accent: #8b5cf6;
+    --muted-foreground: #7c8396;
+    --foreground: #e8eaf0;
+    --ring: #6366f1;
+    --header: rgba(13, 14, 17, 0.8);
+
+    /* Legacy aliases */
+    --bg: var(--background);
+    --fg: var(--foreground);
+    --card-fg: var(--foreground);
+    --primary-fg: var(--primary-foreground);
+    --secondary: var(--muted);
+    --secondary-fg: var(--foreground);
+    --muted-fg: var(--muted-foreground);
+    --accent-fg: var(--foreground);
+    --destructive: #ef4444;
+    --destructive-fg: #ffffff;
+    --input: var(--border);
+    --sidebar-fg: var(--foreground);
+    --panel: var(--card);
   }
 
   *, ::after, ::before, ::backdrop, ::file-selector-button {
@@ -93,7 +108,8 @@
     margin: 0;
     background: var(--color-background);
     color: var(--color-foreground);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
     font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1;
     -webkit-font-smoothing: antialiased;
     text-rendering: geometricPrecision;
@@ -109,13 +125,53 @@
   ::selection {
     background: color-mix(in srgb, var(--primary) 26%, transparent);
   }
+
+  /* ─── Focus ring: all interactive elements ──────────────────────────────── */
+  button:focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [tabindex]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring), 0 0 0 4px color-mix(in srgb, var(--ring) 40%, transparent);
+  }
 }
 
+/* ─── Glass morphism header ─────────────────────────────────────────────────── */
+.glass-header {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: var(--header);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+/* ─── Login page: subtle dot grid background ────────────────────────────────── */
+.login-dot-grid {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--primary) 18%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
+}
+
+/* ─── Hover transitions on all interactive elements ────────────────────────── */
+button,
+a,
+[role="button"] {
+  transition-property: color, background-color, border-color, opacity, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─── Toastify ──────────────────────────────────────────────────────────────── */
 .Toastify__toast {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card) !important;
-  color: var(--card-fg) !important;
+  color: var(--foreground) !important;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
   font-family: inherit;
   font-size: 13px;
@@ -123,4 +179,52 @@
 
 .Toastify__progress-bar {
   background: var(--primary) !important;
+}
+
+/* ─── Scrollbar styling (dark mode) ────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
+}
+
+/* ─── Framer Motion modal overlay helper ─────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.modal-panel {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  padding: 1.5rem;
+}
+
+/* ─── Performance Polish ─────────────────────────────────────────────────── */
+.optimize-list {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 200px;
 }

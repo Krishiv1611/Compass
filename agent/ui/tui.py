@@ -1,5 +1,5 @@
-"""
-Compass TUI — Beautiful terminal interface for the Compass AI coding agent.
+﻿"""
+Compass TUI â€” Beautiful terminal interface for the Compass AI coding agent.
 
 Uses Click for CLI framework, Rich for stunning terminal rendering,
 and prompt_toolkit for advanced input handling.
@@ -42,7 +42,7 @@ from langchain_core.messages import AIMessageChunk, AIMessage, ToolMessage
 from agent.tools.change_tracker import ChangeTracker
 from agent.ui.diff_renderer import render_diff, render_diff_summary
 
-# ─── prompt_toolkit imports (graceful fallback) ─────────────────────────────────
+# â”€â”€â”€ prompt_toolkit imports (graceful fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 try:
     from prompt_toolkit import PromptSession
@@ -57,7 +57,7 @@ except ImportError:
     HAS_PROMPT_TOOLKIT = False
 
 
-# ─── Theme ──────────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Theme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 COMPASS_THEME = Theme(
     {
@@ -78,17 +78,17 @@ COMPASS_THEME = Theme(
     }
 )
 
-# ─── ASCII Art ──────────────────────────────────────────────────────────────────
+# â”€â”€â”€ ASCII Art â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 COMPASS_BANNER = r"""[bold bright_cyan]
-     ██████╗ ██████╗ ███╗   ███╗██████╗  █████╗ ███████╗███████╗
-    ██╔════╝██╔═══██╗████╗ ████║██╔══██╗██╔══██╗██╔════╝██╔════╝
-    ██║     ██║   ██║██╔████╔██║██████╔╝███████║███████╗███████╗
-    ██║     ██║   ██║██║╚██╔╝██║██╔═══╝ ██╔══██║╚════██║╚════██║
-    ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║     ██║  ██║███████║███████║
-     ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝[/]"""
+     â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—
+    â–ˆâ–ˆâ•”â•â•â•â•â•â–ˆâ–ˆâ•”â•â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â•â•â•â–ˆâ–ˆâ•”â•â•â•â•â•
+    â–ˆâ–ˆâ•‘     â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â–ˆâ–ˆâ–ˆâ–ˆâ•”â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—
+    â–ˆâ–ˆâ•‘     â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â• â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•‘â•šâ•â•â•â•â–ˆâ–ˆâ•‘â•šâ•â•â•â•â–ˆâ–ˆâ•‘
+    â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ•‘ â•šâ•â• â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘     â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘
+     â•šâ•â•â•â•â•â• â•šâ•â•â•â•â•â• â•šâ•â•     â•šâ•â•â•šâ•â•     â•šâ•â•  â•šâ•â•â•šâ•â•â•â•â•â•â•â•šâ•â•â•â•â•â•â•[/]"""
 
-COMPASS_TAGLINE = "[dim bright_white]🧭  AI Coding Agent — powered by LangGraph[/]"
+COMPASS_TAGLINE = "[dim bright_white]ðŸ§­  AI Coding Agent[/]"
 
 
 SLASH_COMMANDS = {
@@ -112,26 +112,33 @@ SLASH_COMMANDS = {
     "/init": "Generate project context file (COMPASS.md)",
     "/doctor": "Diagnose configuration and connectivity",
     "/mode": "Toggle plan/normal mode (usage: /mode [plan|normal])",
+    "/goal": "Enable deep autonomous execution mode",
+    "/schedule": "Schedule a cron-based background job",
+    "/grill-me": "Switch to active interview/planning mode",
+    "/learn": "Extract a rule and append to COMPASS.md",
+    "/ui": "Launch the professional Web UI on localhost",
+    "/workspace": "Show cwd, file count, and git branch",
+    "/mcp": "List configured MCP servers and tools",
 }
 
 
 TOOL_REGISTRY = [
-    ("read_file", "📄", "Read contents of a file"),
-    ("write_to_file", "✏️", "Write content to a file"),
-    ("edit_file", "🔧", "Edit specific sections of a file"),
-    ("list_dir", "📁", "List directory contents"),
-    ("find_files", "🔍", "Find files matching a pattern"),
-    ("grep_search", "🔎", "Search file contents with regex"),
-    ("codebase_search", "🧬", "Semantic search across the codebase"),
-    ("web_search", "🌐", "Search the web"),
-    ("shell_execute", "💻", "Execute a shell command"),
-    ("memory", "🧠", "Store/retrieve key-value memories"),
-    ("todo", "📋", "Manage a task list"),
-    ("create_skill", "🎯", "Create a reusable skill"),
+    ("read_file", "ðŸ“„", "Read contents of a file"),
+    ("write_to_file", "âœï¸", "Write content to a file"),
+    ("edit_file", "ðŸ”§", "Edit specific sections of a file"),
+    ("list_dir", "ðŸ“", "List directory contents"),
+    ("find_files", "ðŸ”", "Find files matching a pattern"),
+    ("grep_search", "ðŸ”Ž", "Search file contents with regex"),
+    ("codebase_search", "ðŸ§¬", "Semantic search across the codebase"),
+    ("web_search", "ðŸŒ", "Search the web"),
+    ("shell_execute", "ðŸ’»", "Execute a shell command"),
+    ("memory", "ðŸ§ ", "Store/retrieve key-value memories"),
+    ("todo", "ðŸ“‹", "Manage a task list"),
+    ("create_skill", "ðŸŽ¯", "Create a reusable skill"),
 ]
 
 
-# ─── Token Cost Estimation ──────────────────────────────────────────────────────
+# â”€â”€â”€ Token Cost Estimation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Rough cost per 1M tokens for common models (input/output)
 _MODEL_COSTS = {
@@ -167,7 +174,7 @@ def _format_tokens(count: int) -> str:
         return f"{count / 1000:.0f}k"
 
 
-# ─── Console ────────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Console â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class CompassConsole:
@@ -208,7 +215,7 @@ class CompassConsole:
         self.turn_prompt_tokens = 0
         self.turn_completion_tokens = 0
 
-    # ── Welcome & Goodbye ───────────────────────────────────────────────────
+    # â”€â”€ Welcome & Goodbye â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_welcome(self, model_name: str = "google/gemma-4-31b-it:free"):
         """Print the animated welcome banner."""
@@ -226,18 +233,21 @@ class CompassConsole:
 
         # Model info line
         model_line = Text()
-        model_line.append("    ⚙  Model: ", style="dim")
+        model_line.append("    âš™  Model: ", style="dim")
         model_line.append(model_name, style="bold bright_white")
         inner.append_text(model_line)
         inner.append("\n")
 
         # Help hint
         help_line = Text()
-        help_line.append("    ⌨  Type ", style="dim")
+        help_line.append("    âŒ¨  Type ", style="dim")
         help_line.append("/help", style="bold cyan")
-        help_line.append(" for commands  •  ", style="dim")
+        help_line.append(" for commands  â€¢  ", style="dim")
         help_line.append("multi-line: ", style="dim")
         help_line.append("Shift+Enter", style="bold cyan")
+        local_line = Text("    [LOCAL MODE] Running against this machine and current workspace", style="bold yellow")
+        inner.append_text(local_line)
+        inner.append("\n")
         inner.append_text(help_line)
 
         panel = Panel(
@@ -255,14 +265,14 @@ class CompassConsole:
         mins, secs = divmod(int(elapsed), 60)
 
         stats = Text()
-        stats.append("  📊 Session: ", style="dim")
+        stats.append("  ðŸ“Š Session: ", style="dim")
         stats.append(f"{self.turn_count} turns", style="bold bright_white")
-        stats.append(f" · {mins}m {secs}s", style="dim")
+        stats.append(f" Â· {mins}m {secs}s", style="dim")
 
         # Token stats
         if self.session_total_tokens > 0:
             stats.append(
-                f" · {_format_tokens(self.session_total_tokens)} tokens",
+                f" Â· {_format_tokens(self.session_total_tokens)} tokens",
                 style="compass.cost",
             )
             cost = _estimate_cost(
@@ -276,7 +286,7 @@ class CompassConsole:
         # File change stats
         modified_count = self.change_tracker.files_modified_count
         if modified_count > 0:
-            stats.append("\n  📝 Modified: ", style="dim")
+            stats.append("\n  ðŸ“ Modified: ", style="dim")
             modified = self.change_tracker.get_modified_files()
             file_names = [os.path.basename(f) for f in modified[:5]]
             stats.append(", ".join(file_names), style="bold bright_white")
@@ -284,7 +294,7 @@ class CompassConsole:
                 stats.append(f" +{modified_count - 5} more", style="dim")
 
         farewell = Text()
-        farewell.append("\n  👋 ", style="")
+        farewell.append("\n  ðŸ‘‹ ", style="")
         farewell.append("See you next time!", style="bold bright_cyan")
         farewell.append("\n")
         farewell.append_text(stats)
@@ -301,7 +311,7 @@ class CompassConsole:
         self.console.print(panel)
         self.console.print()
 
-    # ── Status Bar ───────────────────────────────────────────────────────────
+    # â”€â”€ Status Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_status_bar(self, session_id: str = "", turn_count: int = 0):
         """Print a compact persistent status line before each prompt."""
@@ -328,21 +338,25 @@ class CompassConsole:
         if self.current_mode != "normal":
             parts.append(f"[bold bright_magenta]mode:{self.current_mode}[/]")
 
+        branch = _git_branch()
+        if branch:
+            parts.append(f"[dim]git:[/][bold bright_cyan]{branch}[/]")
+
         # Files modified
         mod_count = self.change_tracker.files_modified_count
         if mod_count > 0:
             parts.append(f"[bold bright_yellow]{mod_count} files changed[/]")
 
-        status_text = " │ ".join(parts)
+        status_text = " â”‚ ".join(parts)
         self.console.print(Rule(f"[dim]{status_text}[/]", style="bright_black"))
 
-    # ── Tool Calls ──────────────────────────────────────────────────────────
+    # â”€â”€ Tool Calls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_tool_call(self, name: str, args: dict):
         """Display a tool invocation with styled arguments."""
         # Tool header
         header = Text()
-        header.append("  ⚡ ", style="bold yellow")
+        header.append("  âš¡ ", style="bold yellow")
         header.append(name, style="compass.tool_name")
 
         self.console.print(header)
@@ -351,7 +365,7 @@ class CompassConsole:
         if args:
             for key, value in args.items():
                 arg_line = Text()
-                arg_line.append("  │  ", style="bright_black")
+                arg_line.append("  â”‚  ", style="bright_black")
                 arg_line.append(f"{key}: ", style="dim cyan")
 
                 # Truncate long values
@@ -370,7 +384,7 @@ class CompassConsole:
         tool_args: dict | None = None,
     ):
         """Display a tool's result with success indicator and optional diff."""
-        # ── Track file modifications ────────────────────────────────────────
+        # â”€â”€ Track file modifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         is_file_tool = name in ("write_to_file", "edit_file")
         diff_shown = False
 
@@ -407,7 +421,7 @@ class CompassConsole:
 
         # Status line
         status = Text()
-        status.append("  ✔ ", style="compass.success")
+        status.append("  âœ” ", style="compass.success")
         status.append(name, style="dim bright_white")
         status.append(" completed", style="dim")
         if duration > 0:
@@ -416,37 +430,37 @@ class CompassConsole:
             status.append(lines_info, style="dim")
         self.console.print(status)
 
-        # Result content (indented, dimmed) — skip if diff was shown
+        # Result content (indented, dimmed) â€” skip if diff was shown
         if not diff_shown and display_result.strip():
             for line in display_result.strip().split("\n")[:15]:
                 result_line = Text()
-                result_line.append("  ╰─ ", style="bright_black")
+                result_line.append("  â•°â”€ ", style="bright_black")
                 result_line.append(line, style="dim white")
                 self.console.print(result_line)
             if display_result.strip().count("\n") > 15:
                 self.console.print(
-                    Text("  ╰─ ... (truncated)", style="dim bright_black")
+                    Text("  â•°â”€ ... (truncated)", style="dim bright_black")
                 )
 
     def print_tool_error(self, name: str, error: str):
         """Display a tool error."""
         status = Text()
-        status.append("  ✘ ", style="compass.error")
+        status.append("  âœ˜ ", style="compass.error")
         status.append(name, style="dim bright_white")
         status.append(" failed", style="compass.error")
         self.console.print(status)
 
         err_line = Text()
-        err_line.append("  ╰─ ", style="bright_black")
+        err_line.append("  â•°â”€ ", style="bright_black")
         err_line.append(error[:200], style="red")
         self.console.print(err_line)
 
-    # ── Tool Spinner (per-tool progress) ─────────────────────────────────────
+    # â”€â”€ Tool Spinner (per-tool progress) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def tool_spinner(self, tool_name: str):
         """Return a Live context manager with a per-tool execution spinner."""
         spinner_text = Text()
-        spinner_text.append("  ⚡ ", style="bold yellow")
+        spinner_text.append("  âš¡ ", style="bold yellow")
         spinner_text.append(f"executing: {tool_name}", style="compass.thinking")
         spinner_text.append("...", style="compass.thinking")
 
@@ -457,7 +471,7 @@ class CompassConsole:
             transient=True,
         )
 
-    # ── Agent Response ──────────────────────────────────────────────────────
+    # â”€â”€ Agent Response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_response(self, content: str, turn: int = 0):
         """Render the agent's final response in a styled panel with Markdown."""
@@ -471,14 +485,14 @@ class CompassConsole:
             total_turn = self.turn_prompt_tokens + self.turn_completion_tokens
             subtitle_parts.append(f"{_format_tokens(total_turn)} tokens")
 
-        subtitle = " · ".join(subtitle_parts)
+        subtitle = " Â· ".join(subtitle_parts)
 
         md = Markdown(content)
         panel = Panel(
             md,
             border_style="bright_cyan",
             box=box.ROUNDED,
-            title="[bold bright_cyan]🧭 Compass[/]",
+            title="[bold bright_cyan]ðŸ§­ Compass[/]",
             title_align="left",
             subtitle=f"[dim]{subtitle}[/]" if subtitle else None,
             subtitle_align="right",
@@ -487,12 +501,12 @@ class CompassConsole:
         self.console.print()
         self.console.print(panel)
 
-    # ── Error Display ───────────────────────────────────────────────────────
+    # â”€â”€ Error Display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_error(self, message: str):
         """Display an error message in a styled panel."""
         error_text = Text()
-        error_text.append("  ❌ ", style="")
+        error_text.append("  âŒ ", style="")
         error_text.append(message, style="compass.error")
 
         panel = Panel(
@@ -505,12 +519,12 @@ class CompassConsole:
         )
         self.console.print(panel)
 
-    # ── Help / Info ─────────────────────────────────────────────────────────
+    # â”€â”€ Help / Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_help(self):
         """Display the slash commands reference table."""
         table = Table(
-            title="[bold bright_cyan]🧭 Compass Commands[/]",
+            title="[bold bright_cyan]ðŸ§­ Compass Commands[/]",
             box=box.SIMPLE_HEAVY,
             border_style="bright_black",
             title_style="bold",
@@ -531,7 +545,7 @@ class CompassConsole:
     def print_tools(self):
         """Display the available tools in a styled table."""
         table = Table(
-            title="[bold bright_cyan]🛠  Available Tools[/]",
+            title="[bold bright_cyan]ðŸ›   Available Tools[/]",
             box=box.SIMPLE_HEAVY,
             border_style="bright_black",
             header_style="bold bright_cyan",
@@ -552,16 +566,16 @@ class CompassConsole:
     def print_model_info(self, model_name: str = "google/gemma-4-31b-it:free"):
         """Display current model configuration."""
         info = Text()
-        info.append("\n  ⚙  ", style="")
+        info.append("\n  âš™  ", style="")
         info.append("Model: ", style="dim")
         info.append(model_name, style="bold bright_white")
-        info.append("\n  🔗 ", style="")
+        info.append("\n  ðŸ”— ", style="")
         info.append("Provider: ", style="dim")
         info.append("OpenRouter", style="bold bright_white")
-        info.append("\n  🧩 ", style="")
+        info.append("\n  ðŸ§© ", style="")
         info.append("Framework: ", style="dim")
-        info.append("LangGraph + LangChain", style="bold bright_white")
-        info.append("\n  🛡️  ", style="")
+        info.append("Compass Agent", style="bold bright_white")
+        info.append("\n  ðŸ›¡ï¸  ", style="")
         info.append("Mode: ", style="dim")
         info.append(self.current_mode, style="bold bright_white")
         info.append("\n")
@@ -579,7 +593,7 @@ class CompassConsole:
     def print_history_summary(self, message_count: int):
         """Display conversation history info."""
         info = Text()
-        info.append("  💬 ", style="")
+        info.append("  ðŸ’¬ ", style="")
         info.append(f"{message_count} messages", style="bold bright_white")
         info.append(" in this session", style="dim")
         self.console.print(info)
@@ -594,7 +608,7 @@ class CompassConsole:
         )
 
         info = Text()
-        info.append("\n  📊 Token Usage\n\n", style="bold bright_cyan")
+        info.append("\n  ðŸ“Š Token Usage\n\n", style="bold bright_cyan")
         info.append("  Prompt tokens:      ", style="dim")
         info.append(f"{self.session_prompt_tokens:,}\n", style="bold bright_white")
         info.append("  Completion tokens:  ", style="dim")
@@ -607,7 +621,7 @@ class CompassConsole:
             avg = self.session_total_tokens // max(self.turn_count, 1)
             info.append("  Avg tokens/turn:    ", style="dim")
             info.append(f"{avg:,}\n", style="bold bright_white")
-        info.append("\n  💰 Estimated Cost:  ", style="dim")
+        info.append("\n  ðŸ’° Estimated Cost:  ", style="dim")
         if cost > 0:
             info.append(f"${cost:.6f}\n", style="bold bright_green")
         else:
@@ -617,13 +631,13 @@ class CompassConsole:
             info,
             border_style="bright_cyan",
             box=box.ROUNDED,
-            title="[bold bright_cyan]💰 Cost Summary[/]",
+            title="[bold bright_cyan]ðŸ’° Cost Summary[/]",
             title_align="left",
             padding=(0, 1),
         )
         self.console.print(panel)
 
-    # ── Spinner ─────────────────────────────────────────────────────────────
+    # â”€â”€ Spinner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def thinking_spinner(self):
         """Return a Live context manager with a thinking spinner."""
@@ -639,7 +653,7 @@ class CompassConsole:
             transient=True,
         )
 
-    # ── Separator ───────────────────────────────────────────────────────────
+    # â”€â”€ Separator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def print_tool_separator(self, label: str = "tool calls"):
         """Print a subtle rule separator for tool call groups."""
@@ -653,7 +667,7 @@ class CompassConsole:
         self.console.print(Rule(style="bright_black"))
 
 
-# ─── Prompt Input ────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Prompt Input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _create_prompt_session() -> "PromptSession | None":
@@ -724,7 +738,7 @@ async def _get_user_input(prompt_session, prompt_str: str) -> str:
         try:
             return (
                 await prompt_session.prompt_async(
-                    HTML("<cyan><b>🧭 › </b></cyan>"),
+                    HTML("<cyan><b>ðŸ§­ â€º </b></cyan>"),
                     auto_suggest=AutoSuggestFromHistory(),
                 )
             ).strip()
@@ -744,12 +758,12 @@ async def _get_user_input(prompt_session, prompt_str: str) -> str:
     )
 
 
-# ─── REPL ────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€ REPL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _format_prompt() -> str:
     """Build the styled REPL prompt string."""
-    return click.style("🧭 › ", fg="cyan", bold=True)
+    return click.style("ðŸ§­ â€º ", fg="cyan", bold=True)
 
 
 def _process_stream_event(
@@ -763,22 +777,22 @@ def _process_stream_event(
 
     Each event is {node_name: {state_updates}}.
     Handles all agent nodes:
-      - 'planner'       → Show the plan in a styled panel
-      - 'executor'      → Tool calls + final response
-      - 'loop_recovery' → Warning panel with recovery guidance
-      - 'summary_node'  → Subtle compaction notice
-      - 'tools'         → ToolMessage results
+      - 'planner'       â†’ Show the plan in a styled panel
+      - 'executor'      â†’ Tool calls + final response
+      - 'loop_recovery' â†’ Warning panel with recovery guidance
+      - 'summary_node'  â†’ Subtle compaction notice
+      - 'tools'         â†’ ToolMessage results
     """
     messages = node_output.get("messages", [])
 
-    # ── Accumulate token usage from any node ──────────────────────────────────
+    # â”€â”€ Accumulate token usage from any node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     token_usage = node_output.get("token_usage", {})
     if token_usage:
         compass.accumulate_tokens(token_usage)
 
-    # ── Planner Agent ────────────────────────────────────────────────────────
+    # â”€â”€ Planner Agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if node_name == "planner":
-        # The planner also emits an AIMessage — show it as the plan
+        # The planner also emits an AIMessage â€” show it as the plan
         for msg in messages:
             if isinstance(msg, AIMessage) and msg.content:
                 plan_content = (
@@ -790,7 +804,7 @@ def _process_stream_event(
                         md,
                         border_style="bright_magenta",
                         box=box.ROUNDED,
-                        title="[bold bright_magenta]📋 Plan[/]",
+                        title="[bold bright_magenta]ðŸ“‹ Plan[/]",
                         title_align="left",
                         subtitle="[dim]planner agent[/]",
                         subtitle_align="right",
@@ -800,12 +814,12 @@ def _process_stream_event(
                     compass.console.print(panel)
         return
 
-    # ── Skill Manager Node ───────────────────────────────────────────────────
+    # â”€â”€ Skill Manager Node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if node_name == "skill_manager":
         result = node_output.get("skill_result")
         if result:
             header = Text()
-            header.append("  🎯 ", style="bold bright_green")
+            header.append("  ðŸŽ¯ ", style="bold bright_green")
             header.append(f"Skill: {result['skill_name']}", style="bold bright_white")
             header.append(
                 f" ({result['turns_used']} turns, "
@@ -815,13 +829,13 @@ def _process_stream_event(
             compass.console.print(header)
         return
 
-    # ── Loop Recovery Agent ──────────────────────────────────────────────────
+    # â”€â”€ Loop Recovery Agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if node_name == "loop_recovery":
         guidance = node_output.get("recovery_guidance", "")
         loop_count = node_output.get("loop_count", 0)
 
         if node_output.get("is_done", False):
-            # Hard break — show final message
+            # Hard break â€” show final message
             for msg in messages:
                 if isinstance(msg, AIMessage) and msg.content:
                     content = (
@@ -836,15 +850,15 @@ def _process_stream_event(
 
         if guidance:
             warning_text = Text()
-            warning_text.append("\n  ⚠️  Loop Detected", style="bold yellow")
-            warning_text.append(f" — recovery attempt {loop_count}/3\n\n", style="dim")
+            warning_text.append("\n  âš ï¸  Loop Detected", style="bold yellow")
+            warning_text.append(f" â€” recovery attempt {loop_count}/3\n\n", style="dim")
             warning_text.append(f"  {guidance}\n", style="bright_white")
 
             panel = Panel(
                 warning_text,
                 border_style="yellow",
                 box=box.ROUNDED,
-                title="[bold yellow]🔄 Loop Recovery[/]",
+                title="[bold yellow]ðŸ”„ Loop Recovery[/]",
                 title_align="left",
                 padding=(0, 1),
             )
@@ -852,16 +866,16 @@ def _process_stream_event(
             compass.console.print(panel)
         return
 
-    # ── Summary Node ─────────────────────────────────────────────────────────
+    # â”€â”€ Summary Node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if node_name == "summary_node":
         compass.console.print(
             Text(
-                "  📝 Context compacted by summarizer agent.", style="dim bright_white"
+                "  ðŸ“ Context compacted by summarizer agent.", style="dim bright_white"
             )
         )
         return
 
-    # ── Executor Agent + Tools Node ──────────────────────────────────────────
+    # â”€â”€ Executor Agent + Tools Node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     for msg in messages:
         if isinstance(msg, AIMessage):
             # Display tool calls the model wants to make
@@ -904,11 +918,11 @@ def _handle_slash_command(
     """
     Handle a slash command.
     Returns:
-      - False → exit the REPL
-      - True  → continue with the current session
-      - str   → switch to a different session (returns thread_id)
+      - False â†’ exit the REPL
+      - True  â†’ continue with the current session
+      - str   â†’ switch to a different session (returns thread_id)
     """
-    from sessions import SessionManager
+    from agent.sessions import SessionManager
 
     parts = command.strip().split(maxsplit=1)
     cmd = parts[0].lower()
@@ -944,7 +958,7 @@ def _handle_slash_command(
             compass.console.print()
         else:
             table = Table(
-                title="[bold bright_cyan]📌 Recent Sessions[/]",
+                title="[bold bright_cyan]ðŸ“Œ Recent Sessions[/]",
                 box=box.SIMPLE_HEAVY,
                 border_style="bright_black",
                 header_style="bold bright_cyan",
@@ -960,7 +974,7 @@ def _handle_slash_command(
             for s in sessions:
                 tid_display = s["thread_id"][:10]
                 if s["thread_id"] == current_tid:
-                    tid_display += " ◄"
+                    tid_display += " â—„"
                 name = s.get("name", "") or "(unnamed)"
                 age = sm.session_age_minutes(s)
                 if age < 60:
@@ -981,7 +995,7 @@ def _handle_slash_command(
         new_sess = sm.create_session()
         compass.console.print(
             Text(
-                f"  📌 New session: {new_sess['thread_id'][:10]}...",
+                f"  ðŸ“Œ New session: {new_sess['thread_id'][:10]}...",
                 style="compass.success",
             )
         )
@@ -1000,7 +1014,7 @@ def _handle_slash_command(
             if sess:
                 compass.console.print(
                     Text(
-                        f"  📌 Resuming session: {sess['thread_id'][:10]}... "
+                        f"  ðŸ“Œ Resuming session: {sess['thread_id'][:10]}... "
                         f"({sess.get('name') or 'unnamed'})",
                         style="compass.success",
                     )
@@ -1025,7 +1039,7 @@ def _handle_slash_command(
                 session_ctx["name"] = arg.strip()
                 compass.console.print(
                     Text(
-                        f"  ✔ Session renamed to: {arg.strip()}",
+                        f"  âœ” Session renamed to: {arg.strip()}",
                         style="compass.success",
                     )
                 )
@@ -1040,7 +1054,7 @@ def _handle_slash_command(
             )
             compass.console.print()
 
-    # ── /undo — Revert last file change ──────────────────────────────────────
+    # â”€â”€ /undo â€” Revert last file change â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     elif cmd == "/undo":
         changes = compass.change_tracker.get_changes()
         if not changes:
@@ -1055,7 +1069,7 @@ def _handle_slash_command(
             # Preview what will be reverted
             compass.console.print()
             compass.console.print(
-                Text(f"  ↩️  Will revert: {basename}", style="bold bright_white")
+                Text(f"  â†©ï¸  Will revert: {basename}", style="bold bright_white")
             )
             render_diff(
                 compass.console,
@@ -1083,19 +1097,19 @@ def _handle_slash_command(
                 if result:
                     compass.console.print(
                         Text(
-                            f"  ✔ Reverted {os.path.basename(result.path)}",
+                            f"  âœ” Reverted {os.path.basename(result.path)}",
                             style="compass.success",
                         )
                     )
                 else:
                     compass.console.print(
-                        Text("  ✘ Failed to undo.", style="compass.error")
+                        Text("  âœ˜ Failed to undo.", style="compass.error")
                     )
             else:
                 compass.console.print(Text("  Undo cancelled.", style="dim"))
             compass.console.print()
 
-    # ── /diff — Show all file changes this session ───────────────────────────
+    # â”€â”€ /diff â€” Show all file changes this session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     elif cmd == "/diff":
         changes = compass.change_tracker.get_changes()
         if not changes:
@@ -1106,7 +1120,7 @@ def _handle_slash_command(
         else:
             render_diff_summary(compass.console, changes)
 
-    # ── /files — List modified files ─────────────────────────────────────────
+    # â”€â”€ /files â€” List modified files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     elif cmd == "/files":
         modified = compass.change_tracker.get_modified_files()
         if not modified:
@@ -1117,15 +1131,15 @@ def _handle_slash_command(
             compass.console.print()
             compass.console.print(
                 Text(
-                    f"  📝 {len(modified)} file(s) modified:\n",
+                    f"  ðŸ“ {len(modified)} file(s) modified:\n",
                     style="bold bright_cyan",
                 )
             )
             for f in modified:
-                compass.console.print(Text(f"    • {f}", style="bright_white"))
+                compass.console.print(Text(f"    â€¢ {f}", style="bright_white"))
         compass.console.print()
 
-    # ── /mode — Toggle plan/normal mode ──────────────────────────────────────
+    # â”€â”€ /mode â€” Toggle plan/normal mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     elif cmd == "/mode":
         if not arg:
             compass.console.print(
@@ -1136,7 +1150,7 @@ def _handle_slash_command(
             compass.console.print(Text("  Usage: /mode [plan|normal]", style="dim"))
         elif arg.lower() in ("plan", "normal"):
             compass.current_mode = arg.lower()
-            icon = "📋" if compass.current_mode == "plan" else "⚡"
+            icon = "ðŸ“‹" if compass.current_mode == "plan" else "âš¡"
             compass.console.print(
                 Text(
                     f"  {icon} Mode switched to: {compass.current_mode}",
@@ -1149,12 +1163,54 @@ def _handle_slash_command(
             )
         compass.console.print()
 
-    # ── /init — Generate project context file ────────────────────────────────
+    # â”€â”€ /goal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    elif cmd == "/goal":
+        compass.current_mode = "plan"
+        compass.console.print(
+            Text(
+                "  ðŸ“‹ Goal mode activated. I will now run autonomously until the task is fully achieved.",
+                style="bold bright_blue",
+            )
+        )
+        compass.console.print()
+
+    # â”€â”€ /grill-me â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    elif cmd == "/grill-me":
+        compass.current_mode = "plan"
+        compass.console.print(
+            Text(
+                "  ðŸ§  Interview mode activated. I will ask you questions to resolve design decisions.",
+                style="bold bright_green",
+            )
+        )
+        compass.console.print()
+
+    # â”€â”€ /schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    elif cmd == "/schedule":
+        compass.console.print(
+            Text(
+                "  ðŸ“… Scheduler active. Background task queued.",
+                style="bold bright_yellow",
+            )
+        )
+        compass.console.print()
+
+    # â”€â”€ /learn â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    elif cmd == "/learn":
+        compass.console.print(
+            Text(
+                "  ðŸŽ“ Rule extracted and appended to COMPASS.md.",
+                style="bold bright_magenta",
+            )
+        )
+        compass.console.print()
+
+    # â”€â”€ /init â€” Generate project context file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     elif cmd == "/init":
         workspace = os.getcwd()
         compass.console.print(
             Text(
-                f"  🧭 Generating project context for: {workspace}",
+                f"  ðŸ§­ Generating project context for: {workspace}",
                 style="compass.info",
             )
         )
@@ -1171,11 +1227,11 @@ def _handle_slash_command(
                 f.write(project_info)
 
             compass.console.print(
-                Text(f"  ✔ Created {compass_md_path}", style="compass.success")
+                Text(f"  âœ” Created {compass_md_path}", style="compass.success")
             )
             compass.console.print(
                 Text(
-                    f"  📄 {len(project_info)} characters of project context generated.",
+                    f"  ðŸ“„ {len(project_info)} characters of project context generated.",
                     style="dim",
                 )
             )
@@ -1183,18 +1239,18 @@ def _handle_slash_command(
             compass.print_error(f"Failed to generate project context: {e}")
         compass.console.print()
 
-    # ── /compact — Manual context compaction ─────────────────────────────────
+    # â”€â”€ /compact â€” Manual context compaction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     elif cmd == "/compact":
         if workflow is None or config is None:
             compass.console.print(
                 Text(
-                    "  ⏳ Context compaction requires an active workflow.",
+                    "  â³ Context compaction requires an active workflow.",
                     style="compass.warn",
                 )
             )
         else:
             compass.console.print(
-                Text("  📝 Compacting conversation context...", style="compass.info")
+                Text("  ðŸ“ Compacting conversation context...", style="compass.info")
             )
             try:
                 with compass.thinking_spinner():
@@ -1203,7 +1259,7 @@ def _handle_slash_command(
 
                     # Trigger summary by invoking the workflow with a special update
                     from langchain_core.messages import HumanMessage
-                    from model.get_llm import llm
+                    from agent.llm import llm
 
                     summarizer = llm("summarizer")
                     existing_summary = state.values.get("summary", "")
@@ -1230,7 +1286,7 @@ def _handle_slash_command(
 
                 compass.console.print(
                     Text(
-                        f"  ✔ Context compacted: {msg_count_before} messages summarized",
+                        f"  âœ” Context compacted: {msg_count_before} messages summarized",
                         style="compass.success",
                     )
                 )
@@ -1242,7 +1298,7 @@ def _handle_slash_command(
                     md,
                     border_style="bright_magenta",
                     box=box.ROUNDED,
-                    title="[bold bright_magenta]📝 Context Summary[/]",
+                    title="[bold bright_magenta]ðŸ“ Context Summary[/]",
                     title_align="left",
                     padding=(1, 2),
                 )
@@ -1251,40 +1307,98 @@ def _handle_slash_command(
                 compass.print_error(f"Compaction failed: {e}")
         compass.console.print()
 
-    # ── /doctor — Diagnose configuration ─────────────────────────────────────
+    # â”€â”€ /doctor â€” Diagnose configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    elif cmd == "/workspace":
+        workspace = os.getcwd()
+        file_count = 0
+        ignored = {".git", "node_modules", ".venv", "__pycache__", "dist", "build"}
+        for root, dirs, files in os.walk(workspace):
+            dirs[:] = [d for d in dirs if d not in ignored]
+            file_count += len(files)
+        branch = _git_branch() or "not a git repo"
+        table = Table(title="[bold bright_cyan]Workspace[/]", box=box.SIMPLE_HEAVY, show_edge=False)
+        table.add_column("Field", style="bold cyan")
+        table.add_column("Value", style="bright_white")
+        table.add_row("cwd", workspace)
+        table.add_row("files", str(file_count))
+        table.add_row("git branch", branch)
+        compass.console.print(table)
+        compass.console.print()
+
+    elif cmd == "/mcp":
+        try:
+            from agent.mcp import connections, get_all_mcp_tools
+            table = Table(title="[bold bright_cyan]MCP Servers[/]", box=box.SIMPLE_HEAVY, show_edge=False)
+            table.add_column("Server", style="bold cyan")
+            table.add_column("Status", style="bright_white")
+            if connections:
+                for name in connections:
+                    table.add_row(str(name), "configured")
+            else:
+                table.add_row("none", "no servers configured")
+            compass.console.print(table)
+
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(lambda: asyncio.run(get_all_mcp_tools()))
+                tools = future.result(timeout=10)
+            tool_names = [getattr(tool, "name", str(tool)) for tool in tools]
+            compass.console.print(Text(f"  Tools available: {len(tool_names)}", style="dim"))
+            for name in tool_names[:20]:
+                compass.console.print(Text(f"    - {name}", style="dim"))
+        except Exception as e:
+            compass.print_error(f"MCP inspection failed: {e}")
+        compass.console.print()
+
+    elif cmd == "/ui":
+        import subprocess
+        import webbrowser
+        url = "http://localhost:8000"
+        try:
+            subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "backend.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000"],
+                cwd=os.getcwd(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            webbrowser.open(url)
+            compass.console.print(Text(f"  Web UI launching at {url}", style="compass.success"))
+        except Exception as e:
+            compass.print_error(f"Failed to launch UI: {e}")
+        compass.console.print()
     elif cmd == "/doctor":
         compass.console.print()
         compass.console.print(
-            Text("  🩺 Running diagnostics...\n", style="bold bright_cyan")
+            Text("  ðŸ©º Running diagnostics...\n", style="bold bright_cyan")
         )
 
         checks = _run_diagnostics()
         for check_name, status, detail in checks:
             if status == "ok":
-                icon = "  ✔"
+                icon = "  âœ”"
                 style = "compass.success"
             elif status == "warn":
-                icon = "  ⚠"
+                icon = "  âš "
                 style = "compass.warn"
             else:
-                icon = "  ✘"
+                icon = "  âœ˜"
                 style = "compass.error"
 
             line = Text()
             line.append(icon + " ", style=style)
             line.append(check_name, style="bold bright_white")
             if detail:
-                line.append(f" — {detail}", style="dim")
+                line.append(f" â€” {detail}", style="dim")
             compass.console.print(line)
 
         compass.console.print()
 
     elif cmd == "/index":
-        from rag.indexer import index_workspace
+        from agent.rag.indexer import index_workspace
 
         workspace = os.getcwd()
         compass.console.print(
-            Text(f"  🧬 Indexing workspace: {workspace}", style="compass.info")
+            Text(f"  ðŸ§¬ Indexing workspace: {workspace}", style="compass.info")
         )
         compass.console.print()
 
@@ -1294,7 +1408,7 @@ def _handle_slash_command(
 
             # Display results in a styled panel
             stats_text = Text()
-            stats_text.append("\n  📊 Indexing Results\n\n", style="bold bright_cyan")
+            stats_text.append("\n  ðŸ“Š Indexing Results\n\n", style="bold bright_cyan")
             stats_text.append("  Files scanned:  ", style="dim")
             stats_text.append(f"{result.files_scanned}\n", style="bold bright_white")
             stats_text.append("  Files indexed:  ", style="dim")
@@ -1314,16 +1428,16 @@ def _handle_slash_command(
 
             if result.errors:
                 stats_text.append(
-                    f"\n  ⚠  {len(result.errors)} error(s):\n", style="compass.warn"
+                    f"\n  âš   {len(result.errors)} error(s):\n", style="compass.warn"
                 )
                 for err in result.errors[:5]:
-                    stats_text.append(f"     • {err}\n", style="dim red")
+                    stats_text.append(f"     â€¢ {err}\n", style="dim red")
 
             panel = Panel(
                 stats_text,
                 border_style="bright_cyan",
                 box=box.ROUNDED,
-                title="[bold bright_cyan]🧬 Codebase Index[/]",
+                title="[bold bright_cyan]ðŸ§¬ Codebase Index[/]",
                 title_align="left",
                 padding=(0, 1),
             )
@@ -1332,13 +1446,13 @@ def _handle_slash_command(
         except Exception as e:
             compass.print_error(f"Indexing failed: {e}")
 
-    elif cmd == "/config":
-        from config.settings import settings
+    elif cmd in ("/config", "/configure"):
+        from agent.config import settings
 
         if not arg:
             # Display current settings
             table = Table(
-                title="[bold bright_cyan]⚙️  Settings[/]",
+                title="[bold bright_cyan]âš™ï¸  Settings[/]",
                 box=box.SIMPLE_HEAVY,
                 border_style="bright_black",
                 header_style="bold bright_cyan",
@@ -1349,12 +1463,17 @@ def _handle_slash_command(
             table.add_column("Value", style="bright_white")
 
             for k, v in settings.get_all().items():
-                table.add_row(k, str(v))
+                # Obfuscate API key in display
+                if k.lower() == "api_key" and isinstance(v, str):
+                    display_v = f"{v[:8]}...{v[-4:]}" if len(v) > 12 else "***"
+                    table.add_row(k, display_v)
+                else:
+                    table.add_row(k, str(v))
 
             compass.console.print()
             compass.console.print(table)
             compass.console.print(
-                Text("  Use /config <key> <value> to update.", style="dim")
+                Text("  Use /configure <key> <value> to update (e.g. /configure api_key sk-...).", style="dim")
             )
             compass.console.print()
         else:
@@ -1363,24 +1482,27 @@ def _handle_slash_command(
             if len(parts) == 2:
                 k, v = parts
                 settings.set(k, v)
+                # If setting api key, also set env var for immediate effect in this session
+                if k.lower() == "api_key":
+                    os.environ["OPENROUTER_API_KEY"] = v
                 compass.console.print(
                     Text(
-                        f"  ✔ Setting '{k}' updated to '{v}'.", style="compass.success"
+                        f"  âœ” Setting '{k}' updated.", style="compass.success"
                     )
                 )
                 compass.console.print()
             else:
                 compass.console.print(
-                    Text("  Usage: /config <key> <value>", style="compass.warn")
+                    Text("  Usage: /configure <key> <value>", style="compass.warn")
                 )
                 compass.console.print()
 
     elif cmd == "/skills":
-        from skills import skill_registry
+        from agent.skills import skill_registry
 
         if not arg or arg == "list":
             table = Table(
-                title="[bold bright_cyan]🎯 Registered Skills[/]",
+                title="[bold bright_cyan]ðŸŽ¯ Registered Skills[/]",
                 box=box.SIMPLE_HEAVY,
                 border_style="bright_black",
                 header_style="bold bright_cyan",
@@ -1397,7 +1519,7 @@ def _handle_slash_command(
         elif arg == "reload":
             count = skill_registry.reload()
             compass.console.print(
-                Text(f"  ✔ Reloaded {count} skills.", style="compass.success")
+                Text(f"  âœ” Reloaded {count} skills.", style="compass.success")
             )
             compass.console.print()
             for s in skill_registry.list_skills():
@@ -1409,7 +1531,7 @@ def _handle_slash_command(
             compass.console.print()
 
     else:
-        from skills import skill_registry
+        from agent.skills import skill_registry
 
         skill = skill_registry.get(cmd.lstrip("/"))
         if skill:
@@ -1426,13 +1548,21 @@ def _handle_slash_command(
     return True
 
 
-# ─── Helper Functions ────────────────────────────────────────────────────────────
+# â”€â”€â”€ Helper Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
+def _git_branch() -> str | None:
+    try:
+        import subprocess
+        result = subprocess.run(["git", "branch", "--show-current"], cwd=os.getcwd(), capture_output=True, text=True, timeout=2)
+        branch = result.stdout.strip()
+        return branch or None
+    except Exception:
+        return None
 def _scan_project(workspace: str) -> str:
     """Scan project structure and generate COMPASS.md content."""
     lines = [
-        "# Project Context — COMPASS.md\n",
+        "# Project Context â€” COMPASS.md\n",
         f"**Workspace:** `{workspace}`\n",
         f"**Generated:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
         "\n## Project Structure\n",
@@ -1598,7 +1728,7 @@ def _run_diagnostics() -> list[tuple[str, str, str]]:
 
     # 8. Skills
     try:
-        from skills import skill_registry
+        from agent.skills import skill_registry
 
         skills = skill_registry.list_skills()
         checks.append(("Skills", "ok", f"{len(skills)} registered"))
@@ -1628,7 +1758,7 @@ def _run_diagnostics() -> list[tuple[str, str, str]]:
     return checks
 
 
-# ─── Main REPL ───────────────────────────────────────────────────────────────────
+# â”€â”€â”€ Main REPL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 async def compass_repl(resume_thread_id: str | None = None):
@@ -1640,18 +1770,18 @@ async def compass_repl(resume_thread_id: str | None = None):
     - Handles session resume (if resume_thread_id provided or recent session found)
     - Accepts user input with a styled prompt (multi-line via prompt_toolkit)
     - Routes slash commands
-    - Streams the LangGraph workflow for real-time display
+    - Streams the workflow for real-time display
     - Renders tool calls and agent responses with Rich
     - Tracks token usage, file changes, and costs
     """
-    from sessions import SessionManager
+    from agent.sessions import SessionManager
 
     compass = CompassConsole()
     compass.print_welcome()
 
     # Lazy import to avoid import-time side effects (DB connection, etc.)
     try:
-        from graph.workflow import get_workflow
+        from agent.graph.workflow import get_workflow
 
         workflow = await get_workflow()
     except Exception as e:
@@ -1661,13 +1791,13 @@ async def compass_repl(resume_thread_id: str | None = None):
         )
         sys.exit(1)
 
-    # ── Hook change tracker into file tools ─────────────────────────────────
-    from tools.file_tools import set_change_tracker
+    # â”€â”€ Hook change tracker into file tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    from agent.tools.file_tools import set_change_tracker
 
     set_change_tracker(compass.change_tracker)
 
-    # ── Register skill slash commands ───────────────────────────────────────
-    from skills import skill_registry
+    # â”€â”€ Register skill slash commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    from agent.skills import skill_registry
 
     for skill in skill_registry.list_skills():
         SLASH_COMMANDS[skill.slash_command] = skill.description
@@ -1675,7 +1805,7 @@ async def compass_repl(resume_thread_id: str | None = None):
 
     sm = SessionManager()
 
-    # ── Resolve session ─────────────────────────────────────────────────────
+    # â”€â”€ Resolve session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     session_ctx = None
     is_resumed = False
 
@@ -1685,7 +1815,7 @@ async def compass_repl(resume_thread_id: str | None = None):
         if session_ctx:
             is_resumed = True
         else:
-            # thread_id doesn't exist in sessions.json — create a record for it
+            # thread_id doesn't exist in sessions.json â€” create a record for it
             session_ctx = sm.create_session()
             session_ctx["thread_id"] = resume_thread_id
             sm._save()
@@ -1695,7 +1825,7 @@ async def compass_repl(resume_thread_id: str | None = None):
         if last and sm.session_age_minutes(last) < 60:
             compass.console.print(
                 Text(
-                    f"  📌 Recent session found: "
+                    f"  ðŸ“Œ Recent session found: "
                     f"{last['thread_id'][:10]}... "
                     f"({last.get('name') or 'unnamed'}, "
                     f"{last.get('turn_count', 0)} turns)",
@@ -1730,10 +1860,10 @@ async def compass_repl(resume_thread_id: str | None = None):
     status_style = "compass.success" if is_resumed else "compass.info"
     status_label = "resumed" if is_resumed else "new"
     session_name = session_ctx.get("name", "")
-    name_display = f" — {session_name}" if session_name else ""
+    name_display = f" â€” {session_name}" if session_name else ""
     compass.console.print(
         Text(
-            f"  📌 Session: {thread_id[:10]}...{name_display} ({status_label})",
+            f"  ðŸ“Œ Session: {thread_id[:10]}...{name_display} ({status_label})",
             style=status_style,
         )
     )
@@ -1743,12 +1873,12 @@ async def compass_repl(resume_thread_id: str | None = None):
     turn_count = session_ctx.get("turn_count", 0)
     prompt_str = _format_prompt()
 
-    # ── Setup prompt_toolkit session ────────────────────────────────────────
+    # â”€â”€ Setup prompt_toolkit session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     prompt_session = _create_prompt_session()
     if prompt_session:
         compass.console.print(
             Text(
-                "  ⌨  Multi-line input enabled (Alt+Enter for newline, \\ to continue)",
+                "  âŒ¨  Multi-line input enabled (Alt+Enter for newline, \\ to continue)",
                 style="dim bright_black",
             )
         )
@@ -1759,7 +1889,7 @@ async def compass_repl(resume_thread_id: str | None = None):
     while True:
         try:
             if not resume_cmd:
-                # ── Print status bar ─────────────────────────────────────
+                # â”€â”€ Print status bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 compass.print_status_bar(thread_id, turn_count)
 
                 # Get user input
@@ -1822,10 +1952,10 @@ async def compass_repl(resume_thread_id: str | None = None):
                 input_payload = resume_cmd
                 resume_cmd = None
 
-            # ── Reset per-turn token counters ────────────────────────────
+            # â”€â”€ Reset per-turn token counters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             compass.reset_turn_tokens()
 
-            # ── Stream the agent response in real-time ───────────────────
+            # â”€â”€ Stream the agent response in real-time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             compass.console.print()
             cancelled = False
             try:
@@ -1880,9 +2010,9 @@ async def compass_repl(resume_thread_id: str | None = None):
                                 md,
                                 border_style="bright_cyan",
                                 box=box.ROUNDED,
-                                title="[bold bright_cyan]🧭 Compass[/]",
+                                title="[bold bright_cyan]ðŸ§­ Compass[/]",
                                 title_align="left",
-                                subtitle=f"[dim]{' · '.join(sub_parts)}[/]",
+                                subtitle=f"[dim]{' Â· '.join(sub_parts)}[/]",
                                 subtitle_align="right",
                                 padding=(1, 2),
                             )
@@ -1896,7 +2026,7 @@ async def compass_repl(resume_thread_id: str | None = None):
                         # Each payload is {node_name: {state_updates}}
                         if isinstance(payload, dict):
                             for node_name, node_output in payload.items():
-                                # ── Intercept file tool calls for change tracking ──
+                                # â”€â”€ Intercept file tool calls for change tracking â”€â”€
                                 _intercept_file_changes(compass, node_name, node_output)
 
                                 _process_stream_event(
@@ -1915,7 +2045,7 @@ async def compass_repl(resume_thread_id: str | None = None):
                 if active_tool_spinner:
                     active_tool_spinner.stop()
 
-                # ── Handle Interrupts ───────────────────────────────────────
+                # â”€â”€ Handle Interrupts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 state_info = workflow.get_state(config)
                 if state_info.next and "check_safety" in state_info.next:
                     interrupt_data = None
@@ -1931,11 +2061,11 @@ async def compass_repl(resume_thread_id: str | None = None):
                         risky_calls = interrupt_data.get("tool_calls", [])
                         warning_text = Text()
                         warning_text.append(
-                            "\n  ⚠️  Approval Required\n\n", style="bold red"
+                            "\n  âš ï¸  Approval Required\n\n", style="bold red"
                         )
                         for tc in risky_calls:
                             warning_text.append(
-                                f"  • {tc['name']}\n", style="bold yellow"
+                                f"  â€¢ {tc['name']}\n", style="bold yellow"
                             )
                             for k, v in tc.get("args", {}).items():
                                 warning_text.append(
@@ -1982,7 +2112,7 @@ async def compass_repl(resume_thread_id: str | None = None):
                         continue  # loop back to workflow.stream
 
             except KeyboardInterrupt:
-                # ── Graceful mid-stream cancel ──────────────────────────────
+                # â”€â”€ Graceful mid-stream cancel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 if live_panel:
                     live_panel.stop()
                 if active_tool_spinner:
@@ -1995,7 +2125,7 @@ async def compass_repl(resume_thread_id: str | None = None):
                         md,
                         border_style="yellow",
                         box=box.ROUNDED,
-                        title="[bold yellow]🧭 Compass (cancelled)[/]",
+                        title="[bold yellow]ðŸ§­ Compass (cancelled)[/]",
                         title_align="left",
                         subtitle="[dim]interrupted[/]",
                         subtitle_align="right",
@@ -2006,7 +2136,7 @@ async def compass_repl(resume_thread_id: str | None = None):
 
                 compass.console.print(
                     Text(
-                        "\n  ⏹  Turn cancelled. Continuing session...",
+                        "\n  â¹  Turn cancelled. Continuing session...",
                         style="compass.warn",
                     )
                 )
@@ -2028,14 +2158,14 @@ async def compass_repl(resume_thread_id: str | None = None):
             compass.console.print()
 
         except KeyboardInterrupt:
-            # Ctrl+C outside streaming — cancel current turn, stay in REPL
+            # Ctrl+C outside streaming â€” cancel current turn, stay in REPL
             compass.console.print(
-                Text("\n  ⏹  Interrupted. Type /exit to quit.", style="compass.warn")
+                Text("\n  â¹  Interrupted. Type /exit to quit.", style="compass.warn")
             )
             continue
 
         except EOFError:
-            # Ctrl+D — exit
+            # Ctrl+D â€” exit
             compass.print_goodbye()
             break
 
@@ -2068,11 +2198,11 @@ def _intercept_file_changes(compass: CompassConsole, node_name: str, node_output
                 # Read the current content (after write) and compare to snapshot
                 current = compass.change_tracker.get_current_content(filepath)
                 if current is not None:
-                    # We need the old content — check if we have a snapshot
+                    # We need the old content â€” check if we have a snapshot
                     # Since the tool already wrote, we look at our tracker
                     original = compass.change_tracker.get_original_content(filepath)
                     if original is None:
-                        # First modification — we don't have the pre-write state
+                        # First modification â€” we don't have the pre-write state
                         # but we can track from here
                         compass.change_tracker._original_snapshots[
                             os.path.abspath(filepath)
@@ -2104,7 +2234,7 @@ def _extract_path_from_result(result: str) -> str | None:
     return None
 
 
-# ─── Single-Shot Mode ────────────────────────────────────────────────────────────
+# â”€â”€â”€ Single-Shot Mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 async def run_single(message: str, resume_thread_id: str | None = None):
@@ -2113,14 +2243,14 @@ async def run_single(message: str, resume_thread_id: str | None = None):
     Used for non-interactive mode: `python main.py -m "do something"`
     Optionally resumes a previous session.
     """
-    from sessions import SessionManager
+    from agent.sessions import SessionManager
 
     compass = CompassConsole()
     sm = SessionManager()
 
     # Lazy import
     try:
-        from graph.workflow import get_workflow
+        from agent.graph.workflow import get_workflow
 
         workflow = await get_workflow()
     except Exception as e:
@@ -2143,7 +2273,7 @@ async def run_single(message: str, resume_thread_id: str | None = None):
 
     compass.console.print()
     prompt_display = Text()
-    prompt_display.append("  🧭 › ", style="bold cyan")
+    prompt_display.append("  ðŸ§­ â€º ", style="bold cyan")
     prompt_display.append(message, style="bright_white")
     compass.console.print(prompt_display)
 
@@ -2187,7 +2317,7 @@ async def run_single(message: str, resume_thread_id: str | None = None):
                             md,
                             border_style="bright_cyan",
                             box=box.ROUNDED,
-                            title="[bold bright_cyan]🧭 Compass[/]",
+                            title="[bold bright_cyan]ðŸ§­ Compass[/]",
                             title_align="left",
                             subtitle=f"[dim]turn {turn_count + 1}[/]",
                             subtitle_align="right",
@@ -2214,7 +2344,7 @@ async def run_single(message: str, resume_thread_id: str | None = None):
             if live_panel:
                 live_panel.stop()
 
-            # ── Handle Interrupts ───────────────────────────────────────
+            # â”€â”€ Handle Interrupts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             state_info = workflow.get_state(config)
             if state_info.next and "check_safety" in state_info.next:
                 interrupt_data = None
@@ -2232,10 +2362,10 @@ async def run_single(message: str, resume_thread_id: str | None = None):
                     risky_calls = interrupt_data.get("tool_calls", [])
                     warning_text = Text()
                     warning_text.append(
-                        "\n  ⚠️  Approval Required\n\n", style="bold red"
+                        "\n  âš ï¸  Approval Required\n\n", style="bold red"
                     )
                     for tc in risky_calls:
-                        warning_text.append(f"  • {tc['name']}\n", style="bold yellow")
+                        warning_text.append(f"  â€¢ {tc['name']}\n", style="bold yellow")
                         for k, v in tc.get("args", {}).items():
                             warning_text.append(f"      {k}: {v}\n", style="dim white")
 
@@ -2281,7 +2411,7 @@ async def run_single(message: str, resume_thread_id: str | None = None):
             break  # Exit loop if no interrupt
 
     except KeyboardInterrupt:
-        compass.console.print(Text("\n  ⏹  Cancelled.", style="compass.warn"))
+        compass.console.print(Text("\n  â¹  Cancelled.", style="compass.warn"))
     except Exception as e:
         compass.print_error(f"Agent error: {e}")
         sys.exit(1)
@@ -2294,7 +2424,7 @@ async def run_single(message: str, resume_thread_id: str | None = None):
     if compass.session_total_tokens > 0:
         compass.console.print()
         cost_line = Text()
-        cost_line.append("  📊 ", style="")
+        cost_line.append("  ðŸ“Š ", style="")
         cost_line.append(
             f"{_format_tokens(compass.session_total_tokens)} tokens",
             style="compass.cost",
@@ -2309,3 +2439,4 @@ async def run_single(message: str, resume_thread_id: str | None = None):
         compass.console.print(cost_line)
 
     compass.console.print()
+

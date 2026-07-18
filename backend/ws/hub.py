@@ -28,6 +28,8 @@ class ConnectionManager:
         self._heartbeat_tasks: dict[WebSocket, asyncio.Task] = {}
         # call_id -> asyncio.Future for bidirectional RPC
         self.pending_calls: dict[str, asyncio.Future] = {}
+        # Track last run_id and message_id per connection
+        self._connection_states: dict[WebSocket, dict] = defaultdict(dict)
 
     def resolve_call(self, call_id: str, result: any, error: str = None) -> None:
         """Resolve a pending RPC call from the client."""
@@ -45,6 +47,7 @@ class ConnectionManager:
         self._heartbeat_tasks[websocket] = asyncio.create_task(
             self._heartbeat(websocket)
         )
+        self._connection_states[websocket] = {"message_id": None, "run_id": None}
         logger.info(f"WebSocket connected: session={session_id}")
 
     def disconnect(self, websocket: WebSocket, session_id: str) -> None:
@@ -56,12 +59,24 @@ class ConnectionManager:
         task = self._heartbeat_tasks.pop(websocket, None)
         if task:
             task.cancel()
+            
+        self._connection_states.pop(websocket, None)
 
         logger.info(f"WebSocket disconnected: session={session_id}")
 
     async def send_event(self, websocket: WebSocket, event: StreamEvent) -> None:
         """Send a StreamEvent as JSON to a single connection."""
         if websocket.client_state == WebSocketState.CONNECTED:
+            if event.message_id:
+                self._connection_states[websocket]["message_id"] = event.message_id
+            if event.run_id:
+                self._connection_states[websocket]["run_id"] = event.run_id
+            
+            # Increment and attach sequence number
+            seq = self._connection_states[websocket].get("seq", 0) + 1
+            self._connection_states[websocket]["seq"] = seq
+            event.seq = seq
+                
             try:
                 await websocket.send_json(event.model_dump(exclude_none=True))
             except Exception:
