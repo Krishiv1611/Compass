@@ -21,5 +21,5 @@ COPY . .
 # Expose FastAPI port
 EXPOSE 8000
 
-# Run Uvicorn
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run Uvicorn (bind to PORT environment variable for cloud platforms like Render/Cloud Run)
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
