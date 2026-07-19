@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
 import {
   Check,
   Code2,
@@ -10,11 +9,14 @@ import {
   Info,
   Loader2,
   RotateCcw,
-  TerminalSquare,
   Save,
+  PanelLeftClose,
+  PanelRightClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import FileExplorer, { type FileNode } from "./FileExplorer";
 import { useTheme } from "@/components/ThemeProvider";
@@ -23,14 +25,18 @@ import Modal from "@/components/ui/modal";
 import DiffReviewPanel from "./DiffReviewPanel";
 import WorkspaceLanding from "./WorkspaceLanding";
 import WorkspaceHeader from "./WorkspaceHeader";
-
-
+import CodeMirrorEditor from "./CodeMirrorEditor";
+import { Allotment } from "allotment";
+import "allotment/dist/style.css";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface CodeSandboxProps {
   initialCode?: string;
   language?: string;
   sessionId: string | null;
   ensureSession: (title?: string) => Promise<string>;
+  chatPanel?: React.ReactNode;
+  timelinePanel?: React.ReactNode;
 }
 
 const ignoredNames = new Set([
@@ -61,7 +67,7 @@ const findFirstFile = (nodes: FileNode[]): FileNode | null => {
 };
 
 
-export default function CodeSandbox({ initialCode = "", language = "typescript", sessionId, ensureSession }: CodeSandboxProps) {
+export default function CodeSandbox({ initialCode = "", language = "typescript", sessionId, ensureSession, chatPanel, timelinePanel }: CodeSandboxProps) {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [projectSelected, setProjectSelected] = useState(false);
   const [projectName, setProjectName] = useState("No folder open");
@@ -70,8 +76,8 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
   const [code, setCode] = useState(initialCode);
   const [originalCode, setOriginalCode] = useState(initialCode);
   const [copied, setCopied] = useState(false);
-  const [output, setOutput] = useState("Open a folder to inspect real project files.");
   const [showPatches, setShowPatches] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
   const [pendingPatchCount, setPendingPatchCount] = useState(0);
 
   // Dialog states
@@ -87,7 +93,6 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { theme } = useTheme();
 
-  const monacoTheme = theme === "light" ? "vs-light" : "vs-dark";
   const activeLanguage = useMemo(
     () => languageFromName(activeFile?.name || "", language),
     [activeFile?.name, language]
@@ -104,7 +109,7 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
       setActiveFile(file);
       setCode(text);
       setOriginalCode(text);
-      setOutput(`Loaded ${file.path}\nLanguage: ${languageFromName(file.name, language)}\nSize: ${text.length.toLocaleString()} characters`);
+      setShowEditor(true);
     } catch (error: any) {
       toast.error(error?.response?.data?.detail || error?.message || "Could not read file");
     } finally {
@@ -123,7 +128,6 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
       setActiveFile(null);
       setCode("");
       setOriginalCode("");
-      setOutput("Folder opened, but no readable files were found in the first scan.");
     }
   }, [loadFile]);
 
@@ -315,7 +319,7 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
 
   const handleReset = () => {
     setCode(originalCode);
-    setOutput(activeFile ? `Reset ${activeFile.path} to last loaded content.` : "Nothing to reset.");
+    if (activeFile) toast.info(`Reset ${activeFile.path}`);
   };
 
   const handleSave = useCallback(async () => {
@@ -326,7 +330,6 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
       await workspaceApi.updateFile(activeWorkspaceId, activeFile.path, code);
       setOriginalCode(code);
       toast.success("Saved");
-      setOutput(`Saved ${activeFile.path}`);
     } catch (error: any) {
       toast.error(error?.response?.data?.detail || error?.message || "Could not save file");
     }
@@ -345,13 +348,7 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
 
   const inspectFile = () => {
     if (!activeFile) return;
-    setOutput([
-      `File: ${activeFile.path}`,
-      `Language: ${activeLanguage}`,
-      `Lines: ${code.split("\n").length}`,
-      `Characters: ${code.length.toLocaleString()}`,
-      code !== originalCode ? "State: edited in sandbox" : "State: unchanged",
-    ].join("\n"));
+    toast.info(`File: ${activeFile.path} | Language: ${activeLanguage} | Lines: ${code.split("\n").length}`);
   };
 
   // Auto-refresh tree when agent signals "done"
@@ -373,196 +370,221 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
   }, [activeWorkspaceId, refreshPatchCount, refreshTree]);
 
   useEffect(() => {
-    const openReview = () => setShowPatches(true);
+    const openReview = () => {
+      setShowPatches(true);
+      setShowEditor(true);
+    };
     window.addEventListener("review-patches-request", openReview);
     return () => window.removeEventListener("review-patches-request", openReview);
   }, []);
 
   if (!projectSelected) {
     return (
-      <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-panel">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={handleFolderUpload}
-          {...{ webkitdirectory: "" }}
-        />
-        <div className="flex h-11 items-center justify-between border-b border-border px-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            <Code2 className="h-4 w-4" /> Code Sandbox
+      <Allotment>
+        <Allotment.Pane>
+          <div className="flex h-full flex-col overflow-hidden bg-card border-r border-border">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFolderUpload}
+              {...{ webkitdirectory: "" }}
+            />
+            <div className="flex h-11 items-center justify-between border-b border-border px-3">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <Code2 className="h-4 w-4" /> Code Sandbox
+              </div>
+              <Badge variant="outline">idle</Badge>
+            </div>
+            <WorkspaceLanding
+              sessionId={sessionId}
+              ensureSession={ensureSession}
+              onWorkspaceReady={(wsId, name) => {
+                setActiveWorkspaceId(wsId);
+                refreshTree(wsId).then(() => {
+                  setProjectName(name);
+                  setProjectSelected(true);
+                  setShowEditor(false);
+                });
+              }}
+              onOpenFolder={openFolder}
+            />
           </div>
-          <Badge variant="outline">idle</Badge>
-        </div>
-        <WorkspaceLanding
-          sessionId={sessionId}
-          ensureSession={ensureSession}
-          onWorkspaceReady={(wsId, name) => {
-            setActiveWorkspaceId(wsId);
-            refreshTree(wsId).then(() => {
-              setProjectName(name);
-              setProjectSelected(true);
-            });
-          }}
-          onOpenFolder={openFolder}
-        />
-      </div>
+        </Allotment.Pane>
+        {chatPanel && (
+          <Allotment.Pane preferredSize={400} minSize={300}>
+            {chatPanel}
+          </Allotment.Pane>
+        )}
+      </Allotment>
     );
   }
 
   return (
-    <div className="flex h-full overflow-hidden rounded-lg border border-border bg-panel">
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={handleFolderUpload}
-        {...{ webkitdirectory: "" }}
-      />
-
-      <div className="hidden w-56 shrink-0 border-r border-border bg-sidebar/80 md:flex md:flex-col">
-        <WorkspaceHeader
-          workspaceId={activeWorkspaceId!}
-          projectName={projectName}
-          onRefresh={() => refreshTree(activeWorkspaceId!)}
-        />
-        <div className="bg-primary/10 border-b border-primary/20 px-3 py-1.5 text-[10px] text-primary/80 font-medium">
-          Workspace is an isolated copy. Use <FolderDown className="inline h-3 w-3 mx-0.5" /> to download.
-        </div>
-        <FileExplorer 
-          files={files} 
-          onFileSelect={loadFile} 
-          activePath={activeFile?.path} 
-          projectName={projectName}
-          onCreate={handleCreate}
-          onRename={handleRename}
-          onDelete={handleDelete}
-        />
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-header px-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <FileCode2 className="h-4 w-4 text-primary" />
-            <span className="truncate text-xs font-medium text-muted-foreground">
-              {showPatches ? "Patch Review" : (activeFile?.path || projectName)}
-            </span>
-            {isDirty && <Badge variant="secondary" className="ml-2 h-5 rounded-sm px-1.5 text-[10px]">Unsaved</Badge>}
-            {isLoadingFile && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant={showPatches ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={() => setShowPatches(!showPatches)}>
-              {showPatches ? "Close Patches" : "Review Patches"}
-              {pendingPatchCount > 0 && <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px]">{pendingPatchCount}</Badge>}
-            </Button>
-            {activeWorkspaceId && (
-              <Button variant="ghost" size="icon-sm" onClick={() => window.open(workspaceApi.getDownloadUrl(activeWorkspaceId))} title="Download Project">
-                <FolderDown className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            <Button variant="ghost" size="icon-sm" onClick={openFolder} title="Open folder">
-              <FolderOpen className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" onClick={handleSave} title="Save file (Ctrl+S)" disabled={!isDirty || !activeFile}>
-              <Save className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" onClick={handleReset} title="Reset sandbox code">
-              <RotateCcw className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" onClick={handleCopy} title="Copy code">
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-            </Button>
-            <Button variant="secondary" size="sm" className="h-7" onClick={inspectFile} disabled={!activeFile}>
-              <Info className="mr-1.5 h-3.5 w-3.5" /> Inspect
-            </Button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1">
-          {showPatches && activeWorkspaceId ? (
-            <DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => refreshPatchCount(activeWorkspaceId)} />
-          ) : (
-            <Editor
-              height="100%"
-              language={activeLanguage}
-              theme={monacoTheme}
-              value={code}
-              onChange={(value) => setCode(value || "")}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-                lineHeight: 21,
-                padding: { top: 14 },
-                scrollBeyondLastLine: false,
-                smoothScrolling: true,
-                renderLineHighlight: "line",
-                wordWrap: "on",
-                readOnly: !activeFile,
-              }}
+    <>
+      <Allotment defaultSizes={[250, 750, 400]}>
+        {/* File Explorer & Timeline Pane */}
+        <Allotment.Pane preferredSize={250} minSize={200} maxSize={400}>
+          <div className="flex h-full flex-col border-r border-border bg-sidebar/80 relative">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFolderUpload}
+              {...{ webkitdirectory: "" }}
             />
-          )}
-        </div>
 
-        <div className="h-32 shrink-0 border-t border-border bg-background/70">
-          <div className="flex h-8 items-center border-b border-border px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            <TerminalSquare className="mr-2 h-3.5 w-3.5" /> Sandbox Output
+            <Tabs defaultValue="sandbox" className="flex h-full flex-col w-full">
+              <div className="px-3 pt-3 flex items-center justify-between border-b border-border/50 pb-2">
+                <TabsList className="grid grid-cols-2 w-full max-w-48">
+                  <TabsTrigger value="sandbox">Files</TabsTrigger>
+                  <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                </TabsList>
+                
+                {!showEditor && (
+                  <Button variant="ghost" size="icon-sm" onClick={() => setShowEditor(true)} title="Show Editor">
+                    <PanelLeftOpen className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </Button>
+                )}
+              </div>
+              
+              <TabsContent value="sandbox" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden p-0 flex flex-col">
+                <WorkspaceHeader
+                  workspaceId={activeWorkspaceId!}
+                  projectName={projectName}
+                  onRefresh={() => refreshTree(activeWorkspaceId!)}
+                />
+                <div className="bg-muted border-b border-border px-3 py-1.5 text-[10px] text-muted-foreground font-medium">
+                  Workspace is an isolated copy.
+                </div>
+                <FileExplorer 
+                  files={files} 
+                  onFileSelect={loadFile} 
+                  activePath={activeFile?.path} 
+                  projectName={projectName}
+                  onCreate={handleCreate}
+                  onRename={handleRename}
+                  onDelete={handleDelete}
+                />
+              </TabsContent>
+              
+              <TabsContent value="timeline" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden p-0">
+                {timelinePanel}
+              </TabsContent>
+            </Tabs>
           </div>
-          <pre className="h-[calc(100%-2rem)] overflow-auto p-3 font-mono text-xs leading-5 text-muted-foreground">{output}</pre>
-        </div>
-      </div>
+        </Allotment.Pane>
+
+        {/* Editor Pane */}
+        <Allotment.Pane visible={showEditor}>
+          <div className="flex min-w-0 flex-1 flex-col h-full border-r border-border bg-card">
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <Button variant="ghost" size="icon-sm" className="-ml-1 text-muted-foreground hover:text-foreground" onClick={() => setShowEditor(false)} title="Hide Editor">
+                  <PanelRightClose className="h-4 w-4" />
+                </Button>
+                <FileCode2 className="h-4 w-4 text-primary ml-1" />
+                <span className="truncate text-xs font-medium text-muted-foreground">
+                  {showPatches ? "Patch Review" : (activeFile?.path || "No file selected")}
+                </span>
+                {isDirty && <Badge variant="secondary" className="ml-2 h-5 rounded-sm px-1.5 text-[10px]">Unsaved</Badge>}
+                {isLoadingFile && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button variant={showPatches ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={() => setShowPatches(!showPatches)}>
+                  {showPatches ? "Close Patches" : "Review Patches"}
+                  {pendingPatchCount > 0 && <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px]">{pendingPatchCount}</Badge>}
+                </Button>
+                <Button variant="ghost" size="icon-sm" onClick={handleSave} title="Save file (Ctrl+S)" disabled={!isDirty || !activeFile}>
+                  <Save className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon-sm" onClick={handleCopy} title="Copy code" disabled={!activeFile && !showPatches}>
+                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1">
+              {showPatches && activeWorkspaceId ? (
+                <DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => refreshPatchCount(activeWorkspaceId)} />
+              ) : activeFile ? (
+                <CodeMirrorEditor
+                  language={activeLanguage}
+                  code={code}
+                  onChange={(value) => setCode(value || "")}
+                  readOnly={false}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  Select a file to view its code
+                </div>
+              )}
+            </div>
+          </div>
+        </Allotment.Pane>
+
+        {/* Chat Pane */}
+        {chatPanel && (
+          <Allotment.Pane preferredSize={400} minSize={300}>
+            {chatPanel}
+          </Allotment.Pane>
+        )}
+      </Allotment>
 
       {/* Create Dialog */}
       <Modal
         open={!!createDialog}
         onClose={() => setCreateDialog(null)}
-        ariaLabel={`Create ${createDialog?.type ?? "item"}`}
+        ariaLabel="Create file or folder"
       >
         <h3 className="text-lg font-semibold mb-4">
-          Create {createDialog?.type === "folder" ? "Folder" : "File"}
+          Create new {createDialog?.type}
         </h3>
-        <form onSubmit={executeCreate} className="flex flex-col gap-4">
-          <input
-            autoFocus
-            type="text"
+        <div className="space-y-4">
+          <Input
             value={createName}
             onChange={(e) => setCreateName(e.target.value)}
-            placeholder="Name"
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            placeholder={`Enter ${createDialog?.type} name`}
+            onKeyDown={(e) => e.key === "Enter" && executeCreate()}
+            autoFocus
           />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setCreateDialog(null)}>
+            <Button variant="ghost" onClick={() => setCreateDialog(null)}>
               Cancel
             </Button>
-            <Button type="submit">Create</Button>
+            <Button onClick={executeCreate} disabled={!createName.trim()}>
+              Create
+            </Button>
           </div>
-        </form>
+        </div>
       </Modal>
 
       {/* Rename Dialog */}
       <Modal
         open={!!renameDialog}
         onClose={() => setRenameDialog(null)}
-        ariaLabel="Rename file"
+        ariaLabel="Rename file or folder"
       >
         <h3 className="text-lg font-semibold mb-4">Rename</h3>
-        <form onSubmit={executeRename} className="flex flex-col gap-4">
-          <input
-            autoFocus
-            type="text"
+        <div className="space-y-4">
+          <Input
             value={renameName}
             onChange={(e) => setRenameName(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            placeholder="New name"
+            onKeyDown={(e) => e.key === "Enter" && executeRename()}
+            autoFocus
           />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setRenameDialog(null)}>
+            <Button variant="ghost" onClick={() => setRenameDialog(null)}>
               Cancel
             </Button>
-            <Button type="submit">Rename</Button>
+            <Button onClick={executeRename} disabled={!renameName.trim() || renameName === renameDialog?.split("/").pop()}>
+              Rename
+            </Button>
           </div>
-        </form>
+        </div>
       </Modal>
 
       {/* Delete Dialog */}
@@ -585,9 +607,6 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
           </Button>
         </div>
       </Modal>
-    </div>
+    </>
   );
 }
-
-
-

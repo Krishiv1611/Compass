@@ -17,18 +17,13 @@ import {
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import Modal from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { settingsApi, toolsApi, uploadsApi, authApi } from "@/api";
 import { useTheme } from "@/components/ThemeProvider";
+import McpServerManager from "./McpServerManager";
 
 type SettingsDrawerProps = {
   open: boolean;
@@ -53,9 +48,13 @@ type UploadInfo = {
 
 const defaultSettings = {
   theme: "dark",
+  llm_provider: "openrouter",
+  llm_api_key: "",
   model: "google/gemma-4-31b-it:free",
   language: "en",
   guardrails_enabled: true,
+  safe_mode: false,
+  fast_mode: false,
   long_term_memory: [] as string[],
 };
 
@@ -67,7 +66,7 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
 }
 
-export default function SettingsDrawer({
+export default function SettingsModal({
   open,
   onOpenChange,
   user,
@@ -175,20 +174,16 @@ export default function SettingsDrawer({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="flex h-full flex-col w-full border-l border-border bg-card p-0 sm:max-w-[540px]"
-        showCloseButton
-      >
-        <SheetHeader className="border-b border-border px-5 py-4 shrink-0">
-          <SheetTitle className="flex items-center gap-2 text-sm font-semibold">
-            <Settings className="h-4 w-4 text-primary" /> Settings
-          </SheetTitle>
-          <SheetDescription className="text-xs">
+    <Modal open={open} onClose={() => onOpenChange(false)} maxWidth="max-w-2xl" showClose>
+      <div className="flex h-[85vh] max-h-[800px] flex-col w-full bg-card overflow-hidden rounded-xl">
+        <div className="border-b border-border px-5 py-4 shrink-0 bg-background/50">
+          <div className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Settings className="h-5 w-5 text-primary" /> Settings
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
             Account, model defaults, attachments, and agent capabilities.
-          </SheetDescription>
-        </SheetHeader>
+          </p>
+        </div>
 
         {/* Account section — always visible */}
         <div className="px-5 pt-4 shrink-0">
@@ -237,7 +232,7 @@ export default function SettingsDrawer({
         ) : (
           <Tabs defaultValue="defaults" className="flex flex-col flex-1 min-h-0">
             <div className="px-5 pt-3 shrink-0">
-              <TabsList className="w-full grid grid-cols-3">
+              <TabsList className="w-full grid grid-cols-4">
                 <TabsTrigger value="defaults">Defaults</TabsTrigger>
                 <TabsTrigger value="attachments">
                   Attachments
@@ -247,9 +242,22 @@ export default function SettingsDrawer({
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger value="mcp">MCP Servers</TabsTrigger>
                 <TabsTrigger value="tools">Tools</TabsTrigger>
               </TabsList>
             </div>
+
+            {/* ── MCP Servers Tab ──────────────────────────────────────────── */}
+            <TabsContent
+              value="mcp"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full px-5 py-4">
+                <div className="mx-auto max-w-2xl pb-6">
+                  <McpServerManager />
+                </div>
+              </ScrollArea>
+            </TabsContent>
 
             {/* ── Defaults Tab ──────────────────────────────────────────── */}
             <TabsContent
@@ -266,29 +274,45 @@ export default function SettingsDrawer({
                     <div className="grid gap-3">
                       <div className="grid grid-cols-2 gap-3">
                         <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                          Model
-                          <Input
-                            value={settings.model || ""}
+                          LLM Provider
+                          <select
+                            value={settings.llm_provider || "openrouter"}
                             onChange={(e) =>
-                              setSettings((p) => ({ ...p, model: e.target.value }))
+                              setSettings((p) => ({ ...p, llm_provider: e.target.value }))
                             }
-                            className="h-9"
-                            placeholder="e.g. google/gemma-4-31b-it:free"
-                          />
+                            className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                          >
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="groq">Groq</option>
+                            <option value="gemini">Gemini</option>
+                          </select>
                         </label>
                         <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                          OpenRouter API Key
+                          API Key
                           <Input
                             type="password"
-                            value={settings.api_key || ""}
+                            value={settings.llm_api_key || settings.api_key || ""}
                             onChange={(e) =>
-                              setSettings((p) => ({ ...p, api_key: e.target.value }))
+                              setSettings((p) => ({ ...p, llm_api_key: e.target.value, api_key: e.target.value }))
                             }
                             className="h-9"
-                            placeholder="sk-or-v1-..."
+                            placeholder="sk-..."
                           />
                         </label>
                       </div>
+                      <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+                        Model Name
+                        <Input
+                          value={settings.model || ""}
+                          onChange={(e) =>
+                            setSettings((p) => ({ ...p, model: e.target.value }))
+                          }
+                          className="h-9"
+                          placeholder="e.g. gpt-4o, claude-3-opus-20240229"
+                        />
+                      </label>
                       <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                         Workspace Directory
                         <Input
@@ -398,6 +422,45 @@ export default function SettingsDrawer({
                           />
                         </button>
                       </label>
+                    </div>
+
+                    <div className="mt-4 border-t border-border pt-4">
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div>
+                          <div className="text-sm font-medium text-amber-500">Fast Mode (Latency Bypass)</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Bypass all guardrails & safety approvals for extreme speed.
+                          </div>
+                        </div>
+                        <button
+                          role="switch"
+                          aria-checked={settings.fast_mode === true}
+                          onClick={() =>
+                            setSettings((p) => ({
+                              ...p,
+                              fast_mode: !p.fast_mode,
+                            }))
+                          }
+                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                            settings.fast_mode === true
+                              ? "bg-amber-500"
+                              : "bg-muted-foreground/30"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                              settings.fast_mode === true
+                                ? "translate-x-4"
+                                : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </label>
+                      {settings.fast_mode === true && (
+                        <div className="mt-3 text-[10px] leading-relaxed text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md p-2.5">
+                          ⚠️ WARNING: Fast Mode disables safety filters and human-in-the-loop approvals. The agent will execute shell commands and file changes instantly without verification. Use with caution.
+                        </div>
+                      )}
                     </div>
                   </section>
 
@@ -566,7 +629,7 @@ export default function SettingsDrawer({
             Save Settings
           </Button>
         </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </Modal>
   );
 }

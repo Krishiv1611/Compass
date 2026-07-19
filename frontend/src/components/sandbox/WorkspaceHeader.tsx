@@ -81,24 +81,14 @@ export default function WorkspaceHeader({
         <span className="truncate text-xs font-medium text-foreground">
           {projectName}
         </span>
-        {meta && (
-          <>
-            <Badge
-              variant="outline"
-              className={`h-5 rounded-sm px-1.5 text-[10px] ${statusColor}`}
-            >
-              {meta.status === "uploading" && (
-                <Loader2 className="h-2.5 w-2.5 animate-spin mr-0.5" />
-              )}
-              {meta.status}
-            </Badge>
-            <span className="hidden text-[10px] text-muted-foreground sm:flex items-center gap-1">
-              <FileText className="h-3 w-3" />
-              {meta.file_count} files
-              <Info className="h-3 w-3 ml-1" />
-              {formatBytes(meta.size_bytes)}
-            </span>
-          </>
+        {meta?.status === "uploading" && (
+          <Badge
+            variant="outline"
+            className={`h-5 rounded-sm px-1.5 text-[10px] ${statusColor}`}
+          >
+            <Loader2 className="h-2.5 w-2.5 animate-spin mr-0.5" />
+            uploading
+          </Badge>
         )}
       </div>
 
@@ -118,7 +108,13 @@ export default function WorkspaceHeader({
         <Button
           variant="ghost"
           size="icon-sm"
-          onClick={() => window.open(workspaceApi.getDownloadUrl(workspaceId))}
+          onClick={async () => {
+            try {
+              await workspaceApi.downloadWorkspace(workspaceId);
+            } catch (err) {
+              console.error("Download failed", err);
+            }
+          }}
           title="Download workspace as ZIP"
           aria-label="Download workspace as ZIP"
           className="focus-visible:ring-2 focus-visible:ring-primary/40"

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { runsApi } from "@/api";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -53,18 +53,24 @@ function toolArgs(event: any): any {
 function eventLabel(event: LiveRunEvent) {
   const name = toolName(event);
   const args = toolArgs(event);
-  if (event.type === "approval_required") return { icon: AlertTriangle, label: "Scroll to approve", tone: "text-red-500" };
-  if (event.type === "loop_detected") return { icon: AlertTriangle, label: `Retrying (attempt ${event.data?.loop_count || 1}/3)`, tone: "text-amber-500" };
-  if (event.type === "done") return { icon: CheckCircle2, label: "Completed", tone: "text-green-500" };
-  if (event.type === "error") return { icon: XCircle, label: event.content || "Error", tone: "text-red-500" };
+  
+  // Safely extract string content if event.content is an object (due to DB serialization)
+  const safeContentString = event.content 
+    ? (typeof event.content === "string" ? event.content : event.content.content || JSON.stringify(event.content))
+    : "";
+
+  if (event.type === "approval_required") return { icon: AlertTriangle, label: "Scroll to approve", tone: "text-destructive" };
+  if (event.type === "loop_detected") return { icon: AlertTriangle, label: `Retrying (attempt ${event.data?.loop_count || 1}/3)`, tone: "text-muted-foreground" };
+  if (event.type === "done") return { icon: CheckCircle2, label: "Completed", tone: "text-primary" };
+  if (event.type === "error") return { icon: XCircle, label: safeContentString || "Error", tone: "text-destructive" };
   if (event.type === "plan_created") return { icon: Circle, label: "Plan created", tone: "text-primary" };
-  if (event.type === "tool_result") return { icon: CheckCircle2, label: "Tool completed", tone: "text-green-500" };
-  if (name === "read_file") return { icon: FileText, label: `Reading: ${args.path || args.file_path || "file"}`, tone: "text-blue-500" };
-  if (name === "write_to_file") return { icon: FilePenLine, label: `Writing: ${args.path || "file"}`, tone: "text-amber-500" };
-  if (name === "edit_file") return { icon: FilePenLine, label: `Editing: ${args.path || "file"}`, tone: "text-amber-500" };
-  if (name === "shell_execute") return { icon: Terminal, label: `Running: ${args.command || "command"}`, tone: "text-amber-500" };
-  if (name === "web_search") return { icon: Wifi, label: `Searching: ${args.query || "web"}`, tone: "text-cyan-500" };
-  if (name === "grep_search") return { icon: Search, label: `Searching: ${args.pattern || args.query || "workspace"}`, tone: "text-cyan-500" };
+  if (event.type === "tool_result") return { icon: CheckCircle2, label: "Tool completed", tone: "text-muted-foreground" };
+  if (name === "read_file") return { icon: FileText, label: `Reading: ${args.path || args.file_path || "file"}`, tone: "text-foreground" };
+  if (name === "write_to_file") return { icon: FilePenLine, label: `Writing: ${args.path || "file"}`, tone: "text-foreground" };
+  if (name === "edit_file") return { icon: FilePenLine, label: `Editing: ${args.path || "file"}`, tone: "text-foreground" };
+  if (name === "shell_execute") return { icon: Terminal, label: `Running: ${args.command || "command"}`, tone: "text-foreground" };
+  if (name === "web_search") return { icon: Wifi, label: `Searching: ${args.query || "web"}`, tone: "text-foreground" };
+  if (name === "grep_search") return { icon: Search, label: `Searching: ${args.pattern || args.query || "workspace"}`, tone: "text-foreground" };
   return { icon: Wrench, label: event.type === "tool_call" ? `Using: ${name}` : event.type, tone: "text-muted-foreground" };
 }
 
@@ -79,12 +85,12 @@ function EventRow({ event }: { event: LiveRunEvent }) {
           <Icon className="h-3 w-3" /> {meta.label}
         </div>
         {event.type === "tool_call" && Object.keys(toolArgs(event)).length > 0 && (
-          <div className="mt-1 overflow-x-auto rounded bg-background/50 p-1.5 font-mono text-[10px] text-muted-foreground">
+          <div className="mt-1 overflow-x-auto rounded-md bg-card border border-border/50 p-2 font-mono text-[10px] text-muted-foreground shadow-sm">
             {JSON.stringify(toolArgs(event), null, 2)}
           </div>
         )}
         {event.type === "tool_result" && event.content && (
-          <div className="mt-1 line-clamp-3 overflow-hidden rounded bg-background/50 p-1.5 font-mono text-[10px] text-muted-foreground">
+          <div className="mt-1 line-clamp-3 overflow-hidden rounded-md bg-card border border-border/50 p-2 font-mono text-[10px] text-muted-foreground shadow-sm">
             {typeof event.content === "string" ? event.content : event.content?.content}
           </div>
         )}
@@ -167,9 +173,9 @@ export default function RunTimeline({ sessionId }: { sessionId: string | null })
                 </div>
                 <div className="flex items-center gap-2">
                   {tokenLabel && <Badge variant="outline" className="text-muted-foreground">{tokenLabel}</Badge>}
-                  {run.status === "completed" && <Badge variant="outline" className="border-green-500/30 bg-green-500/10 text-green-500"><CheckCircle2 className="mr-1 h-3 w-3" />Completed</Badge>}
-                  {run.status === "error" && <Badge variant="outline" className="border-red-500/30 bg-red-500/10 text-red-500"><XCircle className="mr-1 h-3 w-3" />Error</Badge>}
-                  {run.status === "running" && <Badge variant="outline" className="border-blue-500/30 bg-blue-500/10 text-blue-500"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Running</Badge>}
+                  {run.status === "completed" && <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary"><CheckCircle2 className="mr-1 h-3 w-3" />Completed</Badge>}
+                  {run.status === "error" && <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive"><XCircle className="mr-1 h-3 w-3" />Error</Badge>}
+                  {run.status === "running" && <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Running</Badge>}
                 </div>
               </div>
 

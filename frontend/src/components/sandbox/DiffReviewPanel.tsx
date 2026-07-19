@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DiffEditor } from "@monaco-editor/react";
+import ReactDiffViewer from "react-diff-viewer-continued";
 import { CheckCircle, Download, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,6 @@ export default function DiffReviewPanel({ workspaceId, onResolved }: PatchReview
   const [patches, setPatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
-  const monacoTheme = theme === "light" ? "vs-light" : "vs-dark";
 
   const fetchPatches = async () => {
     try {
@@ -153,14 +152,14 @@ export default function DiffReviewPanel({ workspaceId, onResolved }: PatchReview
                     <span className="font-mono text-xs font-bold uppercase text-muted-foreground">{change.type}</span>
                     <span className="font-mono text-xs text-foreground">{change.path}</span>
                   </div>
-                  <div className="h-[280px] overflow-hidden rounded border border-border">
-                    <DiffEditor
-                      height="100%"
-                      language="typescript"
-                      theme={monacoTheme}
-                      original={originalContent}
-                      modified={modifiedContent}
-                      options={{ readOnly: true, minimap: { enabled: false }, renderSideBySide: true, fontSize: 12 }}
+                  <div className="overflow-hidden rounded border border-border bg-card">
+                    <ReactDiffViewer
+                      oldValue={originalContent}
+                      newValue={modifiedContent}
+                      splitView={true}
+                      useDarkTheme={theme === "dark"}
+                      leftTitle="Original"
+                      rightTitle="Modified"
                     />
                   </div>
                 </div>

@@ -34,68 +34,59 @@
 /* ─── Light mode ──────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background: #f5f6fa;
-    --card: #ffffff;
-    --sidebar: #f0f1f6;
-    --border: #e4e5ec;
-    --muted: #f0f1f6;
-    --primary: #4f46e5;
-    --primary-foreground: #ffffff;
-    --accent: #7c3aed;
-    --muted-foreground: #6b7280;
-    --foreground: #111215;
-    --ring: #4f46e5;
-    --header: rgba(245, 246, 250, 0.85);
-
-    /* Legacy aliases kept for backward compat */
-    --bg: var(--background);
-    --fg: var(--foreground);
-    --card-fg: var(--foreground);
-    --primary-fg: var(--primary-foreground);
-    --secondary: var(--muted);
-    --secondary-fg: var(--foreground);
-    --muted-fg: var(--muted-foreground);
-    --accent-fg: var(--foreground);
-    --destructive: #ef4444;
-    --destructive-fg: #ffffff;
-    --input: var(--border);
-    --sidebar-fg: var(--foreground);
-    --panel: var(--card);
+    --radius: 0.475rem;
+    --background: #0a0a0a;
+    --foreground: #fafafa;
+    --card: #0a0a0a;
+    --card-foreground: #fafafa;
+    --popover: #0a0a0a;
+    --popover-foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #171717;
+    --secondary: #27272a;
+    --secondary-foreground: #fafafa;
+    --muted: #27272a;
+    --muted-foreground: #a1a1aa;
+    --accent: #27272a;
+    --accent-foreground: #fafafa;
+    --destructive: #7f1d1d;
+    --border: #27272a;
+    --input: #27272a;
+    --ring: #d4d4d8;
+    --sidebar: #0a0a0a;
+    --sidebar-foreground: #fafafa;
+    
+    --header: rgba(10, 10, 10, 0.85);
   }
 
   /* ─── Dark mode ─────────────────────────────────────────────────────────── */
   .dark {
-    --background: #0f0b15;
-    --card: #161320;
-    --sidebar: #120e1a;
-    --border: #2c253e;
-    --muted: #241d33;
-    --primary: #9333ea;
-    --primary-foreground: #ffffff;
-    --accent: #a855f7;
-    --muted-foreground: #8b7fa3;
-    --foreground: #f3effc;
-    --ring: #9333ea;
-    --header: rgba(15, 11, 21, 0.8);
-
-    /* Legacy aliases */
-    --bg: var(--background);
-    --fg: var(--foreground);
-    --card-fg: var(--foreground);
-    --primary-fg: var(--primary-foreground);
-    --secondary: var(--muted);
-    --secondary-fg: var(--foreground);
-    --muted-fg: var(--muted-foreground);
-    --accent-fg: var(--foreground);
-    --destructive: #ef4444;
-    --destructive-fg: #ffffff;
-    --input: var(--border);
-    --sidebar-fg: var(--foreground);
-    --panel: var(--card);
+    --background: #0a0a0a;
+    --foreground: #fafafa;
+    --card: #0a0a0a;
+    --card-foreground: #fafafa;
+    --popover: #0a0a0a;
+    --popover-foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #171717;
+    --secondary: #27272a;
+    --secondary-foreground: #fafafa;
+    --muted: #27272a;
+    --muted-foreground: #a1a1aa;
+    --accent: #27272a;
+    --accent-foreground: #fafafa;
+    --destructive: #7f1d1d;
+    --border: #27272a;
+    --input: #27272a;
+    --ring: #d4d4d8;
+    --sidebar: #0a0a0a;
+    --sidebar-foreground: #fafafa;
+    
+    --header: rgba(10, 10, 10, 0.85);
   }
 
   *, ::after, ::before, ::backdrop, ::file-selector-button {
-    border-color: var(--color-border);
+    border-color: var(--border);
   }
 
   html,
@@ -262,4 +253,34 @@ a,
   border: 1px solid rgba(168, 85, 247, 0.2);
   border-radius: 1.2rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes cell-ripple {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+.animate-cell-ripple {
+  animation: cell-ripple 200ms ease-out none 1 0ms;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 8s ease-in-out infinite;
+  background-size: 200% auto;
 }

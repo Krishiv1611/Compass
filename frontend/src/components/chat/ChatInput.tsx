@@ -3,7 +3,7 @@ import { File as FileIcon, GitCommit, Loader2, Paperclip, Send, Sparkles, X, Zap
 import { Button } from "@/components/ui/button";
 
 interface ChatInputProps {
-  onSend: (message: string, files: File[], mode: "normal" | "plan") => void;
+  onSend: (message: string, files: File[], mode: "normal" | "plan" | "fast") => void;
   isLoading?: boolean;
 }
 
@@ -11,7 +11,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   const [input, setInput] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [mode, setMode] = useState<"normal" | "plan">("normal");
+  const [mode, setMode] = useState<"normal" | "plan" | "fast">("normal");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = () => {
@@ -106,21 +106,17 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-3 h-8" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
               <Paperclip className="h-4 w-4 mr-1.5" /> Attach
             </Button>
-            <div className="flex items-center">
-              <button
-                className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-all duration-300 ${mode === "normal" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
-                onClick={() => setMode("normal")}
+            <div className="flex items-center ml-2">
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as any)}
                 disabled={isLoading}
+                className="h-8 rounded-full bg-background/50 px-3 py-0 text-xs font-medium text-muted-foreground outline-none hover:bg-background hover:text-foreground focus:ring-2 focus:ring-primary/20 transition-all border border-border appearance-none cursor-pointer pr-8 bg-no-repeat bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%236b7280%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:14px_14px] bg-[right_8px_center]"
               >
-                <Zap className="h-3.5 w-3.5" /> Normal
-              </button>
-              <button
-                className={`flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-all duration-300 ${mode === "plan" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
-                onClick={() => setMode("plan")}
-                disabled={isLoading}
-              >
-                <GitCommit className="h-3.5 w-3.5" /> Plan
-              </button>
+                <option value="normal">⚡ Normal - Balanced speed and standard safety checks</option>
+                <option value="plan">📝 Plan - Analyzes the request and creates a structured plan first</option>
+                <option value="fast">🚀 Fast - Bypasses safety checks for maximum speed</option>
+              </select>
             </div>
           </div>
 

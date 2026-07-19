@@ -139,7 +139,7 @@ export const chatApi = {
   sendMessage: async (
     sessionId: string,
     content: string,
-    mode: "normal" | "plan" = "normal"
+    mode: "normal" | "plan" | "fast" = "normal"
   ) => {
     const response = await api.post("/chat/send", {
       session_id: sessionId,
@@ -164,6 +164,18 @@ export const settingsApi = {
   },
   updateSettings: async (data: Record<string, unknown>) => {
     const response = await api.put("/settings", data);
+    return response.data;
+  },
+  getMcpServers: async () => {
+    const response = await api.get("/settings/mcp-servers");
+    return response.data;
+  },
+  updateMcpServers: async (data: any) => {
+    const response = await api.post("/settings/mcp-servers", data);
+    return response.data;
+  },
+  testMcpServer: async (name: string, config: any) => {
+    const response = await api.post("/settings/mcp-servers/test", { name, config });
     return response.data;
   },
 };
@@ -298,6 +310,27 @@ export const workspaceApi = {
   },
   getDownloadUrl: (workspaceId: string) => {
     return `${API_BASE_URL}/workspaces/${workspaceId}/download`;
+  },
+  downloadWorkspace: async (workspaceId: string) => {
+    const response = await api.get(`/workspaces/${workspaceId}/download`, {
+      responseType: 'blob',
+    });
+    let filename = `workspace.zip`;
+    const disposition = response.headers['content-disposition'];
+    if (disposition && disposition.indexOf('filename=') !== -1) {
+      const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+      if (matches != null && matches[1]) {
+        filename = matches[1].replace(/['"]/g, '');
+      }
+    }
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
   getPatches: async (workspaceId: string) => {
     const response = await api.get(`/workspaces/${workspaceId}/patches`);

@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import SettingsDrawer from "@/components/settings/SettingsDrawer";
+import SettingsModal from "@/components/settings/SettingsModal";
 import Modal from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { API_BASE_URL, authApi, sessionsApi } from "@/api";
@@ -359,7 +359,7 @@ export default function AppLayout() {
         </main>
       </div>
 
-      <SettingsDrawer
+      <SettingsModal
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         user={user}
