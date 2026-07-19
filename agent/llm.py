@@ -20,7 +20,6 @@ from typing import Any
 
 from langchain_openrouter import ChatOpenRouter
 from langchain_core.globals import set_llm_cache
-from langchain_redis import RedisCache
 
 from agent.config import settings
 
@@ -38,6 +37,7 @@ def _init_llm_cache():
         import concurrent.futures
         import redis
         from langchain_core.caches import InMemoryCache
+        from langchain_redis import RedisCache
 
         def _ping_redis():
             client = redis.Redis.from_url(

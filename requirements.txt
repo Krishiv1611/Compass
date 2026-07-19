@@ -4,6 +4,7 @@ langchain-openai
 langchain-openrouter
 langgraph
 langgraph-checkpoint-postgres
+langchain-redis
 
 # Configuration & Env
 pydantic
