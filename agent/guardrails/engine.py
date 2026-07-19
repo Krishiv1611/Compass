@@ -52,7 +52,7 @@ class GuardrailsEngine:
 
     async def check_input(self, user_message: str) -> GuardrailsResult:
         """Run input rails on a user message."""
-        if not self.enabled or not self.input_enabled:
+        if not self.enabled or not self.input_enabled or settings.get("fast_mode", False):
             return GuardrailsResult(safe=True)
 
         start_time = time.time()
@@ -74,9 +74,9 @@ class GuardrailsEngine:
             return GuardrailsResult(safe=True, latency_ms=latency_ms)
 
         except Exception as e:
-            logger.exception("Input guardrails failed")
             latency_ms = (time.time() - start_time) * 1000
             if self.fail_open:
+                logger.warning(f"Input guardrails failed (failing open): {e}")
                 logger.warning(f"Guardrails failed, failing open. Error: {e}")
                 return GuardrailsResult(safe=True, latency_ms=latency_ms)
             else:
@@ -88,7 +88,7 @@ class GuardrailsEngine:
 
     async def check_output(self, ai_response: str, context: Optional[dict] = None) -> GuardrailsResult:
         """Run output rails on an AI response."""
-        if not self.enabled or not self.output_enabled:
+        if not self.enabled or not self.output_enabled or settings.get("fast_mode", False):
             return GuardrailsResult(safe=True, sanitized=ai_response)
 
         start_time = time.time()
@@ -118,9 +118,9 @@ class GuardrailsEngine:
             )
 
         except Exception as e:
-            logger.exception("Output guardrails failed")
             latency_ms = (time.time() - start_time) * 1000
             if self.fail_open:
+                logger.warning(f"Output guardrails failed (failing open): {e}")
                 return GuardrailsResult(safe=True, sanitized=ai_response, latency_ms=latency_ms)
             else:
                 return GuardrailsResult(

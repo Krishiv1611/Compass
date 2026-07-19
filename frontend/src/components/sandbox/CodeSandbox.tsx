@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Check,
   Code2,
@@ -13,6 +14,9 @@ import {
   PanelLeftClose,
   PanelRightClose,
   PanelLeftOpen,
+  Globe,
+  MessageSquare,
+  Terminal as TerminalIcon,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
@@ -26,6 +30,8 @@ import DiffReviewPanel from "./DiffReviewPanel";
 import WorkspaceLanding from "./WorkspaceLanding";
 import WorkspaceHeader from "./WorkspaceHeader";
 import CodeMirrorEditor from "./CodeMirrorEditor";
+import WebPreview from "./WebPreview";
+import AgentStatePanel from "./AgentStatePanel";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -78,7 +84,11 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
   const [copied, setCopied] = useState(false);
   const [showPatches, setShowPatches] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewFiles, setPreviewFiles] = useState<any>(null);
   const [pendingPatchCount, setPendingPatchCount] = useState(0);
+  const [activeTab, setActiveTab] = useState("sandbox");
+  const [showChat, setShowChat] = useState(true);
 
   // Dialog states
   const [createDialog, setCreateDialog] = useState<{parentPath: string, type: "file"|"folder"} | null>(null);
@@ -98,6 +108,37 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
     [activeFile?.name, language]
   );
   const isDirty = code !== originalCode;
+
+  const exportFiles = async () => {
+    if (activeWorkspaceId) {
+      try {
+        const fsTree = await workspaceApi.exportWorkspaceJson(activeWorkspaceId);
+        setPreviewFiles(fsTree);
+      } catch (error) {
+        toast.error("Failed to load preview files");
+      }
+    }
+  };
+
+  const handleTogglePreview = () => {
+    if (!showPreview) {
+      exportFiles();
+      setShowPreview(true);
+      setShowChat(false);
+    } else {
+      setShowPreview(false);
+      setShowChat(true);
+    }
+  };
+
+  const handleToggleChat = () => {
+    if (!showChat) {
+      setShowChat(true);
+      setShowPreview(false);
+    } else {
+      setShowChat(false);
+    }
+  };
 
   const loadFile = useCallback(async (file: FileNode) => {
     if (file.type !== "file") return;
@@ -378,6 +419,14 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
     return () => window.removeEventListener("review-patches-request", openReview);
   }, []);
 
+  useEffect(() => {
+    const handleSetTab = (e: any) => {
+      if (e.detail?.tab) setActiveTab(e.detail.tab);
+    };
+    window.addEventListener("set-sandbox-tab", handleSetTab);
+    return () => window.removeEventListener("set-sandbox-tab", handleSetTab);
+  }, []);
+
   if (!projectSelected) {
     return (
       <Allotment>
@@ -421,8 +470,29 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
     );
   }
 
+  const headerActionsNode = document.getElementById("header-actions");
+
   return (
     <>
+      {headerActionsNode && createPortal(
+        <>
+          <WorkspaceHeader
+            workspaceId={activeWorkspaceId!}
+            projectName={projectName}
+            onRefresh={() => refreshTree(activeWorkspaceId!)}
+          />
+          <div className="h-4 w-px bg-border/50 mx-2"></div>
+          <Button variant={showPreview ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={handleTogglePreview}>
+            <Globe className="h-3.5 w-3.5 mr-1" />
+            {showPreview ? "Close Preview" : "Live Preview"}
+          </Button>
+          <Button variant={showChat ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={handleToggleChat}>
+            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+            {showChat ? "Hide Chat" : "Show Chat"}
+          </Button>
+        </>,
+        headerActionsNode
+      )}
       <Allotment defaultSizes={[250, 750, 400]}>
         {/* File Explorer & Timeline Pane */}
         <Allotment.Pane preferredSize={250} minSize={200} maxSize={400}>
@@ -436,11 +506,11 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
               {...{ webkitdirectory: "" }}
             />
 
-            <Tabs defaultValue="sandbox" className="flex h-full flex-col w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col w-full">
               <div className="px-3 pt-3 flex items-center justify-between border-b border-border/50 pb-2">
-                <TabsList className="grid grid-cols-2 w-full max-w-48">
-                  <TabsTrigger value="sandbox">Files</TabsTrigger>
-                  <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                <TabsList className="grid grid-cols-2 w-full max-w-[260px] h-8">
+                  <TabsTrigger value="sandbox" className="text-[10px]">Files</TabsTrigger>
+                  <TabsTrigger value="agent" className="text-[10px]">Agent</TabsTrigger>
                 </TabsList>
                 
                 {!showEditor && (
@@ -450,12 +520,7 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
                 )}
               </div>
               
-              <TabsContent value="sandbox" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden p-0 flex flex-col">
-                <WorkspaceHeader
-                  workspaceId={activeWorkspaceId!}
-                  projectName={projectName}
-                  onRefresh={() => refreshTree(activeWorkspaceId!)}
-                />
+              <TabsContent value="sandbox" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden p-0 flex flex-col overflow-y-auto">
                 <div className="bg-muted border-b border-border px-3 py-1.5 text-[10px] text-muted-foreground font-medium">
                   Workspace is an isolated copy.
                 </div>
@@ -470,8 +535,10 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
                 />
               </TabsContent>
               
-              <TabsContent value="timeline" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden p-0">
-                {timelinePanel}
+              
+              
+              <TabsContent value="agent" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden p-0 border-none overflow-y-auto">
+                <AgentStatePanel />
               </TabsContent>
             </Tabs>
           </div>
@@ -507,27 +574,51 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
             </div>
 
             <div className="min-h-0 flex-1">
-              {showPatches && activeWorkspaceId ? (
-                <DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => refreshPatchCount(activeWorkspaceId)} />
-              ) : activeFile ? (
-                <CodeMirrorEditor
-                  language={activeLanguage}
-                  code={code}
-                  onChange={(value) => setCode(value || "")}
-                  readOnly={false}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  Select a file to view its code
-                </div>
-              )}
+              <Allotment vertical={true}>
+                <Allotment.Pane minSize={100}>
+                  {showPatches && activeWorkspaceId ? (
+                    <DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => refreshPatchCount(activeWorkspaceId)} />
+                  ) : activeFile ? (
+                    <CodeMirrorEditor
+                      language={activeLanguage}
+                      code={code}
+                      onChange={(value) => setCode(value || "")}
+                      readOnly={false}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                      Select a file to view its code
+                    </div>
+                  )}
+                </Allotment.Pane>
+                <Allotment.Pane preferredSize={250} minSize={100} snap>
+                  <div className="h-full w-full bg-[#1e1e1e] border-t border-border overflow-y-auto flex flex-col">
+                    <div className="flex items-center px-3 py-1.5 bg-muted/40 border-b border-border/50 text-xs font-semibold text-muted-foreground">
+                      <TerminalIcon className="h-3.5 w-3.5 mr-1.5" />
+                      Terminal
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                      {timelinePanel}
+                    </div>
+                  </div>
+                </Allotment.Pane>
+              </Allotment>
             </div>
           </div>
         </Allotment.Pane>
 
+        {/* WebContainer Preview Pane */}
+        <Allotment.Pane visible={showPreview}>
+          <WebPreview 
+            files={previewFiles} 
+            visible={showPreview} 
+            onClose={() => setShowPreview(false)} 
+          />
+        </Allotment.Pane>
+
         {/* Chat Pane */}
         {chatPanel && (
-          <Allotment.Pane preferredSize={400} minSize={300}>
+          <Allotment.Pane preferredSize={400} minSize={300} visible={showChat}>
             {chatPanel}
           </Allotment.Pane>
         )}

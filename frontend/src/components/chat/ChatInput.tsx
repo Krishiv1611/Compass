@@ -1,9 +1,9 @@
 import { useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, GitCommit, Loader2, Paperclip, Send, Sparkles, X, Zap } from "lucide-react";
+import { File as FileIcon, Loader2, Paperclip, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface ChatInputProps {
-  onSend: (message: string, files: File[], mode: "normal" | "plan" | "fast") => void;
+  onSend: (message: string, files: File[], mode: "normal" | "plan" | "fast" | "goal") => void;
   isLoading?: boolean;
 }
 
@@ -11,7 +11,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   const [input, setInput] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [mode, setMode] = useState<"normal" | "plan" | "fast">("normal");
+  const [mode, setMode] = useState<"normal" | "plan" | "fast" | "goal">("normal");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = () => {
@@ -116,6 +116,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
                 <option value="normal">⚡ Normal - Balanced speed and standard safety checks</option>
                 <option value="plan">📝 Plan - Analyzes the request and creates a structured plan first</option>
                 <option value="fast">🚀 Fast - Bypasses safety checks for maximum speed</option>
+                <option value="goal">🎯 Goal - Deep autonomous execution without interruptions</option>
               </select>
             </div>
           </div>

@@ -16,7 +16,7 @@ import MessageList from "@/components/chat/MessageList";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { chatApi, sessionsApi, uploadsApi, workspaceApi } from "@/api";
+import { chatApi, sessionsApi, uploadsApi, workspaceApi, runsApi } from "@/api";
 import { motion, AnimatePresence } from "framer-motion";
 import MarkdownMessage from "@/components/chat/MarkdownMessage";
 import { useRunEvents } from "@/contexts/RunContext";
@@ -58,7 +58,7 @@ export default function ChatPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<any | null>(null);
   const [pendingPatchCount, setPendingPatchCount] = useState(0);
-  const [mobilePanel, setMobilePanel] = useState<"chat" | "sandbox" | "diffs" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"chat" | "sandbox" | "diffs" | "files" | "logs" | null>(null);
 
   const refreshPendingPatches = async (currentSessionId: string) => {
     try {
@@ -196,7 +196,7 @@ export default function ChatPage() {
     }
   };
 
-  const sendWithWebSocket = (currentSessionId: string, message: string, mode: "normal" | "plan") =>
+  const sendWithWebSocket = (currentSessionId: string, message: string, mode: "normal" | "plan" | "fast" | "goal") =>
     new Promise<boolean>((resolve, reject) => {
       let retryCount = 0;
       const MAX_RETRIES = 3;
@@ -399,13 +399,13 @@ export default function ChatPage() {
       attempt();
     });
 
-  const sendWithHttpFallback = async (currentSessionId: string, message: string, mode: "normal" | "plan") => {
+  const sendWithHttpFallback = async (currentSessionId: string, message: string, mode: "normal" | "plan" | "fast" | "goal") => {
     setStreamStatus("Thinking");
     const response = await chatApi.sendMessage(currentSessionId, message, mode);
     setMessages(response.messages || []);
   };
 
-  const handleSend = async (message: string, files: File[], mode: "normal" | "plan" | "fast") => {
+  const handleSend = async (message: string, files: File[], mode: "normal" | "plan" | "fast" | "goal") => {
     const token = sessionStorage.getItem("compass_access_token");
     if (!token) {
       setShowLogin(true);
@@ -580,18 +580,18 @@ export default function ChatPage() {
       )}
 
       <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] lg:hidden">
-        <button className="flex min-h-11 flex-col items-center justify-center text-[11px] text-primary" onClick={() => setMobilePanel(null)}>
-          <MessageSquare className="h-4 w-4" /> Chat
+        <button className="flex min-h-11 flex-col items-center justify-center text-[11px] text-primary hover:text-primary/80 transition-colors" onClick={() => setMobilePanel(null)}>
+          <MessageSquare className="h-4 w-4 mb-0.5" /> Chat
         </button>
-        <button className="flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground" onClick={() => setMobilePanel("files")}>
-          <FileCode2 className="h-4 w-4" /> Files
+        <button className="flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground hover:text-foreground transition-colors" onClick={() => setMobilePanel("files")}>
+          <FileCode2 className="h-4 w-4 mb-0.5" /> Files
         </button>
-        <button className="relative flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground" onClick={() => setMobilePanel("diffs")}>
-          <GitPullRequest className="h-4 w-4" /> Diffs
+        <button className="relative flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground hover:text-foreground transition-colors" onClick={() => setMobilePanel("diffs")}>
+          <GitPullRequest className="h-4 w-4 mb-0.5" /> Diffs
           {pendingPatchCount > 0 && <span className="absolute right-5 top-1 rounded-full bg-primary px-1 text-[10px] text-primary-foreground">{pendingPatchCount}</span>}
         </button>
-        <button className="relative flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground" onClick={() => setMobilePanel("logs")}>
-          <Activity className="h-4 w-4" /> Logs
+        <button className="relative flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground hover:text-foreground transition-colors" onClick={() => setMobilePanel("logs")}>
+          <Activity className="h-4 w-4 mb-0.5" /> Logs
           {isRunActive && <span className="absolute right-5 top-1 h-2 w-2 rounded-full bg-green-500" />}
         </button>
       </div>

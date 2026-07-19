@@ -24,12 +24,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { settingsApi, toolsApi, uploadsApi, authApi } from "@/api";
 import { useTheme } from "@/components/ThemeProvider";
 import McpServerManager from "./McpServerManager";
+import SkillsManager from "./SkillsManager";
 
 type SettingsDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user: any | null;
   sessionId?: string | null;
+  initialTab?: string;
 };
 
 type ToolInfo = {
@@ -70,6 +72,7 @@ export default function SettingsModal({
   open,
   onOpenChange,
   user,
+  initialTab,
   sessionId,
 }: SettingsDrawerProps) {
   const [settings, setSettings] = useState<Record<string, any>>(defaultSettings);
@@ -230,9 +233,9 @@ export default function SettingsModal({
             <Loader2 className="h-4 w-4 animate-spin" /> Loading settings
           </div>
         ) : (
-          <Tabs defaultValue="defaults" className="flex flex-col flex-1 min-h-0">
+          <Tabs defaultValue={initialTab || "defaults"} key={initialTab} className="flex flex-col flex-1 min-h-0">
             <div className="px-5 pt-3 shrink-0">
-              <TabsList className="w-full grid grid-cols-4">
+              <TabsList className="w-full grid grid-cols-5">
                 <TabsTrigger value="defaults">Defaults</TabsTrigger>
                 <TabsTrigger value="attachments">
                   Attachments
@@ -242,10 +245,23 @@ export default function SettingsModal({
                     </Badge>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="mcp">MCP Servers</TabsTrigger>
+                <TabsTrigger value="skills">Skills</TabsTrigger>
+                <TabsTrigger value="mcp">Connectors</TabsTrigger>
                 <TabsTrigger value="tools">Tools</TabsTrigger>
               </TabsList>
             </div>
+
+            {/* ── Skills Tab ──────────────────────────────────────────────── */}
+            <TabsContent
+              value="skills"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full px-5 py-4">
+                <div className="mx-auto max-w-2xl pb-6">
+                  <SkillsManager />
+                </div>
+              </ScrollArea>
+            </TabsContent>
 
             {/* ── MCP Servers Tab ──────────────────────────────────────────── */}
             <TabsContent
@@ -560,6 +576,30 @@ export default function SettingsModal({
                       </div>
                     ))
                   )}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            {/* ── Skills Tab ────────────────────────────────────────────── */}
+            <TabsContent
+              value="skills"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-5">
+                  <SkillsManager />
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            {/* ── MCP Tab ──────────────────────────────────────────────── */}
+            <TabsContent
+              value="mcp"
+              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-5">
+                  <McpServerManager />
                 </div>
               </ScrollArea>
             </TabsContent>

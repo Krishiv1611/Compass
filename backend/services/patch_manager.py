@@ -153,3 +153,38 @@ def reject_all_patches(db: Session, workspace_id: str, user_id: str) -> int:
         reject_patch(db, patch.id, user_id)
         count += 1
     return count
+
+def undo_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
+    """Undo an applied patch (revert file changes)."""
+    patch = get_patch(db, patch_id, user_id)
+    if patch.status != "applied":
+        raise HTTPException(status_code=400, detail=f"Cannot undo patch with status {patch.status}")
+
+    workspace = get_workspace(db, patch.workspace_id, user_id)
+    workspace_dir = Path(workspace.storage_path)
+
+    for change in patch.changes:
+        change_type = change.get("type")
+        path = change.get("path")
+        before_content = change.get("before", "")
+
+        if not path:
+            continue
+
+        clean_path = os.path.normpath(path)
+        if clean_path.startswith("..") or os.path.isabs(clean_path):
+            continue
+
+        target_path = workspace_dir / clean_path
+
+        if change_type == "create":
+            if target_path.exists() and target_path.is_file():
+                target_path.unlink()
+        elif change_type in ("edit", "delete"):
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(before_content, encoding="utf-8")
+
+    patch.status = "reverted"
+    db.commit()
+    db.refresh(patch)
+    return patch

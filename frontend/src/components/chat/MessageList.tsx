@@ -7,7 +7,7 @@ import MarkdownMessage from "./MarkdownMessage";
 import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
 import ThinkingBlock from "./ThinkingBlock";
-import ShimmerLoader from "./ShimmerLoader";
+
 
 type Message = {
   id?: string;

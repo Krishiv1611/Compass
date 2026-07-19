@@ -46,7 +46,7 @@ def create_skill(
     file_path.write_text(content, encoding="utf-8")
 
     # Hot-reload into registry
-    from skills.registry import skill_registry
+    from agent.skills.registry import skill_registry
 
     skill_registry.reload()
 

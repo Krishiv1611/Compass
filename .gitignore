@@ -9,7 +9,6 @@ wheels/
 # Virtual environments
 .venv
 .env
-roadmap.md
 .vscode/*
 
 # OS/Editor
@@ -29,3 +28,6 @@ roadmap.md
 .compass/chroma/
 .compass/
 .vscode/
+*.db
+roadmap.md
+vscode-extension/

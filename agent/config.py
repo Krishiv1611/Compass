@@ -44,6 +44,8 @@ DEFAULT_CONFIG = {
     # RAG
     "rag.auto_index": False,
     "rag.chunk_size": 1000,
+    # Fast mode
+    "fast_mode": False,
 }
 
 

@@ -139,7 +139,7 @@ export const chatApi = {
   sendMessage: async (
     sessionId: string,
     content: string,
-    mode: "normal" | "plan" | "fast" = "normal"
+    mode: "normal" | "plan" | "fast" | "goal" = "normal"
   ) => {
     const response = await api.post("/chat/send", {
       session_id: sessionId,
@@ -184,6 +184,37 @@ export const settingsApi = {
 export const toolsApi = {
   listTools: async () => {
     const response = await api.get("/tools");
+    return response.data;
+  },
+  getTasks: async () => {
+    const response = await api.get('/tools/tasks');
+    return response.data.tasks;
+  },
+  getMemories: async () => {
+    const response = await api.get('/tools/memory');
+    return response.data;
+  },
+};
+
+// --- Skills API ---
+export const skillsApi = {
+  listSkills: async () => {
+    const response = await api.get("/skills");
+    return response.data;
+  },
+  createSkill: async (data: {
+    name: string;
+    description: string;
+    system_prompt: string;
+    allowed_tools?: string[];
+    model?: string;
+    max_turns?: number;
+  }) => {
+    const response = await api.post("/skills", data);
+    return response.data;
+  },
+  deleteSkill: async (name: string) => {
+    const response = await api.delete(`/skills/${name}`);
     return response.data;
   },
 };
@@ -263,6 +294,10 @@ export const workspaceApi = {
   },
   getTree: async (workspaceId: string) => {
     const response = await api.get(`/workspaces/${workspaceId}/tree`);
+    return response.data;
+  },
+  exportWorkspaceJson: async (workspaceId: string) => {
+    const response = await api.get(`/workspaces/${workspaceId}/export-json`);
     return response.data;
   },
   getFile: async (workspaceId: string, filePath: string) => {
@@ -348,6 +383,12 @@ export const workspaceApi = {
     );
     return response.data;
   },
+  undoPatch: async (workspaceId: string, patchId: string) => {
+    const response = await api.post(
+      `/workspaces/${workspaceId}/patches/${patchId}/undo`
+    );
+    return response.data;
+  },
   acceptAllPatches: async (workspaceId: string) => {
     const response = await api.post(
       `/workspaces/${workspaceId}/patches/accept-all`
@@ -361,5 +402,7 @@ export const workspaceApi = {
     return response.data;
   },
 };
+
+
 
 export default api;

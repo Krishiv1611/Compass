@@ -17,12 +17,6 @@ from langchain_core.messages import BaseMessage as _BaseMessage
 from langchain_core.runnables import RunnableConfig
 
 
-# ─── Four LLM Instances ─────────────────────────────────────────────────────────
-_planner_model = llm("planner")
-_executor_model = llm("executor")
-_recovery_model = llm("recovery")
-_summarizer_model = llm("summarizer")
-
 # Note: Tools are dynamically bound in call_model() using ALL_TOOLS from workflow.py
 # This ensures custom user tools and MCP tools are included at runtime.
 
@@ -80,7 +74,7 @@ Do NOT call any tools. Just provide guidance text.
 # ─── Node Functions ──────────────────────────────────────────────────────────────
 
 
-async def planner_node(state: AgentState):
+async def planner_node(state: AgentState, config: RunnableConfig):
     """
     🧠 Planner Agent — analyze the user's query and create a step-by-step plan.
 
@@ -110,8 +104,13 @@ async def planner_node(state: AgentState):
 
     # Add the conversation messages (planner needs context)
     planner_messages.extend(messages)
+    
+    api_key = config.get("configurable", {}).get("api_key")
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
+    planner_model = llm("planner", api_key=api_key, provider=provider, model=model)
 
-    response = await _planner_model.ainvoke(planner_messages)
+    response = await planner_model.ainvoke(planner_messages)
 
     plan_text = (
         response.content if isinstance(response.content, str) else str(response.content)
@@ -190,6 +189,11 @@ async def call_model(state: AgentState, config: RunnableConfig):
         )
 
     if context_parts:
+        context_parts.append(
+            "IMPORTANT RULES:\n"
+            "1. ALWAYS explain what you are doing before calling a tool.\n"
+            "2. When a tool finishes and you have completed the user's task, you MUST send a final conversational message explaining what you did. NEVER finish silently without summarizing your work to the user."
+        )
         context_msg = SystemMessage(content="\n\n".join(context_parts))
         messages = [context_msg] + messages
 
@@ -199,7 +203,9 @@ async def call_model(state: AgentState, config: RunnableConfig):
 
     combined_tools = ALL_TOOLS + mcp_tools
     api_key = config.get("configurable", {}).get("api_key")
-    executor_with_tools = llm("executor", api_key=api_key).bind_tools(combined_tools)
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
+    executor_with_tools = llm("executor", api_key=api_key, provider=provider, model=model).bind_tools(combined_tools)
 
     # ── Check for Cooperative Cancellation ──────────────────────────────────
     run_id = config.get("configurable", {}).get("run_id")
@@ -214,6 +220,21 @@ async def call_model(state: AgentState, config: RunnableConfig):
                 "token_usage": {},
                 "pending_tool_calls": []
             }
+
+    # ── Sanitize empty contents for Google GenAI compatibility ───────────────
+    sanitized_messages = []
+    for msg in messages:
+        if (isinstance(msg.content, str) and not msg.content.strip()) or (isinstance(msg.content, list) and not msg.content):
+            # Many models (especially Gemini) crash if content is completely empty
+            # If it has tool calls, we keep it as is, but we need to ensure the content isn't strictly empty
+            # wait, if it's an AIMessage with tool_calls, sometimes langchain handles it.
+            # but to be safe, just set content to a single space if it's a string, or a text block.
+            if hasattr(msg, "model_copy"):
+                msg = msg.model_copy(update={"content": " "})
+            else:
+                msg = msg.copy(update={"content": " "})
+        sanitized_messages.append(msg)
+    messages = sanitized_messages
 
     # ── Invoke the executor LLM with tools ───────────────────────────────────
     response = await executor_with_tools.ainvoke(messages)
@@ -271,7 +292,7 @@ async def call_model(state: AgentState, config: RunnableConfig):
     return new_state
 
 
-async def loop_recovery_node(state: AgentState):
+async def loop_recovery_node(state: AgentState, config: RunnableConfig):
     """
     🔄 Loop Recovery Agent — analyze why the executor is stuck and provide guidance.
 
@@ -316,8 +337,13 @@ async def loop_recovery_node(state: AgentState):
         ),
     ]
     recovery_messages.extend(recent_messages)
+    
+    api_key = config.get("configurable", {}).get("api_key")
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
+    recovery_model = llm("recovery", api_key=api_key, provider=provider, model=model)
 
-    response = await _recovery_model.ainvoke(recovery_messages)
+    response = await recovery_model.ainvoke(recovery_messages)
     guidance = (
         response.content if isinstance(response.content, str) else str(response.content)
     )
@@ -329,7 +355,7 @@ async def loop_recovery_node(state: AgentState):
     }
 
 
-async def summary_node(state: AgentState):
+async def summary_node(state: AgentState, config: RunnableConfig):
     """
     📝 Summarizer Agent — compact the conversation to free context space.
 
@@ -349,7 +375,13 @@ async def summary_node(state: AgentState):
         prompt = "Summarise the conversation above."
 
     message_for_summary = state["messages"] + [HumanMessage(content=prompt)]
-    response = _summarizer_model.invoke(message_for_summary)
+
+    api_key = config.get("configurable", {}).get("api_key")
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
+    summarizer_model = llm("summarizer", api_key=api_key, provider=provider, model=model)
+
+    response = summarizer_model.invoke(message_for_summary)
 
     # Keep the last 2 messages, delete everything else to free context
     messages_to_delete = state["messages"][:-2]
@@ -361,13 +393,18 @@ async def summary_node(state: AgentState):
     }
 
 
-async def check_safety_node(state: AgentState):
+async def check_safety_node(state: AgentState, config: RunnableConfig = None):
     """
     🛡️ Safety Node — intercepts risky tool calls and asks for user approval.
     """
     from langgraph.types import interrupt
-    from safety.approval import requires_approval, get_call_pattern
+    from agent.safety import requires_approval, get_call_pattern
     from langchain_core.messages import ToolMessage
+    from agent.config import settings
+
+    fast_mode = (state.get("mode") == "fast") or (config.get("configurable", {}).get("fast_mode", False) if config else False) or settings.get("fast_mode", False)
+    if fast_mode:
+        return {"approval_status": "approved"}
 
     last_message = state["messages"][-1]
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
@@ -432,7 +469,9 @@ async def direct_chat_node(state: AgentState, config: RunnableConfig):
 
     # We use a fast model alias (e.g., evaluator/chat) to slash latency
     api_key = config.get("configurable", {}).get("api_key")
-    fast_model = llm("evaluator", api_key=api_key)
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
+    fast_model = llm("evaluator", api_key=api_key, provider=provider, model=model)
 
     system_msg = SystemMessage(
         content="You are Compass, a helpful AI coding assistant. Answer the user's question directly."
@@ -468,6 +507,8 @@ async def linter_node(state: AgentState, config: RunnableConfig):
     if not messages:
         return {}
 
+    from langchain_core.messages import ToolMessage
+    
     # Check if the last messages are ToolMessages from write/edit tools
     modifications = False
     for msg in reversed(messages):
@@ -545,12 +586,18 @@ async def evaluator_node(state: AgentState, config: RunnableConfig):
     eval_messages = messages[-10:] + [SystemMessage(content=eval_prompt)]
 
     api_key = config.get("configurable", {}).get("api_key")
-    response = await llm("evaluator", api_key=api_key).ainvoke(eval_messages)
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
+    response = await llm("evaluator", api_key=api_key, provider=provider, model=model).ainvoke(eval_messages)
     
     content = str(response.content).strip()
     
     if content.upper().startswith("SUCCESS"):
-        return {"is_done": True, "evaluator_feedback": ""}
+        result = {"is_done": True, "evaluator_feedback": ""}
+        last_msg = messages[-1]
+        if getattr(last_msg, "type", "") == "ai" and not getattr(last_msg, "content", "").strip():
+            result["messages"] = [AIMessage(content="I have completed the task successfully.")]
+        return result
     
     return {
         "is_done": False, 
@@ -612,10 +659,10 @@ async def context_injector_node(state: AgentState, config: RunnableConfig):
     return {}
 
 
-async def _generate_title_async(session_id: str, content: str, api_key: str):
+async def _generate_title_async(session_id: str, content: str, api_key: str, provider: str | None = None, model: str | None = None):
     prompt = f"Generate a short 3-5 word title for a chat session starting with this message. Do not use quotes or punctuation.\n\nMessage: {content}"
     try:
-        response = await llm("evaluator", api_key=api_key).ainvoke([SystemMessage(content=prompt)])
+        response = await llm("evaluator", api_key=api_key, provider=provider, model=model).ainvoke([SystemMessage(content=prompt)])
         title = response.content.strip().strip('"').strip("'")[:100]
         
         from backend.db import SessionLocal
@@ -646,10 +693,12 @@ async def title_generator_node(state: AgentState, config: RunnableConfig):
         return {}
 
     api_key = config.get("configurable", {}).get("api_key")
+    provider = config.get("configurable", {}).get("provider")
+    model = config.get("configurable", {}).get("model")
     
     # Fire and forget
     import asyncio
-    asyncio.create_task(_generate_title_async(session_id, first_msg.content, api_key))
+    asyncio.create_task(_generate_title_async(session_id, first_msg.content, api_key, provider, model))
 
     return {}
 
@@ -657,8 +706,13 @@ async def title_generator_node(state: AgentState, config: RunnableConfig):
 from agent.guardrails.engine import GuardrailsEngine
 _guardrails_engine = GuardrailsEngine()
 
-async def guardrails_input_node(state: AgentState):
+async def guardrails_input_node(state: AgentState, config: RunnableConfig = None):
     """Checks input safety using NeMo Guardrails."""
+    from agent.config import settings
+    fast_mode = (state.get("mode") == "fast") or (config.get("configurable", {}).get("fast_mode", False) if config else False) or settings.get("fast_mode", False)
+    if fast_mode:
+        return {"guardrails_input_result": {"safe": True}}
+
     messages = state["messages"]
     if not messages:
         return {}
@@ -682,8 +736,13 @@ async def guardrails_input_node(state: AgentState):
         
     return {"guardrails_input_result": {"safe": True}}
 
-async def guardrails_output_node(state: AgentState):
+async def guardrails_output_node(state: AgentState, config: RunnableConfig = None):
     """Checks output safety before finalizing."""
+    from agent.config import settings
+    fast_mode = (state.get("mode") == "fast") or (config.get("configurable", {}).get("fast_mode", False) if config else False) or settings.get("fast_mode", False)
+    if fast_mode:
+        return {"is_done": True}
+
     messages = state["messages"]
     if not messages:
         return {"is_done": True}

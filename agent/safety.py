@@ -51,7 +51,7 @@ def requires_approval(
     """
     # 1. Check Policy
     safety_mode = settings.get("safety.mode", "auto")
-    if safety_mode == "yolo":
+    if safety_mode == "yolo" or settings.get("fast_mode", False):
         return False
 
     if tool_name in SAFE_TOOLS:

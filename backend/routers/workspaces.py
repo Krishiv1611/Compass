@@ -1,4 +1,4 @@
-﻿import os
+import os
 import shutil
 import zipfile
 from io import BytesIO
@@ -181,6 +181,41 @@ def download_workspace(
         }
     )
 
+@router.get("/{workspace_id}/export-json")
+def export_workspace_json(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Export the entire workspace as a JSON FileSystemTree for WebContainers."""
+    workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
+    
+    if not workspace_dir.exists():
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    def build_fs_tree(dir_path: Path) -> dict:
+        tree = {}
+        try:
+            for item in dir_path.iterdir():
+                if item.name in (".git", "node_modules", "__pycache__"):
+                    continue
+                if item.is_dir():
+                    tree[item.name] = {"directory": build_fs_tree(item)}
+                else:
+                    try:
+                        content = item.read_text(encoding="utf-8")
+                        tree[item.name] = {"file": {"contents": content}}
+                    except UnicodeDecodeError:
+                        # Skip binary files or read as base64 if needed, but WebContainer
+                        # usually prefers Uint8Array for binary. For now, we skip binaries
+                        # or provide empty string to avoid crash.
+                        tree[item.name] = {"file": {"contents": ""}}
+        except Exception:
+            pass
+        return tree
+        
+    return build_fs_tree(workspace_dir)
+
 class FileCreateRequest(BaseModel):
     path: str
     type: str # 'file' or 'folder'
@@ -295,6 +330,7 @@ from backend.services.patch_manager import (
     reject_patch,
     accept_all_patches,
     reject_all_patches,
+    undo_patch,
 )
 from backend.models.patch import WorkspacePatch
 
@@ -380,5 +416,16 @@ def reject_all_workspace_patches(
     _get_active_workspace_path(db, current_user.id, workspace_id)
     count = reject_all_patches(db, workspace_id, current_user.id)
     return {"message": f"Rejected {count} patches"}
+
+
+@router.post("/{workspace_id}/patches/{patch_id}/undo")
+def undo_workspace_patch(
+    workspace_id: str,
+    patch_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    patch = undo_patch(db, patch_id, current_user.id)
+    return {"message": "Patch undone successfully", "patch": patch}
 
 

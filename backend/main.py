@@ -134,6 +134,7 @@ from backend.routers.chat import router as chat_router
 from backend.routers.core import router as core_router
 from backend.routers.uploads import router as uploads_router
 from backend.routers.workspaces import router as workspaces_router
+from backend.routers.tools import router as tools_router
 
 # Set up routers
 app.include_router(auth_router)
@@ -142,3 +143,4 @@ app.include_router(chat_router)
 app.include_router(core_router)
 app.include_router(uploads_router)
 app.include_router(workspaces_router)
+app.include_router(tools_router)

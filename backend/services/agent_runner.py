@@ -46,14 +46,21 @@ async def run_agent_stream(
     
     if user_prefs:
         if user_prefs.get("model"):
+            config["configurable"]["model"] = user_prefs["model"]
             config["configurable"]["model_executor"] = user_prefs["model"]
             config["configurable"]["model_planner"] = user_prefs["model"]
-        if user_prefs.get("api_key"):
+        if user_prefs.get("llm_api_key"):
+            config["configurable"]["api_key"] = user_prefs["llm_api_key"]
+        elif user_prefs.get("api_key"):
             config["configurable"]["api_key"] = user_prefs["api_key"]
+        if user_prefs.get("llm_provider"):
+            config["configurable"]["provider"] = user_prefs["llm_provider"]
         if user_prefs.get("workspace_dir"):
             config["configurable"]["workspace_dir"] = user_prefs["workspace_dir"]
         if user_prefs.get("safe_mode") is not None:
             config["configurable"]["safe_mode"] = user_prefs["safe_mode"]
+        if user_prefs.get("fast_mode") is not None:
+            config["configurable"]["fast_mode"] = user_prefs["fast_mode"]
     
     if resume_action:
         input_msg = Command(resume={"action": resume_action})
@@ -67,21 +74,41 @@ async def run_agent_stream(
         ):
             if chunk_type == "messages":
                 chunk, metadata = payload
-                if isinstance(chunk, AIMessageChunk):
+                from langchain_core.messages import AIMessage
+                if isinstance(chunk, (AIMessageChunk, AIMessage)):
                     if chunk.content:
-                        yield StreamEvent(
-                            type=StreamEventType.TOKEN,
-                            content=chunk.content,
-                        )
+                        content_str = ""
+                        if isinstance(chunk.content, str):
+                            content_str = chunk.content
+                        elif isinstance(chunk.content, list):
+                            content_str = "".join([
+                                str(item.get("text", "")) for item in chunk.content if isinstance(item, dict) and "text" in item
+                            ])
+                        else:
+                            content_str = str(chunk.content)
+
+                        if content_str:
+                            yield StreamEvent(
+                                type=StreamEventType.TOKEN,
+                                content=content_str,
+                            )
                     if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
                         for tc in chunk.tool_call_chunks:
                             if tc.get("name"):
+                                args_val = tc.get("args", {})
+                                if isinstance(args_val, str):
+                                    import json
+                                    try:
+                                        args_val = json.loads(args_val) if args_val else {}
+                                    except:
+                                        args_val = {}
+                                
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL,
                                     tool_call=ToolCallData(
                                         id=tc.get("id", ""),
                                         name=tc["name"],
-                                        args=tc.get("args", {}),
+                                        args=args_val,
                                     ),
                                 )
             
@@ -192,12 +219,21 @@ async def run_agent_sync(
     
     if user_prefs:
         if user_prefs.get("model"):
+            config["configurable"]["model"] = user_prefs["model"]
             config["configurable"]["model_executor"] = user_prefs["model"]
             config["configurable"]["model_planner"] = user_prefs["model"]
-        if user_prefs.get("api_key"):
+        if user_prefs.get("llm_api_key"):
+            config["configurable"]["api_key"] = user_prefs["llm_api_key"]
+        elif user_prefs.get("api_key"):
             config["configurable"]["api_key"] = user_prefs["api_key"]
+        if user_prefs.get("llm_provider"):
+            config["configurable"]["provider"] = user_prefs["llm_provider"]
         if user_prefs.get("workspace_dir"):
             config["configurable"]["workspace_dir"] = user_prefs["workspace_dir"]
+        if user_prefs.get("safe_mode") is not None:
+            config["configurable"]["safe_mode"] = user_prefs["safe_mode"]
+        if user_prefs.get("fast_mode") is not None:
+            config["configurable"]["fast_mode"] = user_prefs["fast_mode"]
 
     input_msg = {"messages": [HumanMessage(content=user_message)], "mode": mode}
 

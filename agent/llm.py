@@ -16,6 +16,7 @@ Usage:
 
 import os
 from pathlib import Path
+from typing import Any
 
 from langchain_openrouter import ChatOpenRouter
 from langchain_core.globals import set_llm_cache
@@ -69,7 +70,7 @@ def _get_model_name(role: str) -> str:
     )
 
 
-def llm(role: str = "executor", api_key: str | None = None) -> ChatOpenRouter:
+def llm(role: str = "executor", api_key: str | None = None, provider: str | None = None, model: str | None = None) -> Any:
     """
     Get an LLM instance for a specific agent role.
 
@@ -77,18 +78,54 @@ def llm(role: str = "executor", api_key: str | None = None) -> ChatOpenRouter:
         role: One of 'planner', 'executor', 'recovery', 'summarizer',
               'guardrails', 'evaluator'.
               Defaults to 'executor' for backward compatibility.
-        api_key: The OpenRouter API key provided by the frontend.
+        api_key: Optional API key provided directly (overrides settings).
+        provider: Optional provider name (overrides settings).
+        model: Optional model name (overrides settings).
 
     Returns:
-        A ChatOpenRouter instance configured for the given role.
+        A Langchain ChatModel instance configured for the given role.
     """
     _init_llm_cache()
-    model_name = _get_model_name(role)
+    
+    if not provider:
+        provider = settings.get("llm_provider", "openrouter")
+    provider = provider.lower()
+    
+    if model:
+        model_name = model
+    else:
+        model_name = _get_model_name(role)
+    
     if not api_key:
-        api_key = settings.get("api_key")
+        api_key = settings.get("llm_api_key") or settings.get("api_key")
+    
+    if provider == "openai":
+        if not api_key:
+            api_key = os.environ.get("OPENAI_API_KEY")
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(api_key=api_key, model=model_name)
+        
+    elif provider == "anthropic":
+        if not api_key:
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(api_key=api_key, model_name=model_name)
+        
+    elif provider == "groq":
+        if not api_key:
+            api_key = os.environ.get("GROQ_API_KEY")
+        from langchain_groq import ChatGroq
+        return ChatGroq(api_key=api_key, model_name=model_name)
+        
+    elif provider == "gemini":
+        if not api_key:
+            api_key = os.environ.get("GOOGLE_API_KEY")
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(google_api_key=api_key, model=model_name)
+        
+    # Default to openrouter
     if not api_key:
         api_key = os.environ.get("OPENROUTER_API_KEY")
-    return ChatOpenRouter(
-        api_key=api_key,
-        model=model_name,
-    )
+    from langchain_openrouter import ChatOpenRouter
+    return ChatOpenRouter(api_key=api_key, model=model_name)
+

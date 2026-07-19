@@ -16,6 +16,13 @@ import {
   Trash2,
   UserCircle,
   WifiOff,
+  Sparkles,
+  Plug,
+  BrainCircuit,
+  CheckSquare,
+  History,
+  Clock,
+  FileDiff,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
@@ -51,6 +58,7 @@ export default function AppLayout() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
   const [sessionToRename, setSessionToRename] = useState<SessionSummary | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<SessionSummary | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
@@ -222,6 +230,30 @@ export default function AppLayout() {
           <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={handleOpenFolder}>
             <FolderOpen className="h-4 w-4 mr-2" /> Folder
           </Button>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { setSettingsInitialTab("skills"); setSettingsOpen(true); }}>
+            <Sparkles className="h-4 w-4 mr-2" /> Skills
+          </Button>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { setSettingsInitialTab("mcp"); setSettingsOpen(true); }}>
+            <Plug className="h-4 w-4 mr-2" /> Connectors
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-3 border-b border-border/50 p-4">
+        <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground px-1 mb-2">Workspace Tools</h4>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "tasks" }); }}>
+            <CheckSquare className="h-4 w-4 mr-2" /> Tasks
+          </Button>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "memory" }); }}>
+            <BrainCircuit className="h-4 w-4 mr-2" /> Memory
+          </Button>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => sidebarEvent("set-sandbox-tab", { tab: "timeline" })}>
+            <Clock className="h-4 w-4 mr-2" /> Timeline
+          </Button>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => sidebarEvent("review-patches-request")}>
+            <History className="h-4 w-4 mr-2" /> Undo
+          </Button>
         </div>
       </div>
 
@@ -294,7 +326,7 @@ export default function AppLayout() {
       </ScrollArea>
 
       <div className="border-t border-border/50 p-4">
-        <Button variant="ghost" className="h-10 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => setSettingsOpen(true)}>
+        <Button variant="ghost" className="h-10 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }}>
           <Settings className="h-4 w-4 mr-2" /> Settings
         </Button>
       </div>
@@ -337,6 +369,7 @@ export default function AppLayout() {
           </div>
 
           <div className="flex items-center gap-3">
+            <div id="header-actions" className="flex items-center gap-2 mr-4"></div>
             {backendOffline && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500"
@@ -348,7 +381,7 @@ export default function AppLayout() {
             <Badge variant="outline" className="hidden gap-1 text-muted-foreground lg:inline-flex">
               <Terminal className="h-3 w-3" /> tools enabled
             </Badge>
-            <Button variant="ghost" size="icon" className="rounded-full bg-white/5 hover:bg-white/10" onClick={() => setSettingsOpen(true)} title="Settings">
+            <Button variant="ghost" size="icon" className="rounded-full bg-white/5 hover:bg-white/10" onClick={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }} title="Settings">
               {user ? <UserCircle className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
             </Button>
           </div>
@@ -361,9 +394,10 @@ export default function AppLayout() {
 
       <SettingsModal
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={(v) => { setSettingsOpen(v); if (!v) setSettingsInitialTab(undefined); }}
         user={user}
         sessionId={activeSessionId}
+        initialTab={settingsInitialTab}
       />
 
       {/* Rename Dialog */}
