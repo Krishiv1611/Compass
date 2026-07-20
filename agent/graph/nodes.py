@@ -11,6 +11,7 @@ Four-agent architecture:
 from agent.graph.state import AgentState
 from agent.mcp import get_mcp_tools
 from agent.llm import llm
+from agent.config import settings
 from langchain_core.messages import SystemMessage, AIMessage
 from agent.loop_detector import is_looping, get_loop_summary
 from langchain_core.messages import BaseMessage as _BaseMessage

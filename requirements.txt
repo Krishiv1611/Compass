@@ -2,6 +2,9 @@
 langchain
 langchain-openai
 langchain-openrouter
+langchain-google-genai
+langchain-anthropic
+langchain-groq
 langgraph
 langgraph-checkpoint-postgres
 langchain-redis
