@@ -210,7 +210,7 @@ builder.add_edge("guardrails_output", END)
 DB_URI = os.environ.get("DB_URI")
 
 _workflow = None  # cached after first call
-_checkpointer_ctx = None  # keep context manager alive to prevent pool closure
+_checkpointer_pool = None  # keep pool alive to prevent closure
 
 
 async def get_workflow():
@@ -220,7 +220,7 @@ async def get_workflow():
     Uses AsyncPostgresSaver for persistence when DB_URI is configured.
     Falls back to no checkpointer if DB is unavailable.
     """
-    global _workflow, _checkpointer_ctx
+    global _workflow, _checkpointer_pool
     if _workflow is not None:
         return _workflow
 
@@ -230,8 +230,25 @@ async def get_workflow():
 
     if DB_URI:
         try:
-            _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(DB_URI)
-            pg_checkpointer = await _checkpointer_ctx.__aenter__()
+            from psycopg_pool import AsyncConnectionPool
+            
+            connection_kwargs = {
+                "autocommit": True,
+                "prepare_threshold": 0,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5,
+            }
+            
+            _checkpointer_pool = AsyncConnectionPool(
+                conninfo=DB_URI,
+                max_size=20,
+                kwargs=connection_kwargs,
+            )
+            await _checkpointer_pool.open()
+            
+            pg_checkpointer = AsyncPostgresSaver(_checkpointer_pool)
             await pg_checkpointer.setup()
             
             _workflow = builder.compile(checkpointer=pg_checkpointer, **_compile_kwargs)
