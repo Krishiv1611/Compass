@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, Loader2, Paperclip, Send, Sparkles, X } from "lucide-react";
+import { File as FileIcon, Loader2, Paperclip, Send, Sparkles, X, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface ChatInputProps {
@@ -7,19 +7,36 @@ interface ChatInputProps {
   isLoading?: boolean;
 }
 
+export type ReferencedPath = {
+  path: string;
+  name: string;
+  type: "file" | "folder";
+};
+
 export default function ChatInput({ onSend, isLoading = false }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingPath, setIsDraggingPath] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [referencedPaths, setReferencedPaths] = useState<ReferencedPath[]>([]);
   const [mode, setMode] = useState<"normal" | "plan" | "fast" | "goal">("normal");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = () => {
     if (isLoading) return;
-    if (input.trim() || attachedFiles.length > 0) {
-      onSend(input, attachedFiles, mode);
+    if (input.trim() || attachedFiles.length > 0 || referencedPaths.length > 0) {
+      let finalMessage = input.trim();
+      
+      if (referencedPaths.length > 0) {
+        const pathsString = referencedPaths.map(p => p.path).join(", ");
+        const referencePrefix = `[Referring to: ${pathsString}]\n\n`;
+        finalMessage = referencePrefix + finalMessage;
+      }
+
+      onSend(finalMessage, attachedFiles, mode);
       setInput("");
       setAttachedFiles([]);
+      setReferencedPaths([]);
     }
   };
 
@@ -37,35 +54,70 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(true);
+    if (event.dataTransfer.types.includes("application/x-compass-path")) {
+      setIsDraggingPath(true);
+    }
   };
 
   const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
+    setIsDraggingPath(false);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    if (event.dataTransfer.files?.length) addFiles(event.dataTransfer.files);
+    setIsDraggingPath(false);
+    
+    const pathData = event.dataTransfer.getData("application/x-compass-path");
+    if (pathData) {
+      try {
+        const parsedPath = JSON.parse(pathData) as ReferencedPath;
+        if (!referencedPaths.some(p => p.path === parsedPath.path)) {
+          setReferencedPaths(prev => [...prev, parsedPath]);
+        }
+      } catch (e) {
+        console.error("Failed to parse dragged path data", e);
+      }
+    } else if (event.dataTransfer.files?.length) {
+      addFiles(event.dataTransfer.files);
+    }
   };
 
   const removeFile = (index: number) => {
     setAttachedFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   };
 
+  const removeReferencedPath = (index: number) => {
+    setReferencedPaths((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+  };
+
   return (
     <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 md:px-8">
       <div
         className={`glass-input-container mx-auto max-w-3xl overflow-hidden transition-all duration-300 relative ${
-          isDragging ? "border-primary ring-2 ring-primary/20" : "focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10"
+          isDraggingPath 
+            ? "border-primary ring-2 ring-primary/40 bg-primary/5" 
+            : isDragging 
+              ? "border-emerald-500 ring-2 ring-emerald-500/20" 
+              : "focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10"
         } ${isLoading ? "opacity-80" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {attachedFiles.length > 0 && (
+        {(attachedFiles.length > 0 || referencedPaths.length > 0) && (
           <div className="flex flex-wrap gap-2 border-b border-border bg-background/60 p-2">
+            {referencedPaths.map((ref, index) => (
+              <div key={`${ref.path}-${index}`} className="flex h-7 max-w-full items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 text-xs text-primary" title={ref.path}>
+                {ref.type === "folder" ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FileIcon className="h-3.5 w-3.5 shrink-0" />}
+                <span className="max-w-[180px] truncate font-medium">{ref.name}</span>
+                <button className="text-primary/70 hover:text-primary" onClick={() => removeReferencedPath(index)}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
             {attachedFiles.map((file, index) => (
               <div key={`${file.name}-${index}`} className="flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs">
                 <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -84,7 +136,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isDragging ? "Drop files here" : "Ask Anything..."}
+            placeholder={isDraggingPath ? "Drop to reference path" : isDragging ? "Drop files here" : "Ask Anything..."}
             className="max-h-44 min-h-20 w-full resize-none bg-transparent text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground/60"
             disabled={isLoading}
           />

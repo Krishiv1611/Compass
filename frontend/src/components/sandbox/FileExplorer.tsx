@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronRight, File as FileIcon, Folder, FolderOpen, FilePlus, FolderPlus, Edit2, Trash2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -60,6 +60,15 @@ const FileTreeNode = ({
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={handleClick}
         title={node.path}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("application/x-compass-path", JSON.stringify({
+            path: node.path,
+            name: node.name,
+            type: node.type,
+          }));
+          e.dataTransfer.effectAllowed = "copy";
+        }}
       >
         {isFolder ? (
           isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-70" />
