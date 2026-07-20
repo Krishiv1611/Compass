@@ -85,7 +85,7 @@ async def planner_node(state: AgentState, config: RunnableConfig):
     messages = state["messages"]
 
     # Build planner input: system prompt + the latest user message
-    from skills import skill_registry
+    from agent.skills import skill_registry
 
     skill_list = skill_registry.get_skill_names_descriptions()
 
