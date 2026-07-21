@@ -580,29 +580,7 @@ export default function SettingsModal({
               </ScrollArea>
             </TabsContent>
 
-            {/* ── Skills Tab ────────────────────────────────────────────── */}
-            <TabsContent
-              value="skills"
-              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
-            >
-              <ScrollArea className="h-full">
-                <div className="p-5">
-                  <SkillsManager />
-                </div>
-              </ScrollArea>
-            </TabsContent>
 
-            {/* ── MCP Tab ──────────────────────────────────────────────── */}
-            <TabsContent
-              value="mcp"
-              className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden"
-            >
-              <ScrollArea className="h-full">
-                <div className="p-5">
-                  <McpServerManager />
-                </div>
-              </ScrollArea>
-            </TabsContent>
 
             {/* ── Tools Tab ────────────────────────────────────────────── */}
             <TabsContent
