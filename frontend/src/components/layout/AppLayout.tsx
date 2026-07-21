@@ -45,6 +45,7 @@ type SessionSummary = {
   title: string | null;
   updated_at: string;
   message_count: number;
+  workspace_name?: string | null;
 };
 
 const sidebarEvent = (name: string, detail?: Record<string, unknown>) => {
@@ -72,6 +73,18 @@ export default function AppLayout() {
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions]
   );
+
+  const groupedSessions = useMemo(() => {
+    const groups: Record<string, SessionSummary[]> = {};
+    for (const session of sessions) {
+      const groupName = session.workspace_name || "Playground";
+      if (!groups[groupName]) {
+        groups[groupName] = [];
+      }
+      groups[groupName].push(session);
+    }
+    return groups;
+  }, [sessions]);
 
   const fetchUser = useCallback(async () => {
     const token = sessionStorage.getItem("compass_access_token");
@@ -221,74 +234,67 @@ export default function AppLayout() {
         </div>
       </div>
 
-      <div className="space-y-3 border-b border-border/50 p-4">
-        <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground px-1 mb-2">Workspace Tools</h4>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "tasks" }); }}>
-            <CheckSquare className="h-4 w-4 mr-2" /> Tasks
-          </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "memory" }); }}>
-            <BrainCircuit className="h-4 w-4 mr-2" /> Memory
-          </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => sidebarEvent("set-sandbox-tab", { tab: "timeline" })}>
-            <Clock className="h-4 w-4 mr-2" /> Timeline
-          </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => sidebarEvent("review-patches-request")}>
-            <History className="h-4 w-4 mr-2" /> Undo
-          </Button>
-        </div>
-      </div>
-
       <ScrollArea className="flex-1">
         <div className="space-y-2 p-3">
           <div className="flex items-center justify-between px-1">
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Chats</h4>
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Projects</h4>
             {isLoadingSessions && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
           </div>
 
           {sessions.length === 0 && !isLoadingSessions ? (
             <div className="rounded-lg border border-dashed border-border p-3 text-xs leading-5 text-muted-foreground">
-              Your chats will appear here after the first message.
+              Your tasks will appear here after the first message.
             </div>
           ) : (
-            <div className="space-y-1">
-              {sessions.map((session) => {
-                const active = session.id === activeSessionId;
-                return (
-                  <div
-                    key={session.id}
-                    className={`group flex items-center gap-1 rounded-none px-3 py-2 transition-none border-l-2 ${
-                      active
-                        ? "bg-muted border-accent text-foreground font-medium"
-                        : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
-                    }`}
-                  >
-                    <button
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      onClick={() => {
-                        navigate(`/chat?session=${session.id}`);
-                        setIsMobileOpen(false);
-                      }}
-                    >
-                      <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate text-sm">{session.title || "Untitled chat"}</span>
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="flex size-7 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 aria-expanded:opacity-100">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem onClick={() => handleRename(session)}>
-                          <Pencil className="h-4 w-4" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem variant="destructive" onClick={() => handleDelete(session)}>
-                          <Trash2 className="h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+            <div className="space-y-4">
+              {Object.entries(groupedSessions).map(([groupName, groupSessions]) => (
+                <div key={groupName} className="space-y-0.5">
+                  <div className="flex items-center gap-2 px-1 py-1.5 text-sm font-semibold text-foreground">
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                    <span className="truncate">{groupName}</span>
                   </div>
-                );
-              })}
+                  {groupSessions.length === 0 ? (
+                    <div className="pl-7 text-xs text-muted-foreground py-1">No tasks</div>
+                  ) : (
+                    groupSessions.map((session) => {
+                      const active = session.id === activeSessionId;
+                      return (
+                        <div
+                          key={session.id}
+                          className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ml-2 transition-none border-l-2 ${
+                            active
+                              ? "bg-muted border-accent text-foreground font-medium"
+                              : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          }`}
+                        >
+                          <button
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left pl-1"
+                            onClick={() => {
+                              navigate(`/chat?session=${session.id}`);
+                              setIsMobileOpen(false);
+                            }}
+                          >
+                            <span className="truncate text-[13px]">{session.title || "Untitled task"}</span>
+                          </button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger className="flex size-7 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 aria-expanded:opacity-100">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-36">
+                              <DropdownMenuItem onClick={() => handleRename(session)}>
+                                <Pencil className="h-4 w-4" /> Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuItem variant="destructive" onClick={() => handleDelete(session)}>
+                                <Trash2 className="h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ))}
               {hasMoreSessions && (
                 <button
                   onClick={loadMoreSessions}
