@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Loader2 } from "lucide-react";
+import { Mail, Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authApi } from "@/api";
@@ -20,6 +20,7 @@ export default function LoginModal({
   const [isEmailMode, setIsEmailMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,6 +30,18 @@ export default function LoginModal({
     e.preventDefault();
     setIsLoading(true);
     setError("");
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Please enter a valid email address");
+      setIsLoading(false);
+      return;
+    }
+
+    if (!password || password.length < 8) {
+      setError("Password must be at least 8 characters");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       try {
@@ -82,21 +95,7 @@ export default function LoginModal({
     }
   };
 
-  const handleGithubLogin = async () => {
-    setIsLoading(true);
-    setError("");
-    try {
-      const res = await authApi.getGithubAuthUrl();
-      window.location.href = res.url;
-    } catch (err: any) {
-      setError(
-        err.response?.data?.detail ||
-          "Failed to initialize GitHub Login. Verify GITHUB_CLIENT_ID is configured in backend/.env."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+
 
   return (
     <div className="relative w-full max-w-md bg-card border border-border rounded-none shadow-none p-6 flex flex-col items-center">
@@ -141,14 +140,24 @@ export default function LoginModal({
               className="h-11 focus-visible:ring-2 focus-visible:ring-primary/40"
               required
             />
-            <Input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-11 focus-visible:ring-2 focus-visible:ring-primary/40"
-              required
-            />
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="h-11 pr-10 focus-visible:ring-2 focus-visible:ring-primary/40"
+                required
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <Button type="submit" className="w-full h-11" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign In / Register
@@ -177,18 +186,6 @@ export default function LoginModal({
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
               Continue with Google
-            </Button>
-
-            <Button
-              variant="outline"
-              className="h-11 w-full justify-start px-4 font-normal transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40"
-              onClick={handleGithubLogin}
-              disabled={isLoading}
-            >
-              <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.11.82-.26.82-.577v-2.165c-3.338.72-4.04-1.61-4.04-1.61-.546-1.385-1.332-1.755-1.332-1.755-1.087-.744.084-.73.084-.73 1.205.085 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22v3.293c0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12" />
-              </svg>
-              Continue with GitHub
             </Button>
 
             <div className="relative my-2">
