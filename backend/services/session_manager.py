@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from agent.llm import llm
 from backend.models.session import ChatSession
 from backend.models.message import Message
+from backend.models.workspace import Workspace
 from backend.schemas.session import SessionSummary, SessionDetail, MessageInSession
 
 
@@ -44,8 +45,10 @@ def list_sessions(
         db.query(
             ChatSession,
             func.count(Message.id).label("message_count"),
+            func.max(Workspace.name).label("workspace_name")
         )
         .outerjoin(Message, Message.session_id == ChatSession.id)
+        .outerjoin(Workspace, Workspace.session_id == ChatSession.id)
         .filter(
             ChatSession.user_id == user_id,
             ChatSession.is_deleted.is_(False),
@@ -64,8 +67,9 @@ def list_sessions(
             created_at=s.created_at,
             updated_at=s.updated_at,
             message_count=count,
+            workspace_name=workspace_name,
         )
-        for s, count in rows
+        for s, count, workspace_name in rows
     ]
 
 

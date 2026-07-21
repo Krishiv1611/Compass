@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,17 @@ from backend.services.workspace import (
     get_workspace_by_session,
     update_workspace_stats,
 )
+from backend.ws.hub import manager
+from backend.schemas.chat import StreamEvent, StreamEventType
+from backend.models.workspace import Workspace
+from backend.models.patch import WorkspacePatch
+from backend.services.patch_manager import apply_patch, reject_patch, accept_all_patches, reject_all_patches, undo_patch
+
+def _notify_patch_event(db: Session, workspace_id: str, background_tasks: BackgroundTasks):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if ws and ws.session_id:
+        event = StreamEvent(type=StreamEventType.WORKSPACE_PATCH)
+        background_tasks.add_task(manager.broadcast, ws.session_id, event)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -376,10 +387,12 @@ def list_patches(
 def apply_workspace_patch(
     workspace_id: str,
     patch_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     patch = apply_patch(db, patch_id, current_user.id)
+    _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch applied successfully", "patch": patch}
 
 
@@ -387,34 +400,42 @@ def apply_workspace_patch(
 def reject_workspace_patch(
     workspace_id: str,
     patch_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     patch = reject_patch(db, patch_id, current_user.id)
+    _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch rejected successfully", "patch": patch}
 
 
 @router.post("/{workspace_id}/patches/accept-all")
 def accept_all_workspace_patches(
     workspace_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Accept all pending patches for a workspace."""
     _get_active_workspace_path(db, current_user.id, workspace_id)
     count = accept_all_patches(db, workspace_id, current_user.id)
+    if count > 0:
+        _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": f"Accepted {count} patches"}
 
 
 @router.post("/{workspace_id}/patches/reject-all")
 def reject_all_workspace_patches(
     workspace_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Reject all pending patches for a workspace."""
     _get_active_workspace_path(db, current_user.id, workspace_id)
     count = reject_all_patches(db, workspace_id, current_user.id)
+    if count > 0:
+        _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": f"Rejected {count} patches"}
 
 
@@ -422,10 +443,12 @@ def reject_all_workspace_patches(
 def undo_workspace_patch(
     workspace_id: str,
     patch_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     patch = undo_patch(db, patch_id, current_user.id)
+    _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch undone successfully", "patch": patch}
 
 

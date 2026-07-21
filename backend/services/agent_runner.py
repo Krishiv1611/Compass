@@ -43,6 +43,18 @@ async def run_agent_stream(
     config["configurable"]["user_id"] = user_id
     if run_id:
         config["configurable"]["run_id"] = run_id
+        
+    from backend.db import SessionLocal
+    from backend.services.workspace import get_workspace_by_session
+    db = SessionLocal()
+    try:
+        ws = get_workspace_by_session(db, session_id, user_id)
+        config["configurable"]["workspace_id"] = ws.id
+        config["configurable"]["workspace_dir"] = str(ws.storage_path)
+    except Exception:
+        pass
+    finally:
+        db.close()
     
     if user_prefs:
         if user_prefs.get("model"):
@@ -164,12 +176,19 @@ async def run_agent_stream(
                             if interrupt_val.value.get("reason") == "approval_required":
                                 tool_calls = interrupt_val.value.get("tool_calls", [])
                                 desc = interrupt_val.value.get("description", "Approval required")
-                                # For simplicity, just send the first tool call or a summary
-                                # We'll send it as a data payload
                                 yield StreamEvent(
                                     type=StreamEventType.APPROVAL_REQUIRED,
                                     content=desc,
                                     data={"tool_calls": tool_calls}
+                                )
+                                interrupted = True
+                                break
+                            elif interrupt_val.value.get("reason") == "plan_approval_required":
+                                plan_text = interrupt_val.value.get("plan", "")
+                                yield StreamEvent(
+                                    type=StreamEventType.APPROVAL_REQUIRED,
+                                    content="Plan Approval Required",
+                                    data={"reason": "plan_approval_required", "plan": plan_text}
                                 )
                                 interrupted = True
                                 break
@@ -216,6 +235,18 @@ async def run_agent_sync(
         config["configurable"] = {}
     config["configurable"]["session_id"] = session_id
     config["configurable"]["user_id"] = user_id
+    
+    from backend.db import SessionLocal
+    from backend.services.workspace import get_workspace_by_session
+    db = SessionLocal()
+    try:
+        ws = get_workspace_by_session(db, session_id, user_id)
+        config["configurable"]["workspace_id"] = ws.id
+        config["configurable"]["workspace_dir"] = str(ws.storage_path)
+    except Exception:
+        pass
+    finally:
+        db.close()
     
     if user_prefs:
         if user_prefs.get("model"):

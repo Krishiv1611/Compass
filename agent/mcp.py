@@ -36,13 +36,19 @@ connections = load_mcp_config()
 # We use tool_name_prefix=True to avoid tool name collisions (e.g. "github_search" vs "local_search")
 mcp_client = MultiServerMCPClient(connections=connections, tool_name_prefix=True)
 
+_mcp_tools_cache = None
 
 async def get_mcp_tools() -> List[BaseTool]:
     """
     Asynchronously retrieve all available tools from the configured MCP servers.
     The client automatically handles session lifecycle per tool call.
     """
+    global _mcp_tools_cache
+    if _mcp_tools_cache is not None:
+        return _mcp_tools_cache
+
     if not connections:
+        _mcp_tools_cache = []
         return []
 
     try:
@@ -51,6 +57,7 @@ async def get_mcp_tools() -> List[BaseTool]:
         )
         tools = await mcp_client.get_tools()
         print(f"[mcp] Successfully loaded {len(tools)} MCP tools.")
+        _mcp_tools_cache = tools
         return tools
     except Exception as e:
         print(f"[mcp] Error loading MCP tools: {e}")

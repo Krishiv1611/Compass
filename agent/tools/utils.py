@@ -12,6 +12,11 @@ def get_workspace_for_tool(config: RunnableConfig) -> Path:
     if workspace_dir:
         return Path(workspace_dir)
         
+    # If this is a web session (has session_id) but no workspace_dir, it's an error.
+    if "session_id" in config["configurable"]:
+        raise ValueError("Workspace directory not configured for this web session.")
+        
+    # TUI or local execution fallback
     return Path.cwd()
 
 def resolve_workspace_path(workspace: Path, target_path: str) -> str:

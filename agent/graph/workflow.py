@@ -23,6 +23,7 @@ from agent.graph.tools_registry import ALL_TOOLS
 from agent.graph.state import AgentState
 from agent.graph.nodes import (
     planner_node,
+    plan_approval_node,
     call_model,
     loop_recovery_node,
     summary_node,
@@ -112,9 +113,23 @@ async def _route_after_safety(state: AgentState) -> str:
 
 
 async def _route_after_planner(state: AgentState) -> str:
-    """Route after planner: skill_manager if a skill is active, else executor."""
+    """Route after planner: skill_manager if a skill is active, plan_approval if mode is plan, else executor."""
     if state.get("active_skill"):
         return "skill_manager"
+    if state.get("mode") == "plan":
+        return "plan_approval"
+    return "executor"
+
+async def _route_after_plan_approval(state: AgentState) -> str:
+    """Route after plan approval based on the outcome."""
+    if state.get("is_done"):
+        return END
+    
+    # If the user rejected the plan, we injected an AIMessage into state["messages"]
+    last_msg = state.get("messages", [])[-1].content
+    if isinstance(last_msg, str) and last_msg.startswith("User rejected plan"):
+        return "planner"
+        
     return "executor"
 
 
@@ -155,7 +170,8 @@ async def _route_after_guardrails_input(state: AgentState) -> str:
     if len(messages) == 1:
         return "title_generator"
 
-    return "executor"
+    # All non-simple tasks should get planned
+    return "context_injector"
 
 
 async def _route_after_title_generator(state: AgentState) -> str:
@@ -174,6 +190,7 @@ builder.add_node("guardrails_input", guardrails_input_node)
 builder.add_node("guardrails_output", guardrails_output_node)
 builder.add_node("context_injector", context_injector_node)
 builder.add_node("planner", planner_node)
+builder.add_node("plan_approval", plan_approval_node)
 builder.add_node("clarifier", clarifier_node)
 builder.add_node("skill_manager", _skill_manager)
 builder.add_node("executor", call_model)
@@ -189,6 +206,7 @@ builder.add_node("title_generator", title_generator_node)
 builder.add_edge(START, "guardrails_input")
 builder.add_conditional_edges("guardrails_input", _route_after_guardrails_input)
 builder.add_conditional_edges("planner", _route_after_planner)
+builder.add_conditional_edges("plan_approval", _route_after_plan_approval)
 builder.add_edge("skill_manager", "executor")
 builder.add_conditional_edges("executor", _route_after_executor)
 builder.add_conditional_edges("check_safety", _route_after_safety)

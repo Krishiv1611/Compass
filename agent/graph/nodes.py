@@ -151,6 +151,38 @@ def _parse_skill_directive(plan_text: str) -> dict | None:
     return None
 
 
+async def plan_approval_node(state: AgentState, config: RunnableConfig):
+    """
+    Interrupts execution to wait for user approval of the plan.
+    """
+    from langgraph.types import interrupt
+    from langchain_core.messages import AIMessage
+
+    plan = state.get("plan", "")
+    
+    # Pause graph execution, yield plan to client
+    user_decision = interrupt({
+        "reason": "plan_approval_required",
+        "plan": plan
+    })
+    
+    action = user_decision.get("action", "execute_plan") if isinstance(user_decision, dict) else "execute_plan"
+    
+    if action == "cancel":
+        return {
+            "is_done": True, 
+            "messages": [AIMessage(content="Plan execution cancelled by user.")]
+        }
+    elif action == "revise_plan":
+        feedback = user_decision.get("feedback", "")
+        return {
+            "messages": [AIMessage(content=f"User rejected plan with feedback: {feedback}")]
+        }
+    else:
+        # execute_plan: do nothing, proceed
+        return {}
+
+
 async def call_model(state: AgentState, config: RunnableConfig):
     """
     ⚡ Executor Agent — follow the plan and call tools to accomplish the task.
@@ -403,7 +435,8 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
     from langchain_core.messages import ToolMessage
     from agent.config import settings
 
-    fast_mode = (state.get("mode") == "fast") or (config.get("configurable", {}).get("fast_mode", False) if config else False) or settings.get("fast_mode", False)
+    mode = state.get("mode")
+    fast_mode = (mode in ("fast", "goal")) or (config.get("configurable", {}).get("fast_mode", False) if config else False) or settings.get("fast_mode", False)
     if fast_mode:
         return {"approval_status": "approved"}
 

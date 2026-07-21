@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Any
+from typing import Any, Literal
 
 
 # ── Enums ─────────────────────────────────────────────────
@@ -33,7 +33,7 @@ class ChatRequest(BaseModel):
 
     session_id: str
     content: str = Field(..., min_length=1)
-    mode: str = "normal"
+    mode: Literal["normal", "plan", "fast", "goal"] = "normal"
 
 
 class WsClientMessage(BaseModel):
@@ -44,8 +44,10 @@ class WsClientMessage(BaseModel):
     call_id: str | None = None
     result: Any | None = None
     error: str | None = None
-    mode: str = "normal"
+    mode: Literal["normal", "plan", "fast", "goal"] = "normal"
     action: str | None = None
+    last_seq: int | None = None
+    run_id: str | None = None
 
 
 # ── Responses ─────────────────────────────────────────────

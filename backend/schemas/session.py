@@ -28,6 +28,7 @@ class SessionSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
+    workspace_name: str | None = None
 
     model_config = {"from_attributes": True}
 

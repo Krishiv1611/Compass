@@ -1,4 +1,4 @@
-﻿"""
+"""
 Compass TUI â€” Beautiful terminal interface for the Compass AI coding agent.
 
 Uses Click for CLI framework, Rich for stunning terminal rendering,
@@ -1825,7 +1825,7 @@ async def compass_repl(resume_thread_id: str | None = None):
         if last and sm.session_age_minutes(last) < 60:
             compass.console.print(
                 Text(
-                    f"  ðŸ“Œ Recent session found: "
+                    f"  📌 Recent session found: "
                     f"{last['thread_id'][:10]}... "
                     f"({last.get('name') or 'unnamed'}, "
                     f"{last.get('turn_count', 0)} turns)",

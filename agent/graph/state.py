@@ -5,7 +5,7 @@ All fields used by the four-agent architecture:
   Planner → Executor → Loop Recovery → Summarizer
 """
 
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -18,7 +18,7 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     turn_count: int
     summary: str
-    mode: str  # "normal" or "plan"
+    mode: Literal["normal", "plan", "fast", "goal"]
 
     # ── Planner ──────────────────────────────────────────────────────────────
     plan: str  # Step-by-step plan from the planner agent

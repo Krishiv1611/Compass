@@ -43,7 +43,7 @@ Compass is a fully autonomous AI coding agent that can read, write, debug, and r
 | **NeMo Guardrails** | Input/output content filtering powered by NVIDIA NeMo Guardrails |
 | **Skills** | Modular, reusable sub-agents that can be loaded from YAML definitions and invoked dynamically |
 | **Session Management** | Persistent sessions with PostgreSQL-backed checkpointing, resumable across restarts |
-| **OAuth & JWT Auth** | Google and GitHub OAuth login, JWT access/refresh tokens, rate limiting |
+| **OAuth & JWT Auth** | Google OAuth login, JWT access/refresh tokens, rate limiting |
 | **Docker Ready** | Full `docker-compose.yml` and `docker-compose.prod.yml` for one-command deployment |
 | **Evaluations** | LangSmith-powered eval suite with answer relevance, hallucination, and tool correctness evaluators |
 
@@ -246,33 +246,79 @@ compass/
 
 ## Agent Core
 
-The agent is a LangGraph `StateGraph` assembled in `agent/graph/workflow.py`. Each user message flows through the following nodes:
-
-```
-START → guardrails_input → [blocked? → END]
-                         → planner → executor → [has tool calls?]
-                                                  → check_safety (HITL) → tools → executor (loop)
-                                                  → [loop detected?] → loop_recovery → executor
-                                                  → [done?] → guardrails_output → END
-                                                  → [long context?] → summary → END
+```mermaid
+stateDiagram-v2
+    direction TD
+    START --> guardrails_input
+    
+    state route_input <<choice>>
+    guardrails_input --> route_input
+    route_input --> END : Blocked
+    route_input --> direct_chat : Simple Chat
+    route_input --> context_injector : Complex Task
+    
+    context_injector --> planner
+    
+    state route_planner <<choice>>
+    planner --> route_planner
+    route_planner --> skill_manager : Skill Match
+    route_planner --> plan_approval : Plan Mode
+    route_planner --> executor : Default
+    
+    skill_manager --> executor
+    
+    state route_plan_approval <<choice>>
+    plan_approval --> route_plan_approval
+    route_plan_approval --> executor : Approved
+    route_plan_approval --> planner : Rejected
+    route_plan_approval --> END : Cancelled
+    
+    state route_executor <<choice>>
+    executor --> route_executor
+    route_executor --> loop_recovery : Loop < 2
+    route_executor --> clarifier : Loop >= 2
+    route_executor --> check_safety : Tool Calls
+    route_executor --> evaluator : Done
+    
+    loop_recovery --> executor
+    clarifier --> executor
+    
+    check_safety --> tools : Approved
+    check_safety --> executor : Denied
+    
+    tools --> linter_node
+    
+    state route_linter <<choice>>
+    linter_node --> route_linter
+    route_linter --> summary_node : Long Context
+    route_linter --> executor : Normal
+    
+    summary_node --> executor
+    
+    evaluator --> guardrails_output
+    direct_chat --> guardrails_output
+    guardrails_output --> END
 ```
 
 ### Key Nodes
 
 | Node | File | Purpose |
 |---|---|---|
+| `guardrails_input_node` | `nodes.py` | Runs NeMo Guardrails input validation. Blocks prompt injection and unsafe content. |
+| `direct_chat_node` | `nodes.py` | Fast-path for simple conversational greetings without engaging tools or complex planning. |
+| `context_injector_node` | `nodes.py` | Injects RAG context, long-term memory, and workspace metadata into the conversation. |
 | `planner_node` | `nodes.py` | Analyzes the user request and outputs a numbered step-by-step plan. Detects skill matches. |
+| `plan_approval_node` | `nodes.py` | Halts execution to request explicit user approval for generated plans before proceeding. |
+| `skill_manager` | `manager.py` | Orchestrates skill execution by delegating to a specialized SubAgentFactory based on the active skill. |
 | `call_model` (Executor) | `nodes.py` | Invokes the LLM with all available tools bound. Tracks token usage and loop patterns. |
 | `check_safety_node` | `nodes.py` | Classifies pending tool calls as safe or risky. Risky calls trigger a LangGraph `interrupt()` for user approval. |
-| `loop_recovery_node` | `nodes.py` | A separate LLM analyzes why the executor is stuck and provides corrective guidance. |
+| `linter_node` | `nodes.py` | Runs basic lint checks on generated code immediately after tools run. |
 | `summary_node` | `nodes.py` | Compacts long conversation histories to stay within context limits. |
-| `guardrails_input_node` | `nodes.py` | Runs NeMo Guardrails input validation. Blocks prompt injection and unsafe content. |
-| `guardrails_output_node` | `nodes.py` | Runs NeMo Guardrails output validation before sending the response to the user. |
+| `loop_recovery_node` | `nodes.py` | A separate LLM analyzes why the executor is stuck in a tool-calling loop and provides corrective guidance. |
+| `clarifier_node` | `nodes.py` | After repeated loop failures (2+), asks the user a clarifying question instead of retrying endlessly. |
 | `evaluator_node` | `nodes.py` | Post-execution quality check using a separate LLM to verify the response meets the user's intent. |
-| `context_injector_node` | `nodes.py` | Injects RAG context, long-term memory, and workspace metadata into the conversation. |
+| `guardrails_output_node` | `nodes.py` | Runs NeMo Guardrails output validation before sending the final response to the user. |
 | `title_generator_node` | `nodes.py` | Asynchronously generates a short title for new sessions (fire-and-forget). |
-| `linter_node` | `nodes.py` | Runs basic lint checks on generated code before finalizing. |
-| `clarifier_node` | `nodes.py` | After repeated loop failures, asks the user a clarifying question instead of retrying. |
 
 ### AgentState
 
@@ -298,7 +344,7 @@ The FastAPI backend (`backend/`) exposes REST and WebSocket endpoints for the We
 |---|---|---|
 | `POST` | `/auth/register` | Create a new account |
 | `POST` | `/auth/login` | Email + password login |
-| `GET` | `/auth/google`, `/auth/github` | OAuth redirect flows |
+| `GET` | `/auth/google` | OAuth redirect flow |
 | `POST` | `/auth/refresh` | Refresh JWT access token |
 | `GET/POST` | `/sessions` | List and create chat sessions |
 | `WebSocket` | `/chat/ws/{session_id}` | Real-time streaming (tokens, tool calls, approvals) |
@@ -352,7 +398,7 @@ The main `ChatPage.tsx` uses **Allotment** to create a resizable split-pane layo
 | `DiffReviewPanel` | Side-by-side diff viewer for pending patches |
 | `SettingsModal` | Full settings panel (model, API key, provider, guardrails, fast mode) |
 | `McpServerManager` | Visual form for adding/editing/testing MCP server connections |
-| `AppLayout` | Sidebar navigation with session list, new chat, and settings |
+| `AppLayout` | Sidebar navigation with project-based session grouping, new task, and settings |
 
 ### Tech Stack
 
@@ -646,7 +692,7 @@ For production deployments, see [DEPLOYMENT.md](DEPLOYMENT.md). Key requirements
 - Set `COMPASS_CLOUD_MODE=true` to disable local-only features (shell tool)
 - Use a production PostgreSQL instance via `DB_URI`
 - Set a strong `JWT_SECRET`
-- Configure OAuth credentials for Google/GitHub login
+- Configure OAuth credentials for Google login
 - Proxy WebSocket connections (`/chat/ws/*`) with upgrade support
 - Serve the built frontend from a CDN or static host
 
@@ -661,8 +707,6 @@ For production deployments, see [DEPLOYMENT.md](DEPLOYMENT.md). Key requirements
 | `JWT_SECRET` | Web mode | Secret for JWT token signing |
 | `GOOGLE_CLIENT_ID` | Optional | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Optional | Google OAuth client secret |
-| `GITHUB_CLIENT_ID` | Optional | GitHub OAuth client ID |
-| `GITHUB_CLIENT_SECRET` | Optional | GitHub OAuth client secret |
 | `COMPASS_CLOUD_MODE` | Optional | Set to `true` for hosted deployments |
 | `CORS_ORIGINS` | Optional | Comma-separated allowed origins |
 | `LANGCHAIN_API_KEY` | Optional | LangSmith API key for tracing |
