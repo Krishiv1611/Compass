@@ -89,6 +89,11 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
   const [pendingPatchCount, setPendingPatchCount] = useState(0);
   const [activeTab, setActiveTab] = useState("sandbox");
   const [showChat, setShowChat] = useState(true);
+  const [headerNode, setHeaderNode] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setHeaderNode(document.getElementById("header-actions"));
+  }, []);
 
   // Dialog states
   const [createDialog, setCreateDialog] = useState<{parentPath: string, type: "file"|"folder"} | null>(null);
@@ -151,6 +156,7 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
       setCode(text);
       setOriginalCode(text);
       setShowEditor(true);
+      setShowChat(false);
     } catch (error: any) {
       toast.error(error?.response?.data?.detail || error?.message || "Could not read file");
     } finally {
@@ -215,6 +221,17 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
     }
     return () => { mounted = false; };
   }, [refreshPatchCount, refreshTree, sessionId]);
+
+  useEffect(() => {
+    const handleWorkspaceUpdated = () => {
+      if (activeWorkspaceId) {
+        refreshTree(activeWorkspaceId);
+        refreshPatchCount(activeWorkspaceId);
+      }
+    };
+    window.addEventListener("workspace-updated", handleWorkspaceUpdated);
+    return () => window.removeEventListener("workspace-updated", handleWorkspaceUpdated);
+  }, [activeWorkspaceId, refreshTree, refreshPatchCount]);
 
   const executeCreate = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -470,11 +487,9 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
     );
   }
 
-  const headerActionsNode = document.getElementById("header-actions");
-
   return (
     <>
-      {headerActionsNode && createPortal(
+      {headerNode && createPortal(
         <>
           <WorkspaceHeader
             workspaceId={activeWorkspaceId!}
@@ -482,16 +497,14 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
             onRefresh={() => refreshTree(activeWorkspaceId!)}
           />
           <div className="h-4 w-px bg-border/50 mx-2"></div>
-          <Button variant={showPreview ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={handleTogglePreview}>
-            <Globe className="h-3.5 w-3.5 mr-1" />
-            {showPreview ? "Close Preview" : "Live Preview"}
+          <Button variant={showPreview ? "secondary" : "ghost"} size="icon-sm" className="h-7 w-7 mr-2" onClick={handleTogglePreview} title={showPreview ? "Close Preview" : "Live Preview"}>
+            <Globe className="h-4 w-4" />
           </Button>
-          <Button variant={showChat ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={handleToggleChat}>
-            <MessageSquare className="h-3.5 w-3.5 mr-1" />
-            {showChat ? "Hide Chat" : "Show Chat"}
+          <Button variant={showChat ? "secondary" : "ghost"} size="icon-sm" className="h-7 w-7 mr-2" onClick={handleToggleChat} title={showChat ? "Hide Chat" : "Show Chat"}>
+            <MessageSquare className="h-4 w-4" />
           </Button>
         </>,
-        headerActionsNode
+        headerNode
       )}
       <Allotment defaultSizes={[250, 750, 400]}>
         {/* File Explorer & Timeline Pane */}
@@ -560,6 +573,9 @@ export default function CodeSandbox({ initialCode = "", language = "typescript",
                 {isLoadingFile && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
               </div>
               <div className="flex items-center gap-1">
+                <Button variant={showChat ? "secondary" : "ghost"} size="icon-sm" className="h-7 w-7 mr-2" onClick={handleToggleChat} title={showChat ? "Hide Chat" : "Show Chat"}>
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </Button>
                 <Button variant={showPatches ? "default" : "outline"} size="sm" className="h-7 text-xs mr-2" onClick={() => setShowPatches(!showPatches)}>
                   {showPatches ? "Close Patches" : "Review Patches"}
                   {pendingPatchCount > 0 && <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px]">{pendingPatchCount}</Badge>}

@@ -99,7 +99,7 @@ export default function LoginModal({
   };
 
   return (
-    <div className="relative w-full max-w-md bg-card border border-border rounded-xl shadow-2xl p-6 flex flex-col items-center">
+    <div className="relative w-full max-w-md bg-card border border-border rounded-none shadow-none p-6 flex flex-col items-center">
       {!hideCloseButton && (
         <button
           onClick={onClose}
@@ -113,7 +113,7 @@ export default function LoginModal({
       )}
 
       <div className="mb-8 text-center mt-4">
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/12 text-primary">
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-none bg-accent/10 text-accent border border-accent">
           <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>

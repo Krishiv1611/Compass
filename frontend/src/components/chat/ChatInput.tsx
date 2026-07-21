@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, Loader2, Paperclip, Send, Sparkles, X, Folder } from "lucide-react";
+import { File as FileIcon, Loader2, Paperclip, Send, Sparkles, X, Folder, Zap, Target, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface ChatInputProps {
@@ -96,12 +96,12 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   return (
     <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 md:px-8">
       <div
-        className={`glass-input-container mx-auto max-w-3xl overflow-hidden transition-all duration-300 relative ${
+        className={`mx-auto max-w-3xl overflow-hidden transition-all duration-100 relative bg-card border border-border ${
           isDraggingPath 
-            ? "border-primary ring-2 ring-primary/40 bg-primary/5" 
+            ? "border-accent ring-1 ring-accent" 
             : isDragging 
-              ? "border-emerald-500 ring-2 ring-emerald-500/20" 
-              : "focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10"
+              ? "border-accent ring-1 ring-accent" 
+              : "focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/50"
         } ${isLoading ? "opacity-80" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -155,25 +155,66 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
               }}
               disabled={isLoading}
             />
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-full px-3 h-8" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
+            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-none px-3 h-8 border border-transparent hover:border-border" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
               <Paperclip className="h-4 w-4 mr-1.5" /> Attach
             </Button>
-            <div className="flex items-center ml-2">
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as any)}
+            <div className="flex items-center ml-2 bg-background border border-border rounded-none p-0.5">
+              <button
+                type="button"
+                onClick={() => setMode("normal")}
                 disabled={isLoading}
-                className="h-8 rounded-full bg-background/50 px-3 py-0 text-xs font-medium text-muted-foreground outline-none hover:bg-background hover:text-foreground focus:ring-2 focus:ring-primary/20 transition-all border border-border appearance-none cursor-pointer pr-8 bg-no-repeat bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%236b7280%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:14px_14px] bg-[right_8px_center]"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
+                  mode === "normal"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                title="Normal - Balanced speed and standard safety checks"
               >
-                <option value="normal">⚡ Normal - Balanced speed and standard safety checks</option>
-                <option value="plan">📝 Plan - Analyzes the request and creates a structured plan first</option>
-                <option value="fast">🚀 Fast - Bypasses safety checks for maximum speed</option>
-                <option value="goal">🎯 Goal - Deep autonomous execution without interruptions</option>
-              </select>
+                <Activity className="h-3.5 w-3.5" /> Normal
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("plan")}
+                disabled={isLoading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
+                  mode === "plan"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                title="Plan - Analyzes the request and creates a structured plan first"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Plan
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("fast")}
+                disabled={isLoading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
+                  mode === "fast"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                title="Fast - Bypasses safety checks for maximum speed"
+              >
+                <Zap className="h-3.5 w-3.5" /> Fast
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("goal")}
+                disabled={isLoading}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
+                  mode === "goal"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                title="Goal - Deep autonomous execution without interruptions"
+              >
+                <Target className="h-3.5 w-3.5" /> Goal
+              </button>
             </div>
           </div>
 
-          <Button size="icon" className="h-9 w-9 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(147,51,234,0.4)] transition-all" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}>
+          <Button size="icon" className="h-9 w-9 rounded-none bg-accent hover:bg-accent/90 text-accent-foreground transition-all" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "plan" ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4 ml-0.5" />}
           </Button>
         </div>

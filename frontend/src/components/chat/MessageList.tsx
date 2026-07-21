@@ -1,4 +1,4 @@
-import { Bot, UserCircle, RefreshCcw } from "lucide-react";
+import { Bot, UserCircle, RefreshCcw, Compass } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import MarkdownMessage from "./MarkdownMessage";
 import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
 import ThinkingBlock from "./ThinkingBlock";
+import PlanReviewCard from "./PlanReviewCard";
 
 
 type Message = {
@@ -37,10 +38,12 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
   if (messages.length === 0) {
     return (
       <div className="flex h-[70vh] flex-col items-center justify-center text-center">
-        <div className="mb-12 glow-orb"></div>
-        <h1 className="text-3xl font-light tracking-tight text-white mb-3">Ready to Create Something New?</h1>
+        <div className="mb-6 flex size-16 items-center justify-center border border-accent/30 bg-accent/10 text-accent">
+          <Compass className="h-8 w-8" />
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-3">How can I help you today?</h1>
         <p className="max-w-md text-sm leading-6 text-muted-foreground">
-          Ask Compass to inspect, edit, build, or explain...
+          I am Compass, your AI coding assistant.
         </p>
       </div>
     );
@@ -153,32 +156,48 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
       })}
 
       {pendingApproval && (
-        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 justify-start mb-5">
-          <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-lg bg-red-500/12 text-red-500">
-            <Bot className="h-4 w-4" />
-          </div>
-          <div className="max-w-[82%]">
-            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-500">
-              Approval Required
+        pendingApproval.data?.reason === "plan_approval_required" ? (
+          <PlanReviewCard
+            key="plan-review"
+            plan={pendingApproval.data.plan}
+            onAction={(action, feedback) => {
+              if (action === "execute_plan") {
+                onApprove("execute_plan");
+              } else if (action === "revise_plan") {
+                onApprove(`revise_plan|${feedback}`); // We pass feedback delimited. Or we can just call an API if we needed, but for now we piggyback onApprove by serializing it if needed, or better, we should modify onApprove to take action and feedback.
+              } else {
+                onApprove("cancel");
+              }
+            }}
+          />
+        ) : (
+          <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 justify-start mb-5">
+            <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-lg bg-red-500/12 text-red-500">
+              <Bot className="h-4 w-4" />
             </div>
-            <Card className="rounded-lg p-4 bg-red-500/10 border-red-500/20">
-              <p className="text-sm font-medium mb-3 text-foreground">
-                {pendingApproval.content || "The agent wants to perform a potentially risky action."}
-              </p>
-              {pendingApproval.data?.tool_calls?.map((tc: any) => (
-                <div key={tc.id} className="text-xs font-mono bg-background/50 p-2 rounded mb-2 overflow-x-auto">
-                  <span className="font-bold text-red-400">{tc.name}</span>({JSON.stringify(tc.args)})
-                </div>
-              ))}
-              <div className="flex gap-2 mt-4 flex-wrap">
-                <Button size="sm" onClick={() => onApprove("yes")} variant="default">Approve Once</Button>
-                <Button size="sm" onClick={() => onApprove("always")} variant="outline" className="text-green-500 border-green-500/20 hover:bg-green-500/10">Always Allow in Thread</Button>
-                <Button size="sm" onClick={() => onApprove("skip")} variant="secondary">Skip Step</Button>
-                <Button size="sm" onClick={() => onApprove("no")} variant="destructive">Deny</Button>
+            <div className="max-w-[82%]">
+              <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-red-500">
+                Approval Required
               </div>
-            </Card>
-          </div>
-        </motion.div>
+              <Card className="rounded-lg p-4 bg-red-500/10 border-red-500/20">
+                <p className="text-sm font-medium mb-3 text-foreground">
+                  {pendingApproval.content || "The agent wants to perform a potentially risky action."}
+                </p>
+                {pendingApproval.data?.tool_calls?.map((tc: any) => (
+                  <div key={tc.id} className="text-xs font-mono bg-background/50 p-2 rounded mb-2 overflow-x-auto">
+                    <span className="font-bold text-red-400">{tc.name}</span>({JSON.stringify(tc.args)})
+                  </div>
+                ))}
+                <div className="flex gap-2 mt-4 flex-wrap">
+                  <Button size="sm" onClick={() => onApprove("yes")} variant="default">Approve Once</Button>
+                  <Button size="sm" onClick={() => onApprove("always")} variant="outline" className="text-green-500 border-green-500/20 hover:bg-green-500/10">Always Allow in Thread</Button>
+                  <Button size="sm" onClick={() => onApprove("skip")} variant="secondary">Skip Step</Button>
+                  <Button size="sm" onClick={() => onApprove("no")} variant="destructive">Deny</Button>
+                </div>
+              </Card>
+            </div>
+          </motion.div>
+        )
       )}
     </AnimatePresence>
   );

@@ -67,7 +67,6 @@ export default function AppLayout() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [sessionsPage, setSessionsPage] = useState(1);
   const [hasMoreSessions, setHasMoreSessions] = useState(false);
-  const [backendOffline, setBackendOffline] = useState(false);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -126,23 +125,6 @@ export default function AppLayout() {
   }, [sessionsPage]);
 
 
-  useEffect(() => {
-    let active = true;
-
-    const checkHealth = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/health`, { cache: "no-store" });
-        if (active) setBackendOffline(!response.ok);
-      } catch {
-        if (active) setBackendOffline(true);
-      }
-    };
-
-    checkHealth();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     fetchUser();
@@ -212,8 +194,8 @@ export default function AppLayout() {
 
   const SidebarContent = (
     <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-3 border-b border-border/50 px-4">
-        <div className="flex size-8 items-center justify-center rounded-full bg-primary/20 text-primary ring-1 ring-primary/50 shadow-[0_0_10px_rgba(147,51,234,0.3)]">
+      <div className="flex h-14 items-center gap-3 border-b border-border px-4 bg-header">
+        <div className="flex size-8 items-center justify-center bg-card text-primary border border-border">
           <Compass className="h-4 w-4" />
         </div>
         <div className="min-w-0">
@@ -222,18 +204,18 @@ export default function AppLayout() {
         </div>
       </div>
 
-      <div className="space-y-3 border-b border-border/50 p-4">
-        <Button className="h-10 w-full justify-start rounded-full bg-muted/50 hover:bg-muted text-foreground border border-border/50 transition-all duration-300 hover:border-primary/50 hover:shadow-[0_0_15px_rgba(147,51,234,0.15)]" onClick={handleNewChat}>
-          <Plus className="h-4 w-4 mr-2" /> New Chat
+      <div className="space-y-3 border-b border-border p-4">
+        <Button className="h-10 w-full justify-start rounded-none bg-muted hover:bg-secondary text-foreground border border-border transition-colors" onClick={handleNewChat}>
+          <Plus className="h-4 w-4 mr-2 text-accent" /> New Chat
         </Button>
         <div className="grid grid-cols-1 gap-2">
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={handleOpenFolder}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={handleOpenFolder}>
             <FolderOpen className="h-4 w-4 mr-2" /> Folder
           </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { setSettingsInitialTab("skills"); setSettingsOpen(true); }}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { setSettingsInitialTab("skills"); setSettingsOpen(true); }}>
             <Sparkles className="h-4 w-4 mr-2" /> Skills
           </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { setSettingsInitialTab("mcp"); setSettingsOpen(true); }}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { setSettingsInitialTab("mcp"); setSettingsOpen(true); }}>
             <Plug className="h-4 w-4 mr-2" /> Connectors
           </Button>
         </div>
@@ -242,16 +224,16 @@ export default function AppLayout() {
       <div className="space-y-3 border-b border-border/50 p-4">
         <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground px-1 mb-2">Workspace Tools</h4>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "tasks" }); }}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "tasks" }); }}>
             <CheckSquare className="h-4 w-4 mr-2" /> Tasks
           </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "memory" }); }}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { sidebarEvent("set-sandbox-tab", { tab: "agent" }); sidebarEvent("set-agent-tab", { tab: "memory" }); }}>
             <BrainCircuit className="h-4 w-4 mr-2" /> Memory
           </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => sidebarEvent("set-sandbox-tab", { tab: "timeline" })}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => sidebarEvent("set-sandbox-tab", { tab: "timeline" })}>
             <Clock className="h-4 w-4 mr-2" /> Timeline
           </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => sidebarEvent("review-patches-request")}>
+          <Button variant="ghost" className="h-9 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => sidebarEvent("review-patches-request")}>
             <History className="h-4 w-4 mr-2" /> Undo
           </Button>
         </div>
@@ -275,10 +257,10 @@ export default function AppLayout() {
                 return (
                   <div
                     key={session.id}
-                    className={`group flex items-center gap-1 rounded-xl px-3 py-2 transition-all duration-300 ${
+                    className={`group flex items-center gap-1 rounded-none px-3 py-2 transition-none border-l-2 ${
                       active
-                        ? "bg-primary/10 text-primary font-medium shadow-[inset_2px_0_0_var(--primary)]"
-                        : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                        ? "bg-muted border-accent text-foreground font-medium"
+                        : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
                   >
                     <button
@@ -325,8 +307,8 @@ export default function AppLayout() {
         </div>
       </ScrollArea>
 
-      <div className="border-t border-border/50 p-4">
-        <Button variant="ghost" className="h-10 w-full justify-start rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5" onClick={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }}>
+      <div className="border-t border-border p-4">
+        <Button variant="ghost" className="h-10 w-full justify-start rounded-none text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }}>
           <Settings className="h-4 w-4 mr-2" /> Settings
         </Button>
       </div>
@@ -336,16 +318,16 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground selection:bg-primary/20 font-sans">
       {isDesktopSidebarOpen && (
-        <div className="hidden md:block w-[280px] shrink-0 border-r border-border/50">
+        <div className="hidden md:block w-[280px] shrink-0 border-r border-border">
           {SidebarContent}
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col relative z-0">
-        <header className="absolute inset-x-0 top-0 z-10 flex h-16 shrink-0 items-center justify-between px-6 bg-transparent">
+        <header className="glass-header absolute inset-x-0 top-0 z-10 flex h-14 shrink-0 items-center justify-between px-6">
           <div className="flex min-w-0 items-center gap-3">
             <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
-              <SheetTrigger className="inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted md:hidden">
+              <SheetTrigger className="inline-flex size-8 items-center justify-center rounded-none hover:bg-muted md:hidden">
                 <Menu className="h-5 w-5" />
               </SheetTrigger>
               <SheetContent side="left" className="w-72 border-r-0 p-0" showCloseButton={false}>
@@ -355,9 +337,9 @@ export default function AppLayout() {
             <button
               onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)}
               aria-label={isDesktopSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-              className="hidden md:inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="hidden md:inline-flex size-8 items-center justify-center rounded-none hover:bg-muted transition-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-4 w-4 text-muted-foreground" />
             </button>
 
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
@@ -370,24 +352,13 @@ export default function AppLayout() {
 
           <div className="flex items-center gap-3">
             <div id="header-actions" className="flex items-center gap-2 mr-4"></div>
-            {backendOffline && (
-              <span
-                className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500"
-                title="Backend health check failed"
-              >
-                <WifiOff className="h-3 w-3" /> Offline
-              </span>
-            )}
-            <Badge variant="outline" className="hidden gap-1 text-muted-foreground lg:inline-flex">
-              <Terminal className="h-3 w-3" /> tools enabled
-            </Badge>
-            <Button variant="ghost" size="icon" className="rounded-full bg-white/5 hover:bg-white/10" onClick={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }} title="Settings">
+            <Button variant="ghost" size="icon" className="rounded-none hover:bg-muted" onClick={() => { setSettingsInitialTab(undefined); setSettingsOpen(true); }} title="Settings">
               {user ? <UserCircle className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
             </Button>
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-hidden pt-16">
+        <main className="min-h-0 flex-1 overflow-hidden pt-14">
           <Outlet context={{ user, refreshUser: fetchUser }} />
         </main>
       </div>

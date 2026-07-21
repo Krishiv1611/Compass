@@ -25,64 +25,75 @@
   --color-sidebar-foreground: var(--foreground);
   --color-header: var(--header);
   --color-panel: var(--card);
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
 }
 
-/* ─── Light mode ──────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --radius: 0.475rem;
-    --background: #0a0a0a;
+    /* Technical Instrument Theme - Zinc & Sky Blue */
+    --radius: 0px; /* Sharp, precise corners */
+    
+    /* Zinc 950 Background */
+    --background: #09090b;
     --foreground: #fafafa;
-    --card: #0a0a0a;
+    
+    /* Zinc 900 Surfaces */
+    --card: #18181b;
     --card-foreground: #fafafa;
-    --popover: #0a0a0a;
+    --popover: #18181b;
     --popover-foreground: #fafafa;
+    
+    /* Zinc 50 Primary */
     --primary: #fafafa;
-    --primary-foreground: #171717;
+    --primary-foreground: #18181b;
+    
+    /* Zinc 800 Muted */
     --secondary: #27272a;
     --secondary-foreground: #fafafa;
     --muted: #27272a;
     --muted-foreground: #a1a1aa;
-    --accent: #27272a;
+    
+    /* Sky 600 Accent */
+    --accent: #0284c7;
     --accent-foreground: #fafafa;
-    --destructive: #7f1d1d;
-    --border: #27272a;
+    
+    --destructive: #991b1b;
+    --border: #27272a; /* Zinc 800 */
     --input: #27272a;
-    --ring: #d4d4d8;
-    --sidebar: #0a0a0a;
+    --ring: #0284c7; /* Sky 600 focus ring */
+    --sidebar: #09090b;
     --sidebar-foreground: #fafafa;
     
-    --header: rgba(10, 10, 10, 0.85);
+    --header: #09090b; /* Solid header, no glass */
   }
 
-  /* ─── Dark mode ─────────────────────────────────────────────────────────── */
+  /* Dark mode is the only mode for a pro-level HUD */
   .dark {
-    --background: #0a0a0a;
+    --background: #09090b;
     --foreground: #fafafa;
-    --card: #0a0a0a;
+    --card: #18181b;
     --card-foreground: #fafafa;
-    --popover: #0a0a0a;
+    --popover: #18181b;
     --popover-foreground: #fafafa;
     --primary: #fafafa;
-    --primary-foreground: #171717;
+    --primary-foreground: #18181b;
     --secondary: #27272a;
     --secondary-foreground: #fafafa;
     --muted: #27272a;
     --muted-foreground: #a1a1aa;
-    --accent: #27272a;
+    --accent: #0284c7;
     --accent-foreground: #fafafa;
-    --destructive: #7f1d1d;
+    --destructive: #991b1b;
     --border: #27272a;
     --input: #27272a;
-    --ring: #d4d4d8;
-    --sidebar: #0a0a0a;
+    --ring: #0284c7;
+    --sidebar: #09090b;
     --sidebar-foreground: #fafafa;
     
-    --header: rgba(10, 10, 10, 0.85);
+    --header: #09090b;
   }
 
   *, ::after, ::before, ::backdrop, ::file-selector-button {
@@ -99,8 +110,7 @@
     margin: 0;
     background: var(--color-background);
     color: var(--color-foreground);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-      "Segoe UI", sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1;
     -webkit-font-smoothing: antialiased;
     text-rendering: geometricPrecision;
@@ -114,10 +124,10 @@
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--primary) 26%, transparent);
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
   }
 
-  /* ─── Focus ring: all interactive elements ──────────────────────────────── */
+  /* Sharp Focus States */
   button:focus-visible,
   a:focus-visible,
   [role="button"]:focus-visible,
@@ -125,73 +135,72 @@
   textarea:focus-visible,
   select:focus-visible,
   [tabindex]:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--ring), 0 0 0 4px color-mix(in srgb, var(--ring) 40%, transparent);
+    outline: 1px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: none; /* Removed soft shadow for crisp technical outline */
   }
 }
 
-/* ─── Glass morphism header ─────────────────────────────────────────────────── */
+/* ─── Solid Header (No Glass) ─────────────────────────────────────────────────── */
 .glass-header {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   background: var(--header);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-bottom: 1px solid var(--border);
 }
 
-/* ─── Login page: subtle dot grid background ────────────────────────────────── */
+/* ─── Minimal Grid Background ────────────────────────────────── */
 .login-dot-grid {
-  background-image: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--primary) 18%, transparent) 1px,
-    transparent 1px
-  );
-  background-size: 28px 28px;
+  background-image: 
+    linear-gradient(to right, color-mix(in srgb, var(--border) 40%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--border) 40%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
-/* ─── Hover transitions on all interactive elements ────────────────────────── */
+/* ─── Interactions ────────────────────────── */
 button,
 a,
 [role="button"] {
-  transition-property: color, background-color, border-color, opacity, box-shadow;
-  transition-duration: 150ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: 100ms;
+  transition-timing-function: linear;
 }
 
 /* ─── Toastify ──────────────────────────────────────────────────────────────── */
 .Toastify__toast {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0px;
   background: var(--card) !important;
   color: var(--foreground) !important;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   font-family: inherit;
   font-size: 13px;
 }
 
 .Toastify__progress-bar {
-  background: var(--primary) !important;
+  background: var(--accent) !important;
 }
 
-/* ─── Scrollbar styling (dark mode) ────────────────────────────────────────── */
+/* ─── Sharp Scrollbars ────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
-
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--background);
+  border-left: 1px solid var(--border);
 }
-
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
-  border-radius: 3px;
+  background: var(--muted);
+  border: 1px solid var(--border);
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
 }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) var(--background);
+}
 
-/* ─── Framer Motion modal overlay helper ─────────────────────────────────── */
+/* ─── Modal Overlay ─────────────────────────────────── */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -200,17 +209,16 @@ a,
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(9, 9, 11, 0.8); /* Zinc 950 with opacity */
+  backdrop-filter: blur(2px);
 }
 
 .modal-panel {
   width: 100%;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  border-radius: 0px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   padding: 1.5rem;
 }
 
@@ -218,89 +226,4 @@ a,
 .optimize-list {
   content-visibility: auto;
   contain-intrinsic-size: 1px 200px;
-}
-
-/* ─── Zyricon Animations & Effects ───────────────────────────────────────── */
-.glow-orb {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #c084fc, #9333ea, #3b0764);
-  box-shadow: 
-    0 0 20px 5px rgba(168, 85, 247, 0.4),
-    0 0 40px 15px rgba(147, 51, 234, 0.2),
-    inset 0 0 20px rgba(255, 255, 255, 0.4);
-  animation: float 4s ease-in-out infinite;
-  margin: 0 auto;
-}
-
-@keyframes float {
-  0% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-  100% {
-    transform: translateY(0px);
-  }
-}
-
-.glass-input-container {
-  background: rgba(30, 24, 45, 0.5);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(168, 85, 247, 0.2);
-  border-radius: 1.2rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-}
-
-@keyframes cell-ripple {
-  0% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
-  }
-  100% {
-    opacity: 0.4;
-  }
-}
-
-.animate-cell-ripple {
-  animation: cell-ripple 200ms ease-out none 1 0ms;
-}
-
-@keyframes shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
-}
-
-.animate-shimmer {
-  animation: shimmer 8s ease-in-out infinite;
-  background-size: 200% auto;
-}
-
-/* ─── Scrollbars ──────────────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: var(--radius);
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
-}
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }

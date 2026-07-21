@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useOutletContext, useSearchParams } from "react-router-dom";
-import { Activity, Bot, FileCode2, GitPullRequest, Loader2, MessageSquare, Sparkles, UserCircle, Wrench, Terminal, RefreshCcw } from "lucide-react";
+import { Activity, Bot, FileCode2, GitPullRequest, Loader2, MessageSquare, Sparkles, UserCircle, Wrench, Terminal, RefreshCcw, LayoutGrid } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -58,7 +59,13 @@ export default function ChatPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<any | null>(null);
   const [pendingPatchCount, setPendingPatchCount] = useState(0);
+  const lastSeqRef = useRef<number>(0);
   const [mobilePanel, setMobilePanel] = useState<"chat" | "sandbox" | "diffs" | "files" | "logs" | null>(null);
+  const [headerNode, setHeaderNode] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setHeaderNode(document.getElementById("header-actions"));
+  }, []);
 
   const refreshPendingPatches = async (currentSessionId: string) => {
     try {
@@ -221,8 +228,12 @@ export default function ChatPage() {
           opened = true;
           window.clearTimeout(failTimer);
           setStreamStatus("Streaming");
-          setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "", pending: true }]);
-          socket.send(JSON.stringify({ type: "message", content: message, mode }));
+          if (lastSeqRef.current > 0 && activeRunId) {
+             socket.send(JSON.stringify({ type: "resume", run_id: activeRunId, last_seq: lastSeqRef.current, mode }));
+          } else {
+             setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "", pending: true }]);
+             socket.send(JSON.stringify({ type: "message", content: message, mode }));
+          }
         };
 
         socket.onmessage = (event) => {
@@ -233,12 +244,17 @@ export default function ChatPage() {
           }
 
           if (payload.seq !== undefined) {
+            if (payload.seq <= lastSeqRef.current) {
+                // Ignore old events during replay
+                return;
+            }
             if (payload.seq > expectedSeq) {
               console.warn(`Gap detected! Expected ${expectedSeq}, got ${payload.seq}`);
               // Fallback to REST API fetch
               refreshSessionAfterResponse(currentSessionId);
             }
             expectedSeq = payload.seq + 1;
+            lastSeqRef.current = payload.seq;
           }
 
           if (payload.run_id) {
@@ -340,6 +356,10 @@ export default function ChatPage() {
               );
             }
           }
+          if (payload.type === "workspace_patch") {
+            refreshPendingPatches(currentSessionId);
+            window.dispatchEvent(new Event("workspace-updated"));
+          }
           if (payload.type === "approval_required") {
             setPendingApproval(payload);
             setStreamStatus("Waiting for approval");
@@ -350,6 +370,7 @@ export default function ChatPage() {
             socket.close();
             setMessages((prev) => prev.map((item) => (item.id === msgId ? { ...item, pending: false } : item)));
             setIsLoading(false);
+            lastSeqRef.current = 0; // Reset
             finishRun();
             window.dispatchEvent(new Event("agent-done"));
             resolve(true);
@@ -423,6 +444,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, userMessage]);
 
       try {
+        lastSeqRef.current = 0;
         await sendWithWebSocket(currentSessionId, cleanMessage, mode);
       } catch (streamError: any) {
         if (streamError?.message === "Streaming unavailable" || streamError?.message === "Streaming connection timed out") {
@@ -482,10 +504,6 @@ export default function ChatPage() {
             )}
           </div>
           <div className="hidden items-center gap-2 sm:flex">
-            <Button variant="ghost" size="sm" onClick={() => setShowSandbox(!showSandbox)} className="text-muted-foreground hover:text-foreground">
-              <Terminal className="h-4 w-4 mr-1" />
-              {showSandbox ? "Hide Sandbox" : "Show Sandbox"}
-            </Button>
           </div>
         </div>
         
@@ -508,7 +526,19 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col lg:flex-row bg-background">
-      
+      {headerNode && createPortal(
+        <Button 
+          variant={showSandbox ? "secondary" : "ghost"} 
+          size="icon-sm" 
+          className="h-7 w-7 text-muted-foreground hover:text-foreground mr-2" 
+          onClick={() => setShowSandbox(!showSandbox)} 
+          title={showSandbox ? "Close Sandbox" : "Open Sandbox"}
+        >
+          <LayoutGrid className="h-4 w-4" />
+        </Button>,
+        headerNode
+      )}
+
       {showSandbox ? (
         <div className="flex-1 min-h-0 h-full w-full">
           <CodeSandbox 
@@ -520,62 +550,8 @@ export default function ChatPage() {
           />
         </div>
       ) : (
-        /* Original Single Column Layout when Sandbox is hidden */
         <div className="flex min-w-0 flex-col bg-background relative flex-1">
-          <div className="flex-1 min-h-0">
-            <ScrollArea className="h-full px-4 py-5 md:px-6">
-              <div className="mx-auto flex max-w-3xl flex-col gap-5">
-                <MessageList 
-                  messages={visibleMessages} 
-                  isLoading={isLoading} 
-                  onRetry={(content) => handleSend(content, [], "normal")} 
-                  pendingApproval={pendingApproval} 
-                  onApprove={handleApprovalAction} 
-                />
-                <div ref={bottomRef} />
-              </div>
-            </ScrollArea>
-          </div>
-
-          <div className="border-t border-border bg-background/95 shrink-0 pb-[env(safe-area-inset-bottom)]">
-            <div className="mx-auto flex max-w-3xl items-center justify-between px-4 pt-3 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                {isLoading && (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                    <span className="animate-pulse">{streamStatus}</span>
-                    {activeSocket && (
-                      <Button variant="ghost" size="sm" onClick={handleCancel} className="h-6 text-[10px] uppercase text-muted-foreground ml-2 hover:text-red-400 hover:bg-red-500/10">
-                        <span className="bg-red-500 w-1.5 h-1.5 rounded-sm mr-1"></span> Stop
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-              <div className="hidden items-center gap-2 sm:flex">
-                <Button variant="ghost" size="sm" onClick={() => setShowSandbox(!showSandbox)} className="text-muted-foreground hover:text-foreground">
-                  <Terminal className="h-4 w-4 mr-1" />
-                  {showSandbox ? "Hide Sandbox" : "Show Sandbox"}
-                </Button>
-              </div>
-            </div>
-            
-            {pendingPatchCount > 0 && (
-              <div className="mx-auto mb-2 mt-2 flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-foreground">
-                <div className="flex min-w-0 items-center gap-2">
-                  <GitPullRequest className="h-4 w-4 shrink-0 text-amber-500" />
-                  <span>{pendingPatchCount} pending patch{pendingPatchCount === 1 ? "" : "es"}</span>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new Event("review-patches-request"))}>
-                  Review
-                </Button>
-              </div>
-            )}
-            
-            <div className="mx-auto max-w-3xl">
-              <ChatInput onSend={handleSend} isLoading={isLoading} />
-            </div>
-          </div>
+          {chatUI}
         </div>
       )}
 
