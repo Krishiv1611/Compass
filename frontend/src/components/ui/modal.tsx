@@ -1,40 +1,18 @@
-import { type ReactNode } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Dialog } from "@base-ui/react/dialog";
 import { X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 
-interface ModalProps {
+export interface ModalProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
-  /** max-width Tailwind class, e.g. "max-w-sm" */
   maxWidth?: string;
-  /** Show close button in top-right corner */
   showClose?: boolean;
-  /** aria-label for the dialog */
   ariaLabel?: string;
+  title?: string;
 }
 
-const overlayVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1 },
-};
-
-const panelVariants = {
-  hidden: { opacity: 0, scale: 0.96, y: 8 },
-  visible: { opacity: 1, scale: 1, y: 0 },
-  exit: { opacity: 0, scale: 0.96, y: 8 },
-};
-
-/**
- * Reusable animated modal built on Framer Motion AnimatePresence.
- * Replaces raw <div> overlay patterns across the codebase.
- *
- * Usage:
- *   <Modal open={open} onClose={onClose} maxWidth="max-w-sm" showClose>
- *     <h3>Title</h3>
- *     …
- *   </Modal>
- */
 export function Modal({
   open,
   onClose,
@@ -42,46 +20,32 @@ export function Modal({
   maxWidth = "max-w-sm",
   showClose = false,
   ariaLabel,
+  title,
 }: ModalProps) {
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={ariaLabel}
-          variants={overlayVariants}
-          initial="hidden"
-          animate="visible"
-          exit="hidden"
-          transition={{ duration: 0.18 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) onClose();
-          }}
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-[80] bg-black/45 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup
+          aria-label={title ? undefined : ariaLabel}
+          className={`fixed left-1/2 top-1/2 z-[81] max-h-[calc(100dvh-32px)] w-[calc(100%-32px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-border bg-popover text-foreground shadow-[var(--shadow-lg)] transition duration-150 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0 ${maxWidth}`}
         >
-          <motion.div
-            className={`modal-panel w-full ${maxWidth}`}
-            variants={panelVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-          >
-            {showClose && (
-              <button
-                onClick={onClose}
-                aria-label="Close modal"
-                className="absolute top-4 right-4 flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors duration-150"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-            {children}
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          {title && (
+            <div className="border-b border-border px-5 py-4">
+              <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
+            </div>
+          )}
+          {showClose && (
+            <Dialog.Close
+              render={<Button variant="ghost" size="icon-sm" className="absolute right-3 top-3 z-10" aria-label="Close dialog" />}
+            >
+              <X className="h-4 w-4" />
+            </Dialog.Close>
+          )}
+          {children}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

@@ -59,6 +59,23 @@ _skill_manager = SkillManagerAgent(_skill_factory, skill_registry)
 _SUMMARIZE_AFTER = 10  # number of messages before triggering compaction
 
 
+def _normalise_mode(state: AgentState) -> str:
+    mode = state.get("mode", "edit")
+    return {"normal": "edit", "fast": "ask"}.get(mode, mode)
+
+
+def _turn_modified_files(state: AgentState) -> bool:
+    for message in reversed(state.get("messages", [])):
+        if getattr(message, "type", "") == "human":
+            return False
+        if (
+            getattr(message, "type", "") == "tool"
+            and getattr(message, "name", "") in ("write_to_file", "edit_file")
+        ):
+            return True
+    return False
+
+
 async def _route_after_executor(state: AgentState) -> str:
     """
     Route after the executor node.
@@ -75,7 +92,8 @@ async def _route_after_executor(state: AgentState) -> str:
         return "guardrails_output"
 
     # ── 1. Loop recovery & Hard Loop Escalation ────────────────────────────────
-    if state.get("loop_detected", False):
+    mode = _normalise_mode(state)
+    if mode == "goal" and state.get("loop_detected", False):
         loop_count = state.get("loop_count", 0)
         if loop_count >= 2:
             return "clarifier"
@@ -88,14 +106,18 @@ async def _route_after_executor(state: AgentState) -> str:
             return "check_safety"
 
     # ── 3. Done — route to evaluator before ending ──────────────────────────────
-    return "evaluator"
+    if mode == "goal":
+        if _turn_modified_files(state) and not state.get("syntax_checked", False):
+            return "linter_node"
+        return "evaluator"
+    return "guardrails_output"
 
 
 async def _route_after_linter(state: AgentState) -> str:
-    """Context Compaction Check before returning to executor"""
-    if len(state.get("messages", [])) > _SUMMARIZE_AFTER:
-        return "summary_node"
-    return "executor"
+    """Continue Goal validation after deterministic checks."""
+    if state.get("syntax_check_failed", False):
+        return "executor"
+    return "evaluator"
 
 
 async def _route_after_evaluator(state: AgentState) -> str:
@@ -116,7 +138,7 @@ async def _route_after_planner(state: AgentState) -> str:
     """Route after planner: skill_manager if a skill is active, plan_approval if mode is plan, else executor."""
     if state.get("active_skill"):
         return "skill_manager"
-    if state.get("mode") == "plan":
+    if _normalise_mode(state) == "plan":
         return "plan_approval"
     return "executor"
 
@@ -145,7 +167,7 @@ async def _route_after_guardrails_input(state: AgentState) -> str:
         return "title_generator"
 
     # ── Safe: route by mode and intent (merged from _route_start) ────────────
-    if state.get("mode") == "plan":
+    if _normalise_mode(state) in ("plan", "goal"):
         return "context_injector"
 
     if not messages:
@@ -170,12 +192,11 @@ async def _route_after_guardrails_input(state: AgentState) -> str:
     if len(messages) == 1:
         return "title_generator"
 
-    # All non-simple tasks should get planned
-    return "context_injector"
+    return "executor"
 
 
 async def _route_after_title_generator(state: AgentState) -> str:
-    if state.get("mode") == "plan":
+    if _normalise_mode(state) in ("plan", "goal"):
         return "context_injector"
     return "executor"
 
@@ -210,7 +231,7 @@ builder.add_conditional_edges("plan_approval", _route_after_plan_approval)
 builder.add_edge("skill_manager", "executor")
 builder.add_conditional_edges("executor", _route_after_executor)
 builder.add_conditional_edges("check_safety", _route_after_safety)
-builder.add_edge("tools", "linter_node")
+builder.add_edge("tools", "executor")
 builder.add_conditional_edges("linter_node", _route_after_linter)
 builder.add_edge("clarifier", "executor")
 builder.add_edge("context_injector", "planner")

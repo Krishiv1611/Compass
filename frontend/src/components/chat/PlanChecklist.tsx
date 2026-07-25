@@ -12,7 +12,7 @@ function extractSteps(plan: string): string[] {
     .filter(Boolean);
 
   const numbered = lines
-    .map((line) => line.replace(/^\d+[\).]\s*/, "").trim())
+    .map((line) => line.replace(/^\d+[).]\s*/, "").trim())
     .filter((line) => line && !/^skill:/i.test(line));
 
   return numbered.length > 0 ? numbered : [plan.trim()];
@@ -26,8 +26,8 @@ export default function PlanChecklist({
   const completed = new Set(completedSteps);
 
   return (
-    <div className="mb-2 rounded-lg border border-primary/20 bg-primary/8 p-3">
-      <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+    <div className="mb-2 border-y border-primary/20 bg-primary/8 p-3">
+      <div className="mb-2 text-xs font-semibold text-muted-foreground">
         Plan
       </div>
       <ol className="space-y-2">
@@ -46,7 +46,7 @@ export default function PlanChecklist({
                 <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               )}
               <span>
-                <span className="mr-1 font-mono text-[10px] text-muted-foreground">
+                <span className="mr-1 font-mono text-xs text-muted-foreground">
                   {index + 1}.
                 </span>
                 {step}

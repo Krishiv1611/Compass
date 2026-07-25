@@ -1,200 +1,169 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { runsApi } from "@/api";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
+import { useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Circle,
-  Clock,
-  FilePenLine,
   FileText,
   Loader2,
-  Search,
-  Terminal,
-  Wifi,
   Wrench,
   XCircle,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { useRunEvents } from "@/contexts/RunContext";
-import type { LiveRunEvent } from "@/contexts/RunContext";
+import { useRunEvents, type LiveRunEvent } from "@/contexts/RunContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
+import type { JsonValue, RunStage, RunStageStatus } from "@/types/run";
 
-function sumTokenUsage(value: any): number | null {
-  if (!value) return null;
-  if (typeof value === "number") return value;
-  if (typeof value !== "object") return null;
-  const direct = value.total_tokens ?? value.totalTokens ?? value.total ?? value.tokens;
-  if (typeof direct === "number") return direct;
-  const numbers = Object.values(value).filter((item): item is number => typeof item === "number");
-  return numbers.length ? numbers.reduce((total, item) => total + item, 0) : null;
-}
+const stageLabels: Record<RunStage, string> = {
+  context: "Context",
+  plan: "Plan",
+  edit: "Edit",
+  check: "Check",
+  review: "Review",
+  complete: "Complete",
+};
 
-function formatTokenUsage(value: any): string | null {
-  const total = sumTokenUsage(value);
-  return total == null ? null : `${total.toLocaleString()} tokens`;
-}
+const secretKey = /token|secret|password|authorization|credential|api[-_]?key/i;
+const sanitize = (value: JsonValue, depth = 0): JsonValue => {
+  if (depth > 3) return "[nested]";
+  if (typeof value === "string") return value.length > 500 ? `${value.slice(0, 500)}...` : value;
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => sanitize(item, depth + 1));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).slice(0, 30).map(([key, item]) => [
+      key,
+      secretKey.test(key) ? "[redacted]" : sanitize(item, depth + 1),
+    ]));
+  }
+  return value;
+};
 
-function eventPayload(event: any) {
-  return event.content && typeof event.content === "object" ? event.content : event;
-}
+const eventLabel = (event: LiveRunEvent) => {
+  if (event.type === "approval_required") return "Waiting for approval";
+  if (event.type === "workspace_patch") return "Prepared project changes";
+  if (event.type === "plan_created") return "Prepared a plan";
+  if (event.type === "done") return "Run completed";
+  if (event.type === "error") return typeof event.content === "string" ? event.content : "Run failed";
+  if (event.type === "status" && typeof event.content === "string") return event.content;
+  const tool = event.tool_call?.name;
+  if (tool) return `Used ${tool.replaceAll("_", " ")}`;
+  return event.type.replaceAll("_", " ");
+};
 
-function toolName(event: any): string {
-  const payload = eventPayload(event);
-  return payload.tool_call?.name || event.tool_call?.name || payload.name || "tool";
-}
-
-function toolArgs(event: any): any {
-  const payload = eventPayload(event);
-  return payload.tool_call?.args || event.tool_call?.args || payload.args || event.data || {};
-}
-
-function eventLabel(event: LiveRunEvent) {
-  const name = toolName(event);
-  const args = toolArgs(event);
-  
-  // Safely extract string content if event.content is an object (due to DB serialization)
-  const safeContentString = event.content 
-    ? (typeof event.content === "string" ? event.content : event.content.content || JSON.stringify(event.content))
-    : "";
-
-  if (event.type === "approval_required") return { icon: AlertTriangle, label: "Scroll to approve", tone: "text-destructive" };
-  if (event.type === "loop_detected") return { icon: AlertTriangle, label: `Retrying (attempt ${event.data?.loop_count || 1}/3)`, tone: "text-muted-foreground" };
-  if (event.type === "done") return { icon: CheckCircle2, label: "Completed", tone: "text-primary" };
-  if (event.type === "error") return { icon: XCircle, label: safeContentString || "Error", tone: "text-destructive" };
-  if (event.type === "plan_created") return { icon: Circle, label: "Plan created", tone: "text-primary" };
-  if (event.type === "tool_result") return { icon: CheckCircle2, label: "Tool completed", tone: "text-muted-foreground" };
-  if (name === "read_file") return { icon: FileText, label: `Reading: ${args.path || args.file_path || "file"}`, tone: "text-foreground" };
-  if (name === "write_to_file") return { icon: FilePenLine, label: `Writing: ${args.path || "file"}`, tone: "text-foreground" };
-  if (name === "edit_file") return { icon: FilePenLine, label: `Editing: ${args.path || "file"}`, tone: "text-foreground" };
-  if (name === "shell_execute") return { icon: Terminal, label: `Running: ${args.command || "command"}`, tone: "text-foreground" };
-  if (name === "web_search") return { icon: Wifi, label: `Searching: ${args.query || "web"}`, tone: "text-foreground" };
-  if (name === "grep_search") return { icon: Search, label: `Searching: ${args.pattern || args.query || "workspace"}`, tone: "text-foreground" };
-  return { icon: Wrench, label: event.type === "tool_call" ? `Using: ${name}` : event.type, tone: "text-muted-foreground" };
-}
-
-function EventRow({ event }: { event: LiveRunEvent }) {
-  const meta = eventLabel(event);
-  const Icon = meta.icon;
+function ActivityRow({ event }: { event: LiveRunEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const failed = event.type === "error";
+  const waiting = event.type === "approval_required";
+  const complete = event.type === "done" || event.type === "tool_result";
+  const Icon = failed ? XCircle : waiting ? AlertTriangle : complete ? CheckCircle2 : event.affected_files?.length ? FileText : Wrench;
+  const details = event.tool_call?.args || event.data;
   return (
-    <div className="relative flex items-start gap-3">
-      <div className="absolute -left-[3px] top-1.5 h-2 w-2 rounded-full border-2 border-card bg-primary/40 ring-1 ring-border" />
-      <div className="flex-1 rounded-md bg-muted/40 p-2 text-xs">
-        <div className={`flex items-center gap-1 font-semibold ${meta.tone}`}>
-          <Icon className="h-3 w-3" /> {meta.label}
+    <div className="border-b border-border py-2 last:border-0">
+      <div className="flex items-start gap-2">
+        <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${failed ? "text-destructive" : waiting ? "text-warning" : complete ? "text-success" : "text-muted-foreground"}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="min-w-0 flex-1 truncate font-medium">{eventLabel(event)}</span>
+            {event.duration_ms != null && <span className="font-mono text-muted-foreground">{Math.round(event.duration_ms)}ms</span>}
+          </div>
+          {!!event.affected_files?.length && <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{event.affected_files.join(", ")}</p>}
         </div>
-        {event.type === "tool_call" && Object.keys(toolArgs(event)).length > 0 && (
-          <div className="mt-1 overflow-x-auto rounded-md bg-card border border-border/50 p-2 font-mono text-[10px] text-muted-foreground shadow-sm">
-            {JSON.stringify(toolArgs(event), null, 2)}
-          </div>
-        )}
-        {event.type === "tool_result" && event.content && (
-          <div className="mt-1 line-clamp-3 overflow-hidden rounded-md bg-card border border-border/50 p-2 font-mono text-[10px] text-muted-foreground shadow-sm">
-            {typeof event.content === "string" ? event.content : event.content?.content}
-          </div>
+        {details && (
+          <button type="button" onClick={() => setExpanded((value) => !value)} className="rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label={expanded ? "Hide event details" : "Show event details"}>
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
         )}
       </div>
+      {expanded && details && <pre className="mt-2 max-h-40 overflow-auto border-l-2 border-border pl-3 font-mono text-xs text-muted-foreground">{JSON.stringify(sanitize(details), null, 2)}</pre>}
     </div>
   );
 }
 
-export default function RunTimeline({ sessionId }: { sessionId: string | null }) {
-  const [runs, setRuns] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-  const { currentRunEvents, currentSessionId, isRunActive, startedAt } = useRunEvents();
+export default function RunTimeline({
+  sessionId: _sessionId,
+  showEmpty = false,
+}: {
+  sessionId: string | null;
+  showEmpty?: boolean;
+}) {
+  const { currentRunEvents, isRunActive, firstEventLatencyMs } = useRunEvents();
+  const { state } = useWorkbench();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const loadRuns = async (activeSessionId: string) => {
-    setLoading(true);
-    try {
-      setRuns(await runsApi.getSessionRuns(activeSessionId));
-    } catch (err) {
-      console.error("Failed to load runs", err);
-    } finally {
-      setLoading(false);
+  const visibleStages = useMemo<RunStage[]>(() => {
+    const stages: RunStage[] = ["context"];
+    if (state.mode === "plan" || state.mode === "goal") stages.push("plan");
+    if (state.mode !== "ask") stages.push("edit");
+    if (currentRunEvents.some((event) => event.stage === "check" || event.data?.stage === "check")) stages.push("check");
+    if (state.pendingPatchCount || currentRunEvents.some((event) => event.stage === "review" || event.type === "approval_required")) stages.push("review");
+    stages.push("complete");
+    return stages;
+  }, [currentRunEvents, state.mode, state.pendingPatchCount]);
+
+  const stageState = useMemo(() => {
+    const statuses = new Map<RunStage, RunStageStatus>();
+    visibleStages.forEach((stage) => statuses.set(stage, "pending"));
+    for (const event of currentRunEvents) {
+      const dataStage = typeof event.data?.stage === "string" ? event.data.stage as RunStage : undefined;
+      const stage = event.stage || dataStage;
+      const dataStatus = typeof event.data?.stage_status === "string" ? event.data.stage_status as RunStageStatus : undefined;
+      if (stage && statuses.has(stage)) statuses.set(stage, event.stage_status || dataStatus || "active");
+      if (event.type === "approval_required" && statuses.has("review")) statuses.set("review", "waiting");
+      if (event.type === "done") statuses.set("complete", "complete");
+      if (event.type === "error") statuses.set(stage || "complete", "failed");
     }
-  };
+    if (isRunActive && ![...statuses.values()].some((value) => value === "active" || value === "waiting")) statuses.set("context", "active");
+    const activeIndex = visibleStages.findIndex((stage) => ["active", "waiting", "failed", "complete"].includes(statuses.get(stage) || ""));
+    if (activeIndex >= 0) visibleStages.slice(0, activeIndex).forEach((stage) => statuses.set(stage, "complete"));
+    return statuses;
+  }, [currentRunEvents, isRunActive, visibleStages]);
 
-  useEffect(() => {
-    if (!sessionId) {
-      setRuns([]);
-      return;
-    }
-    loadRuns(sessionId);
-    const refresh = () => loadRuns(sessionId);
-    window.addEventListener("agent-done", refresh);
-    return () => window.removeEventListener("agent-done", refresh);
-  }, [sessionId]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [currentRunEvents.length, runs.length]);
-
-  const liveRun = useMemo(() => {
-    if (!sessionId || currentSessionId !== sessionId || currentRunEvents.length === 0) return null;
-    return {
-      id: currentRunEvents.find((event) => event.run_id)?.run_id || "live",
-      status: isRunActive ? "running" : "completed",
-      started_at: startedAt || currentRunEvents[0]?.created_at || new Date().toISOString(),
-      ended_at: isRunActive ? null : currentRunEvents[currentRunEvents.length - 1]?.created_at,
-      token_usage: null,
-      events: currentRunEvents,
-      live: true,
-    };
-  }, [currentRunEvents, currentSessionId, isRunActive, sessionId, startedAt]);
-
-  const visibleRuns = liveRun ? [liveRun, ...runs.filter((run) => run.id !== liveRun.id)] : runs;
-
-  if (!sessionId) {
-    return <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">No active session to display runs.</div>;
-  }
-
-  if (loading && visibleRuns.length === 0) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading runs...</div>;
-  }
-
-  if (visibleRuns.length === 0) {
-    return <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">No runs found for this session yet.</div>;
+  if (!currentRunEvents.length && !isRunActive) {
+    if (!showEmpty) return null;
+    return (
+      <section className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center" aria-label="Run activity">
+        <Activity className="mb-3 h-6 w-6 text-muted-foreground" />
+        <h2 className="text-sm font-medium">No run activity yet</h2>
+        <p className="mt-1 max-w-72 text-xs text-muted-foreground">
+          Start a task to see stages, tools, affected files, and results here.
+        </p>
+      </section>
+    );
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 p-4">
-        {visibleRuns.map((run) => {
-          const tokenLabel = formatTokenUsage(run.token_usage);
-          return (
-            <div key={run.id} className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <div className="mb-3 flex items-center justify-between border-b border-border/50 pb-2">
-                <div className="flex items-center gap-2 font-medium">
-                  <Activity className="h-4 w-4 text-primary" />
-                  Run <span className="font-mono text-xs text-muted-foreground">{String(run.id).slice(0, 8)}</span>
-                  {run.live && <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Live" />}
-                </div>
-                <div className="flex items-center gap-2">
-                  {tokenLabel && <Badge variant="outline" className="text-muted-foreground">{tokenLabel}</Badge>}
-                  {run.status === "completed" && <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary"><CheckCircle2 className="mr-1 h-3 w-3" />Completed</Badge>}
-                  {run.status === "error" && <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive"><XCircle className="mr-1 h-3 w-3" />Error</Badge>}
-                  {run.status === "running" && <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Running</Badge>}
-                </div>
+    <section className="border-t border-border bg-card" aria-label="Run progress">
+      <div className="flex min-h-11 items-center gap-2 px-3">
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
+          {visibleStages.map((stage, index) => {
+            const status = stageState.get(stage) || "pending";
+            return (
+              <div key={stage} className="flex shrink-0 items-center">
+                <span className={`flex items-center gap-1 rounded-full border px-2 py-1 text-xs ${
+                  status === "complete" ? "border-success/40 bg-success/10 text-success" :
+                  status === "active" ? "border-primary/40 bg-primary/10 text-primary" :
+                  status === "waiting" ? "border-warning/40 bg-warning/10 text-warning" :
+                  status === "failed" ? "border-destructive/40 bg-destructive/10 text-destructive" :
+                  "border-border text-muted-foreground"
+                }`}>
+                  {status === "complete" ? <CheckCircle2 className="h-3 w-3" /> : status === "active" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Circle className="h-3 w-3" />}
+                  {stageLabels[stage]}
+                </span>
+                {index < visibleStages.length - 1 && <span className="mx-1 h-px w-3 bg-border" />}
               </div>
-
-              <div className="mb-4 flex items-center gap-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                {formatDistanceToNow(new Date(run.started_at), { addSuffix: true })}
-                {run.ended_at && ` - duration ${((new Date(run.ended_at).getTime() - new Date(run.started_at).getTime()) / 1000).toFixed(1)}s`}
-              </div>
-
-              <div className="relative flex flex-col gap-2 pl-3 before:absolute before:inset-y-0 before:left-[5px] before:w-px before:bg-border">
-                {run.events.filter((event: any) => event.type !== "token").map((event: any) => <EventRow key={event.id} event={event} />)}
-                {run.events.filter((event: any) => event.type !== "token").length === 0 && <div className="pl-3 text-xs italic text-muted-foreground">No significant events recorded.</div>}
-              </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
+            );
+          })}
+        </div>
+        <button type="button" onClick={() => setDrawerOpen((value) => !value)} className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+          <Activity className="h-3.5 w-3.5" /> Activity {drawerOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
       </div>
-    </ScrollArea>
+      {drawerOpen && (
+        <div className="max-h-[36vh] overflow-y-auto border-t border-border px-3">
+          {firstEventLatencyMs != null && <div className="border-b border-border py-2 text-xs text-muted-foreground">First event in <span className="font-mono">{firstEventLatencyMs}ms</span></div>}
+          {currentRunEvents.map((event, index) => <ActivityRow key={event.id || `${event.type}-${index}`} event={event} />)}
+        </div>
+      )}
+    </section>
   );
 }
-

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from backend.models.workspace import Workspace
+from agent.workspace import discover_local_workspace
 
 def create_workspace_record(db: Session, user_id: str, session_id: str, name: str) -> Workspace:
     """Create a new Workspace record and initialize its directory.
@@ -25,6 +26,8 @@ def create_workspace_record(db: Session, user_id: str, session_id: str, name: st
         source_type="upload",
         status="uploading",
         storage_path=str(workspace_dir),
+        project_id=f"workspace:{workspace_id}",
+        context_version="content:empty",
     )
     db.add(workspace)
     db.commit()
@@ -59,7 +62,7 @@ def get_workspace_by_session(db: Session, session_id: str, user_id: str) -> Work
         )
     return workspace
 
-def update_workspace_stats(db: Session, workspace: Workspace):
+def update_workspace_stats(db: Session, workspace: Workspace, sync_session: bool = True):
     """Update file count and size stats based on current directory contents."""
     path = Path(workspace.storage_path)
     if not path.exists():
@@ -82,6 +85,20 @@ def update_workspace_stats(db: Session, workspace: Workspace):
                 
     workspace.file_count = count
     workspace.size_bytes = size
+    identity = discover_local_workspace(path)
+    workspace.project_id = (
+        identity.project_id if count > 0 else workspace.project_id
+    )
+    workspace.git_remote = identity.git_remote
+    workspace.git_branch = identity.git_branch
+    workspace.git_head = identity.git_head
+    workspace.context_version = identity.context_version
+    if sync_session and workspace.session is not None:
+        workspace.session.project_id = workspace.project_id
+        workspace.session.git_remote = workspace.git_remote
+        workspace.session.git_branch = workspace.git_branch
+        workspace.session.git_head = workspace.git_head
+        workspace.session.context_version = workspace.context_version
     workspace.status = "ready"
     db.commit()
     db.refresh(workspace)

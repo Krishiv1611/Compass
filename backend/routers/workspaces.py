@@ -24,7 +24,7 @@ from backend.ws.hub import manager
 from backend.schemas.chat import StreamEvent, StreamEventType
 from backend.models.workspace import Workspace
 from backend.models.patch import WorkspacePatch
-from backend.services.patch_manager import apply_patch, reject_patch, accept_all_patches, reject_all_patches, undo_patch
+from backend.services.patch_manager import apply_patch, reject_patch, accept_all_patches, reject_all_patches, undo_patch, resolve_patch_file
 
 def _notify_patch_event(db: Session, workspace_id: str, background_tasks: BackgroundTasks):
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
@@ -104,7 +104,6 @@ async def upload_workspace(
     return {
         "message": f"Successfully uploaded {len(saved_files)} files to workspace.", 
         "workspace_id": workspace.id,
-        "workspace_dir": str(workspace_dir)
     }
 
 @router.get("/{workspace_id}/tree")
@@ -137,7 +136,7 @@ def get_workspace_tree(
             pass
         return nodes
         
-    return {"tree": build_tree(workspace_dir), "workspace_dir": str(workspace_dir)}
+    return {"tree": build_tree(workspace_dir)}
 
 @router.get("/{workspace_id}/file")
 def get_workspace_file(
@@ -250,7 +249,8 @@ def create_workspace_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    workspace_dir = Path(workspace.storage_path)
     target_path = _safe_workspace_path(workspace_dir, body.path)
     if target_path.exists():
         raise HTTPException(status_code=400, detail="Path already exists")
@@ -261,6 +261,7 @@ def create_workspace_file(
     else:
         target_path.write_text(body.content or "", encoding="utf-8")
         
+    update_workspace_stats(db, workspace, sync_session=False)
     return {"message": "Created successfully"}
 
 @router.put("/{workspace_id}/file")
@@ -270,12 +271,14 @@ def update_workspace_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    workspace_dir = Path(workspace.storage_path)
     target_path = _safe_workspace_path(workspace_dir, body.path)
     if not target_path.exists() or not target_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
         
     target_path.write_text(body.content, encoding="utf-8")
+    update_workspace_stats(db, workspace, sync_session=False)
     return {"message": "Updated successfully"}
 
 @router.delete("/{workspace_id}/file")
@@ -285,7 +288,8 @@ def delete_workspace_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    workspace_dir = Path(workspace.storage_path)
     target_path = _safe_workspace_path(workspace_dir, path)
     if not target_path.exists():
         raise HTTPException(status_code=404, detail="Path not found")
@@ -295,6 +299,7 @@ def delete_workspace_file(
     else:
         target_path.unlink()
         
+    update_workspace_stats(db, workspace, sync_session=False)
     return {"message": "Deleted successfully"}
 
 @router.post("/{workspace_id}/rename")
@@ -304,7 +309,8 @@ def rename_workspace_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    workspace_dir = Path(workspace.storage_path)
     old_target = _safe_workspace_path(workspace_dir, body.old_path)
     new_target = _safe_workspace_path(workspace_dir, body.new_path)
     
@@ -316,6 +322,7 @@ def rename_workspace_file(
     new_target.parent.mkdir(parents=True, exist_ok=True)
     old_target.rename(new_target)
     
+    update_workspace_stats(db, workspace, sync_session=False)
     return {"message": "Renamed successfully"}
 
 # --- New Workspace ID based endpoints ---
@@ -342,6 +349,7 @@ from backend.services.patch_manager import (
     accept_all_patches,
     reject_all_patches,
     undo_patch,
+    resolve_patch_file,
 )
 from backend.models.patch import WorkspacePatch
 
@@ -349,6 +357,79 @@ from backend.models.patch import WorkspacePatch
 class WorkspaceCreateRequest(BaseModel):
     session_id: str
     name: str = "New Project"
+
+
+class PatchFileAction(BaseModel):
+    path: str
+
+
+@router.get("/{workspace_id}/context")
+def get_workspace_context(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    session = _validate_session_ownership(
+        db, current_user.id, workspace.session_id
+    )
+    return {
+        "project_id": workspace.project_id,
+        "git_remote": workspace.git_remote,
+        "git_branch": workspace.git_branch,
+        "git_head": workspace.git_head,
+        "context_version": workspace.context_version,
+        "session_context_version": session.context_version,
+        "mismatch": bool(
+            session.context_version
+            and workspace.context_version
+            and session.context_version != workspace.context_version
+        ),
+    }
+
+
+@router.post("/{workspace_id}/context/refresh")
+def refresh_workspace_context(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    session = _validate_session_ownership(
+        db, current_user.id, workspace.session_id
+    )
+    session.project_id = workspace.project_id
+    session.git_remote = workspace.git_remote
+    session.git_branch = workspace.git_branch
+    session.git_head = workspace.git_head
+    session.context_version = workspace.context_version
+    db.commit()
+    return {"message": "Project context refreshed", "context_version": session.context_version}
+
+
+@router.get("/{workspace_id}/search")
+def search_workspace_files(
+    workspace_id: str,
+    q: str = "",
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace = get_workspace(db, workspace_id, current_user.id)
+    root = Path(workspace.storage_path)
+    query = q.strip().lower()
+    limit = max(1, min(limit, 100))
+    ignored = {".git", "node_modules", ".venv", "__pycache__", "dist", "build"}
+    matches = []
+    for path in root.rglob("*"):
+        if not path.is_file() or any(part in ignored for part in path.parts):
+            continue
+        relative = path.relative_to(root).as_posix()
+        if not query or query in relative.lower():
+            matches.append({"path": relative, "name": path.name})
+        if len(matches) >= limit:
+            break
+    return {"files": matches}
 
 
 @router.post("/create")
@@ -407,6 +488,24 @@ def reject_workspace_patch(
     patch = reject_patch(db, patch_id, current_user.id)
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch rejected successfully", "patch": patch}
+
+
+@router.post("/{workspace_id}/patches/{patch_id}/files/{action}")
+def resolve_workspace_patch_file(
+    workspace_id: str,
+    patch_id: str,
+    action: str,
+    body: PatchFileAction,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if action not in {"apply", "reject", "undo"}:
+        raise HTTPException(status_code=400, detail="Unsupported patch action")
+    _get_active_workspace_path(db, current_user.id, workspace_id)
+    patch = resolve_patch_file(db, patch_id, current_user.id, body.path, action)
+    _notify_patch_event(db, workspace_id, background_tasks)
+    return {"message": f"File change {action}ed", "patch": patch}
 
 
 @router.post("/{workspace_id}/patches/accept-all")

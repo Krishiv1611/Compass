@@ -57,21 +57,15 @@ def find_files(pattern: str, config: RunnableConfig = None) -> str:
         pattern: Glob pattern to search for.
     """
     workspace = get_workspace_for_tool(config)
-    original_cwd = os.getcwd()
-    os.chdir(workspace)
-    try:
-        matches = glob(pattern, recursive=True)
-        matches = [
-            f for f in matches if not any(p.startswith(".") for p in f.split(os.sep))
-        ]
+    matches = glob(pattern, root_dir=workspace.root, recursive=True)
+    matches = [
+        f for f in matches if not any(p.startswith(".") for p in Path(f).parts)
+    ]
 
-        if not matches:
-            return "No files found."
-        if len(matches) > 100:
-            return f"Found {len(matches)} files (showing first 100):\n" + "\n".join(
-                matches[:100]
-            )
-        return f"Found {len(matches)} files:\n" + "\n".join(matches)
-    finally:
-        os.chdir(original_cwd)
-
+    if not matches:
+        return "No files found."
+    if len(matches) > 100:
+        return f"Found {len(matches)} files (showing first 100):\n" + "\n".join(
+            matches[:100]
+        )
+    return f"Found {len(matches)} files:\n" + "\n".join(matches)

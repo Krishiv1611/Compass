@@ -33,7 +33,8 @@ class ChatRequest(BaseModel):
 
     session_id: str
     content: str = Field(..., min_length=1)
-    mode: Literal["normal", "plan", "fast", "goal"] = "normal"
+    mode: Literal["ask", "edit", "plan", "goal", "normal", "fast"] = "edit"
+    context_files: list[str] = Field(default_factory=list)
 
 
 class WsClientMessage(BaseModel):
@@ -44,7 +45,8 @@ class WsClientMessage(BaseModel):
     call_id: str | None = None
     result: Any | None = None
     error: str | None = None
-    mode: Literal["normal", "plan", "fast", "goal"] = "normal"
+    mode: Literal["ask", "edit", "plan", "goal", "normal", "fast"] = "edit"
+    context_files: list[str] = Field(default_factory=list)
     action: str | None = None
     last_seq: int | None = None
     run_id: str | None = None

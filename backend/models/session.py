@@ -33,6 +33,11 @@ class ChatSession(Base):
         default=lambda: uuid.uuid4().hex,
         comment="LangGraph checkpointer thread identifier",
     )
+    project_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    git_remote: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    git_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    git_head: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    context_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, comment="Soft-delete flag"
     )

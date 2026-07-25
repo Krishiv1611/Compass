@@ -65,7 +65,8 @@ async def exchange_github_code(code: str) -> dict:
             },
         )
         token_resp.raise_for_status()
-        access_token = token_resp.json()["access_token"]
+        token_data = token_resp.json()
+        access_token = token_data["access_token"]
 
         # Fetch user profile
         user_resp = await client.get(
@@ -86,6 +87,8 @@ async def exchange_github_code(code: str) -> dict:
             (e for e in emails if e.get("primary")), emails[0] if emails else None
         )
         profile["email"] = primary["email"] if primary else None
+        profile["_access_token"] = access_token
+        profile["_scopes"] = token_data.get("scope", "")
 
         return profile
 
@@ -98,6 +101,8 @@ def get_or_create_oauth_user(
     email: str,
     display_name: str | None = None,
     avatar_url: str | None = None,
+    access_token: str | None = None,
+    scopes: str | None = None,
 ) -> User:
     """
     Find an existing user by OAuth provider ID, or create a new one.
@@ -112,6 +117,12 @@ def get_or_create_oauth_user(
         .first()
     )
     if user:
+        if access_token:
+            from backend.auth.credentials import encrypt_credential
+            user.oauth_token_encrypted = encrypt_credential(access_token)
+            user.oauth_scopes = scopes
+            db.commit()
+            db.refresh(user)
         return user
 
     # 2. Try to find by email (link OAuth to existing email-based account)
@@ -121,6 +132,10 @@ def get_or_create_oauth_user(
         user.oauth_provider_id = provider_id
         if avatar_url and not user.avatar_url:
             user.avatar_url = avatar_url
+        if access_token:
+            from backend.auth.credentials import encrypt_credential
+            user.oauth_token_encrypted = encrypt_credential(access_token)
+            user.oauth_scopes = scopes
         db.commit()
         db.refresh(user)
         return user
@@ -133,6 +148,10 @@ def get_or_create_oauth_user(
         oauth_provider=provider,
         oauth_provider_id=provider_id,
     )
+    if access_token:
+        from backend.auth.credentials import encrypt_credential
+        user.oauth_token_encrypted = encrypt_credential(access_token)
+        user.oauth_scopes = scopes
     db.add(user)
     db.commit()
     db.refresh(user)

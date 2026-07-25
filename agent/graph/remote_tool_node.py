@@ -2,13 +2,14 @@ import json
 import uuid
 import asyncio
 from typing import Any
-from pathlib import Path
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import ToolNode
 from langchain_core.runnables.config import RunnableConfig
 
 from backend.ws.hub import manager
 from backend.schemas.chat import StreamEvent
+from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
+from agent.workspace import WorkspaceContext
 
 
 class RemoteToolNode(ToolNode):
@@ -32,22 +33,17 @@ class RemoteToolNode(ToolNode):
         "create_skill",
     }
 
-    def _enforce_workspace_paths(self, tool_call: dict, workspace_dir: str | None) -> ToolMessage | None:
-        if not workspace_dir:
-            return None
-        base = Path(workspace_dir).resolve()
+    def _enforce_workspace_paths(self, tool_call: dict, workspace: WorkspaceContext) -> ToolMessage | None:
         args = tool_call.get("args") or {}
         for key in ("path", "file_path", "cwd"):
             value = args.get(key)
             if not isinstance(value, str) or not value:
                 continue
-            target = Path(value)
-            if not target.is_absolute():
-                target = base / target
-            resolved = target.resolve()
-            if base != resolved and base not in resolved.parents:
+            try:
+                resolve_workspace_path(workspace, value)
+            except PermissionError:
                 return ToolMessage(
-                    content=f"Error: Access denied. Path '{value}' is outside workspace_dir.",
+                    content=f"Error: Access denied. Path '{value}' is outside the workspace.",
                     name=tool_call["name"],
                     tool_call_id=tool_call["id"],
                     status="error",
@@ -58,9 +54,17 @@ class RemoteToolNode(ToolNode):
     ) -> ToolMessage:
 
         tool_name = tool_call["name"]
-        workspace_dir = config["configurable"].get("workspace_dir")
-        
-        path_violation = self._enforce_workspace_paths(tool_call, workspace_dir)
+        try:
+            workspace = get_workspace_for_tool(config)
+        except ValueError as exc:
+            return ToolMessage(
+                content=f"Error: {exc}",
+                name=tool_call["name"],
+                tool_call_id=tool_call["id"],
+                status="error",
+            )
+
+        path_violation = self._enforce_workspace_paths(tool_call, workspace)
         if path_violation:
             return path_violation
 

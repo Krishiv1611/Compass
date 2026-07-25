@@ -23,26 +23,42 @@ def set_change_tracker(tracker):
 from langchain_core.runnables.config import RunnableConfig
 from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
 
+
+def _review_mode(config: RunnableConfig | None) -> bool:
+    configurable = (config or {}).get("configurable", {})
+    return (
+        os.environ.get("COMPASS_CLOUD_MODE", "false").lower() == "true"
+        or bool(configurable.get("safe_mode", False))
+    )
+
+
+def _pending_overlay(workspace, path: str, config: RunnableConfig | None):
+    if not _review_mode(config) or not workspace.workspace_id:
+        return None
+    from backend.db import SessionLocal
+    from backend.services.patch_manager import get_pending_file_overlay
+
+    relative_path = os.path.relpath(path, workspace.root)
+    run_id = (config or {}).get("configurable", {}).get("run_id")
+    db = SessionLocal()
+    try:
+        return get_pending_file_overlay(
+            db,
+            workspace.workspace_id,
+            run_id,
+            relative_path,
+        )
+    finally:
+        db.close()
+
+
 def _append_to_patch(workspace_id: str, run_id: str | None, change: dict):
     from backend.db import SessionLocal
-    from backend.models.patch import WorkspacePatch
-    from backend.services.patch_manager import create_patch
+    from backend.services.patch_manager import append_patch_change
     
     db = SessionLocal()
     try:
-        if run_id:
-            patch = db.query(WorkspacePatch).filter(
-                WorkspacePatch.run_id == run_id, 
-                WorkspacePatch.status == "pending"
-            ).first()
-        else:
-            patch = None
-            
-        if patch:
-            patch.changes = patch.changes + [change]
-            db.commit()
-        else:
-            create_patch(db, workspace_id, run_id, [change])
+        append_patch_change(db, workspace_id, run_id, change)
     finally:
         db.close()
 
@@ -61,17 +77,24 @@ def read_file(path: str, offset: int = 1, limit: int | None = None, config: Runn
     except PermissionError as e:
         return str(e)
         
-    if not os.path.exists(path):
-        return f"Error: File not found: {path}"
-    if not os.path.isfile(path):
-        return f"Error: Path is not a file: {path}"
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except UnicodeDecodeError:
-        return f"Error: Binary file or unknown encoding. Not reading: {path}"
-    except Exception as e:
-        return f"Error reading file: {e}"
+    overlay = _pending_overlay(workspace, path, config)
+    if overlay is not None:
+        exists, content = overlay
+        if not exists:
+            return f"Error: File not found: {path}"
+        lines = content.splitlines(keepends=True)
+    else:
+        if not os.path.exists(path):
+            return f"Error: File not found: {path}"
+        if not os.path.isfile(path):
+            return f"Error: Path is not a file: {path}"
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            return f"Error: Binary file or unknown encoding. Not reading: {path}"
+        except Exception as e:
+            return f"Error reading file: {e}"
     start_idx = max(0, offset - 1)
     end_idx = len(lines) if limit is None else min(len(lines), start_idx + limit)
     if start_idx >= len(lines) and len(lines) > 0:
@@ -103,16 +126,17 @@ def write_to_file(path: str, content: str, config: RunnableConfig = None):
     if _change_tracker is not None:
         old_content = _change_tracker.snapshot_before_write(path)
 
-    cloud_mode = os.environ.get("COMPASS_CLOUD_MODE", "false").lower() == "true"
-    safe_mode = config.get("configurable", {}).get("safe_mode", False)
-    
-    if cloud_mode or safe_mode:
+    if _review_mode(config):
+        if not workspace.workspace_id:
+            return "Error: Safe Mode requires a persisted workspace."
+        overlay = _pending_overlay(workspace, path, config)
+        exists = overlay[0] if overlay is not None else os.path.exists(path)
         _append_to_patch(
-            workspace_id=workspace.id,
-            run_id=config.get("configurable", {}).get("run_id"),
+            workspace_id=workspace.workspace_id,
+            run_id=(config or {}).get("configurable", {}).get("run_id"),
             change={
-                "type": "create" if not os.path.exists(path) else "edit",
-                "path": os.path.relpath(path, workspace.storage_path),
+                "type": "edit" if exists else "create",
+                "path": os.path.relpath(path, workspace.root),
                 "content": content
             }
         )
@@ -160,18 +184,23 @@ def edit_file(path: str, old_content: str, new_content: str, config: RunnableCon
     except PermissionError as e:
         return str(e)
         
-    if not os.path.exists(path):
-        return f"Error: File not found: {path}"
-    if not os.path.isfile(path):
-        return f"Error: Path is not a file: {path}"
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            file_content = f.read()
-    except UnicodeDecodeError:
-        return f"Error: Binary file or unknown encoding: {path}"
-    except Exception as e:
-        return f"Error reading file: {e}"
+    overlay = _pending_overlay(workspace, path, config)
+    if overlay is not None:
+        exists, file_content = overlay
+        if not exists:
+            return f"Error: File not found: {path}"
+    else:
+        if not os.path.exists(path):
+            return f"Error: File not found: {path}"
+        if not os.path.isfile(path):
+            return f"Error: Path is not a file: {path}"
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                file_content = f.read()
+        except UnicodeDecodeError:
+            return f"Error: Binary file or unknown encoding: {path}"
+        except Exception as e:
+            return f"Error reading file: {e}"
 
     count = file_content.count(old_content)
     if count == 0:
@@ -191,16 +220,15 @@ def edit_file(path: str, old_content: str, new_content: str, config: RunnableCon
 
     updated_content = file_content.replace(old_content, new_content, 1)
 
-    cloud_mode = os.environ.get("COMPASS_CLOUD_MODE", "false").lower() == "true"
-    safe_mode = config.get("configurable", {}).get("safe_mode", False)
-    
-    if cloud_mode or safe_mode:
+    if _review_mode(config):
+        if not workspace.workspace_id:
+            return "Error: Safe Mode requires a persisted workspace."
         _append_to_patch(
-            workspace_id=workspace.id,
-            run_id=config.get("configurable", {}).get("run_id"),
+            workspace_id=workspace.workspace_id,
+            run_id=(config or {}).get("configurable", {}).get("run_id"),
             change={
                 "type": "edit",
-                "path": os.path.relpath(path, workspace.storage_path),
+                "path": os.path.relpath(path, workspace.root),
                 "content": updated_content
             }
         )

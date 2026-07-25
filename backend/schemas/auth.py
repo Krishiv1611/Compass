@@ -32,6 +32,14 @@ class TokenResponse(BaseModel):
     expires_in: int = Field(default=900, description="Access token lifetime in seconds")
 
 
+class BrowserTokenResponse(BaseModel):
+    """Browser-safe token response; the refresh token is an HttpOnly cookie."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(default=900, description="Access token lifetime in seconds")
+
+
 class UserResponse(BaseModel):
     """GET /auth/me and embedded in other responses."""
 

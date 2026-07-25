@@ -1,15 +1,5 @@
-import { useEffect, useState } from "react";
-import {
-  Brain,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  Plus,
-  Sparkles,
-  Trash2,
-  Wrench,
-  X,
-} from "lucide-react";
+﻿import { useCallback, useEffect, useState } from "react";
+import { Brain, ChevronDown, ChevronRight, Loader2, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +16,8 @@ type Skill = {
   source_path: string;
 };
 
+const errorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+
 export default function SkillsManager() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,8 +25,6 @@ export default function SkillsManager() {
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingSkill, setDeletingSkill] = useState<string | null>(null);
-
-  // Form state
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formPrompt, setFormPrompt] = useState("");
@@ -42,30 +32,21 @@ export default function SkillsManager() {
   const [formModel, setFormModel] = useState("");
   const [formMaxTurns, setFormMaxTurns] = useState(8);
 
-  const fetchSkills = async () => {
+  const fetchSkills = useCallback(async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      const data = await skillsApi.listSkills();
-      setSkills(data);
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to load skills");
+      setSkills(await skillsApi.listSkills());
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not load skills"));
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchSkills();
   }, []);
 
+  useEffect(() => { void fetchSkills(); }, [fetchSkills]);
+
   const resetForm = () => {
-    setFormName("");
-    setFormDescription("");
-    setFormPrompt("");
-    setFormTools("");
-    setFormModel("");
-    setFormMaxTurns(8);
-    setShowForm(false);
+    setFormName(""); setFormDescription(""); setFormPrompt(""); setFormTools(""); setFormModel(""); setFormMaxTurns(8); setShowForm(false);
   };
 
   const handleCreate = async () => {
@@ -73,28 +54,22 @@ export default function SkillsManager() {
       toast.error("Name, description, and system prompt are required.");
       return;
     }
-
     setIsSaving(true);
     try {
-      const allowedTools = formTools
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-
+      const allowedTools = formTools.split(",").map((tool) => tool.trim()).filter(Boolean);
       await skillsApi.createSkill({
         name: formName.trim().toLowerCase().replace(/\s+/g, "-"),
         description: formDescription.trim(),
         system_prompt: formPrompt.trim(),
-        allowed_tools: allowedTools.length > 0 ? allowedTools : undefined,
+        allowed_tools: allowedTools.length ? allowedTools : undefined,
         model: formModel.trim() || undefined,
         max_turns: formMaxTurns,
       });
-
       toast.success(`Skill "${formName}" created`);
       resetForm();
       await fetchSkills();
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to create skill");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not create skill"));
     } finally {
       setIsSaving(false);
     }
@@ -106,265 +81,70 @@ export default function SkillsManager() {
       await skillsApi.deleteSkill(name);
       toast.success(`Skill "${name}" deleted`);
       await fetchSkills();
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to delete skill");
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not delete skill"));
     } finally {
       setDeletingSkill(null);
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12 gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
-      </div>
-    );
-  }
+  if (isLoading) return <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading skills…</div>;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" /> Skills
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Modular sub-agents loaded from SKILL.md files
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant={showForm ? "ghost" : "default"}
-          onClick={() => (showForm ? resetForm() : setShowForm(true))}
-          className="rounded-full"
-        >
-          {showForm ? (
-            <>
-              <X className="h-3.5 w-3.5 mr-1" /> Cancel
-            </>
-          ) : (
-            <>
-              <Plus className="h-3.5 w-3.5 mr-1" /> New Skill
-            </>
-          )}
-        </Button>
+    <section className="space-y-4" aria-labelledby="skills-heading">
+      <div className="flex items-center justify-between gap-3">
+        <div><h3 id="skills-heading" className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-primary" /> Skill authoring</h3><p className="mt-1 text-xs text-muted-foreground">Create reusable instructions for specialized project work.</p></div>
+        <Button type="button" size="sm" variant={showForm ? "ghost" : "default"} onClick={() => showForm ? resetForm() : setShowForm(true)}>{showForm ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />} {showForm ? "Cancel" : "New skill"}</Button>
       </div>
 
-      {/* Create Form */}
       {showForm && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Name (kebab-case)
-              </label>
-              <Input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="code-review"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Max Turns
-              </label>
-              <Input
-                type="number"
-                value={formMaxTurns}
-                onChange={(e) => setFormMaxTurns(Number(e.target.value))}
-                min={1}
-                max={50}
-                className="h-8 text-sm"
-              />
-            </div>
+        <div className="space-y-3 border-y border-border bg-muted/20 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field id="skill-name" label="Name"><Input id="skill-name" value={formName} onChange={(event) => setFormName(event.target.value)} placeholder="code-review" /></Field>
+            <Field id="skill-turns" label="Maximum turns"><Input id="skill-turns" type="number" value={formMaxTurns} onChange={(event) => setFormMaxTurns(Number(event.target.value))} min={1} max={50} /></Field>
           </div>
-
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">
-              Description
-            </label>
-            <Input
-              value={formDescription}
-              onChange={(e) => setFormDescription(e.target.value)}
-              placeholder="Perform a thorough code review of the given code"
-              className="h-8 text-sm"
-            />
+          <Field id="skill-description" label="Description"><Input id="skill-description" value={formDescription} onChange={(event) => setFormDescription(event.target.value)} placeholder="Review code for correctness, security, and maintainability" /></Field>
+          <Field id="skill-prompt" label="Instructions"><textarea id="skill-prompt" value={formPrompt} onChange={(event) => setFormPrompt(event.target.value)} placeholder="Describe how this skill should approach its work…" className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40" /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field id="skill-tools" label="Allowed tools"><Input id="skill-tools" value={formTools} onChange={(event) => setFormTools(event.target.value)} placeholder="read_file, grep_search" /></Field>
+            <Field id="skill-model" label="Model override"><Input id="skill-model" value={formModel} onChange={(event) => setFormModel(event.target.value)} placeholder="Use workspace default" /></Field>
           </div>
-
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">
-              System Prompt
-            </label>
-            <textarea
-              value={formPrompt}
-              onChange={(e) => setFormPrompt(e.target.value)}
-              placeholder="You are a senior code reviewer. Analyze the provided code for bugs, security issues, and style violations..."
-              className="w-full min-h-[120px] rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none resize-y placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Allowed Tools (comma-separated, empty = all)
-              </label>
-              <Input
-                value={formTools}
-                onChange={(e) => setFormTools(e.target.value)}
-                placeholder="read_file, grep_search, list_dir"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Model Override (optional)
-              </label>
-              <Input
-                value={formModel}
-                onChange={(e) => setFormModel(e.target.value)}
-                placeholder="Leave empty for default"
-                className="h-8 text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={handleCreate}
-              disabled={isSaving}
-              className="rounded-full"
-            >
-              {isSaving ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5 mr-1" />
-              )}
-              Create Skill
-            </Button>
-          </div>
+          <div className="flex justify-end"><Button type="button" size="sm" onClick={() => void handleCreate()} disabled={isSaving}>{isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Create skill</Button></div>
         </div>
       )}
 
-      {/* Skill List */}
-      {skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <Brain className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">
-            No skills registered yet
-          </p>
-          <p className="text-xs text-muted-foreground/70 mt-1">
-            Create a skill to add modular, reusable sub-agents
-          </p>
-        </div>
+      {!skills.length ? (
+        <div className="border-y border-dashed border-border px-4 py-8 text-center"><Brain className="mx-auto mb-3 h-7 w-7 text-muted-foreground" /><p className="text-sm font-medium">No skills yet</p><p className="mt-1 text-xs text-muted-foreground">Create a skill when a workflow needs reusable instructions.</p></div>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-border border-y border-border">
           {skills.map((skill) => {
-            const isExpanded = expandedSkill === skill.name;
+            const expanded = expandedSkill === skill.name;
             return (
-              <div
-                key={skill.name}
-                className="rounded-lg border border-border bg-background/60 overflow-hidden transition-all"
-              >
-                <button
-                  onClick={() =>
-                    setExpandedSkill(isExpanded ? null : skill.name)
-                  }
-                  className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                      <Sparkles className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium truncate">
-                          {skill.name}
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] shrink-0"
-                        >
-                          {skill.max_turns} turns
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {skill.description}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(skill.name);
-                      }}
-                      disabled={deletingSkill === skill.name}
-                    >
-                      {deletingSkill === skill.name ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                    {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-
-                {isExpanded && (
-                  <div className="border-t border-border px-4 py-3 space-y-2 bg-muted/5">
-                    {skill.allowed_tools && skill.allowed_tools.length > 0 && (
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                          Tools
-                        </span>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {skill.allowed_tools.map((t) => (
-                            <Badge
-                              key={t}
-                              variant="outline"
-                              className="text-[10px] gap-1"
-                            >
-                              <Wrench className="h-2.5 w-2.5" /> {t}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {skill.model && (
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                          Model
-                        </span>
-                        <p className="text-xs text-foreground mt-0.5">
-                          {skill.model}
-                        </p>
-                      </div>
-                    )}
-                    <div>
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                        System Prompt
-                      </span>
-                      <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-background p-2 text-xs text-muted-foreground whitespace-pre-wrap">
-                        {skill.system_prompt}
-                      </pre>
-                    </div>
+              <article key={skill.name}>
+                <div className="flex items-center gap-1">
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-3 px-2 py-3 text-left hover:bg-muted/40" onClick={() => setExpandedSkill(expanded ? null : skill.name)} aria-expanded={expanded}>
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-sm font-medium">{skill.name}</span><Badge variant="outline">{skill.max_turns} turns</Badge></span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{skill.description}</span></span>
+                    {expanded ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  </button>
+                  <Button type="button" size="icon-sm" variant="ghost" className="mr-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => void handleDelete(skill.name)} disabled={deletingSkill === skill.name} aria-label={`Delete ${skill.name}`} title="Delete skill">{deletingSkill === skill.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
+                </div>
+                {expanded && (
+                  <div className="space-y-3 border-t border-border bg-muted/10 px-4 py-3">
+                    {!!skill.allowed_tools?.length && <div><p className="text-xs font-medium text-muted-foreground">Tools</p><div className="mt-2 flex flex-wrap gap-1">{skill.allowed_tools.map((tool) => <Badge key={tool} variant="outline"><Wrench className="h-3 w-3" /> {tool}</Badge>)}</div></div>}
+                    {skill.model && <div><p className="text-xs font-medium text-muted-foreground">Model</p><p className="mt-1 font-mono text-xs">{skill.model}</p></div>}
+                    <div><p className="text-xs font-medium text-muted-foreground">Instructions</p><pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap border-l-2 border-border pl-3 font-mono text-xs text-muted-foreground">{skill.system_prompt}</pre></div>
                   </div>
                 )}
-              </div>
+              </article>
             );
           })}
         </div>
       )}
-    </div>
+    </section>
   );
+}
+
+function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+  return <div><label htmlFor={id} className="mb-1.5 block text-xs font-medium">{label}</label>{children}</div>;
 }

@@ -68,7 +68,12 @@ def shell_execute(command: str, timeout: int = 120, cwd: str = ".", config: Runn
         timeout: Max seconds to wait before killing the process (default 120).
         cwd: Working directory for the command (default current directory).
     """
-    if config and config.get("configurable", {}).get("session_id"):
+    try:
+        workspace = get_workspace_for_tool(config)
+    except ValueError as exc:
+        return f"Error: {exc}"
+
+    if workspace.execution_target == "web":
         return "Error: Shell execution is disabled for web users for security reasons. Only file and directory tools are allowed."
 
     if not command or not command.strip():
@@ -77,7 +82,11 @@ def shell_execute(command: str, timeout: int = 120, cwd: str = ".", config: Runn
     if _is_blocked(command):
         return f"Error: Command blocked for safety reasons: '{command}'"
 
-    if not os.path.isdir(cwd):
+    try:
+        resolved_cwd = resolve_workspace_path(workspace, cwd)
+    except PermissionError as exc:
+        return f"Error: {exc}"
+    if not os.path.isdir(resolved_cwd):
         return f"Error: Working directory not found: '{cwd}'"
 
     safe_env = _sanitize_env()
@@ -89,7 +98,7 @@ def shell_execute(command: str, timeout: int = 120, cwd: str = ".", config: Runn
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=cwd,
+            cwd=resolved_cwd,
             env=safe_env,
         )
 

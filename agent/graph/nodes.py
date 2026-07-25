@@ -195,6 +195,20 @@ async def call_model(state: AgentState, config: RunnableConfig):
     # ── Build context from plan + recovery guidance ──────────────────────────
     context_parts = []
 
+    for message in reversed(messages):
+        if getattr(message, "type", "") != "human":
+            continue
+        selected_files = getattr(message, "additional_kwargs", {}).get(
+            "context_files", []
+        )
+        if selected_files:
+            context_parts.append(
+                "The user selected these project-relative files as context: "
+                + ", ".join(f"`{path}`" for path in selected_files)
+                + ". Read them before answering when relevant."
+            )
+        break
+
     if state.get("summary"):
         context_parts.append(f"Conversation Summary:\n{state['summary']}")
 
@@ -214,11 +228,17 @@ async def call_model(state: AgentState, config: RunnableConfig):
             f"Please try a DIFFERENT approach based on this guidance."
         )
 
-    workspace = config.get("configurable", {}).get("workspace_dir") or settings.get("workspace_dir")
-    if workspace:
+    workspace_context = config.get("configurable", {}).get("workspace_context")
+
+    if workspace_context:
         context_parts.append(
-            f"⚠️ CRITICAL INSTRUCTION: You must operate entirely within the user's workspace directory: `{workspace}`. "
-            f"All files created, edited, and shell commands executed MUST be inside this absolute path unless explicitly requested otherwise."
+            "Operate entirely within the active project workspace. "
+            "Use project-relative paths in tool calls and user-facing responses. "
+            + (
+                "Shell execution is unavailable in the web workspace."
+                if workspace_context.get("execution_target") == "web"
+                else ""
+            )
         )
 
     if context_parts:
@@ -235,6 +255,19 @@ async def call_model(state: AgentState, config: RunnableConfig):
     from agent.graph.tools_registry import ALL_TOOLS
 
     combined_tools = ALL_TOOLS + mcp_tools
+    if state.get("mode") in ("ask", "fast"):
+        read_only_tools = {
+            "read_file",
+            "list_dir",
+            "find_files",
+            "grep_search",
+            "codebase_search",
+            "web_search",
+        }
+        combined_tools = [
+            tool for tool in combined_tools
+            if getattr(tool, "name", "") in read_only_tools
+        ]
     api_key = config.get("configurable", {}).get("api_key")
     provider = config.get("configurable", {}).get("provider")
     model = config.get("configurable", {}).get("model")
@@ -307,6 +340,17 @@ async def call_model(state: AgentState, config: RunnableConfig):
         "approval_status": "auto",
         "token_usage": token_usage,
     }
+
+    for message in reversed(state.get("messages", [])):
+        if getattr(message, "type", "") == "human":
+            break
+        if (
+            getattr(message, "type", "") == "tool"
+            and getattr(message, "name", "") in ("write_to_file", "edit_file")
+        ):
+            new_state["syntax_checked"] = False
+            new_state["syntax_check_failed"] = False
+            break
 
     # Increment current_step when tool calls complete a cycle
     if has_tool_calls:
@@ -436,7 +480,15 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
     from agent.config import settings
 
     mode = state.get("mode")
-    fast_mode = (mode in ("fast", "goal")) or (config.get("configurable", {}).get("fast_mode", False) if config else False) or settings.get("fast_mode", False)
+    fast_mode = (
+        mode == "fast"
+        or (
+            config.get("configurable", {}).get("fast_mode", False)
+            if config
+            else False
+        )
+        or settings.get("fast_mode", False)
+    )
     if fast_mode:
         return {"approval_status": "approved"}
 
@@ -530,75 +582,72 @@ async def direct_chat_node(state: AgentState, config: RunnableConfig):
 
 
 import subprocess
-import os
+
+def _python_syntax_errors(workspace_root):
+    import ast
+    from pathlib import Path
+
+    root = Path(workspace_root)
+    errors = []
+    excluded = {".git", ".venv", "venv", "node_modules", "dist", "build"}
+    for path in root.rglob("*.py"):
+        if any(part in excluded for part in path.parts):
+            continue
+        try:
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            errors.append(f"{path.relative_to(root).as_posix()}: {exc}")
+    return errors
+
+
+def _typescript_check(workspace_root):
+    return subprocess.run(
+        ["npx", "tsc", "--noEmit"],
+        cwd=workspace_root,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
 
 async def linter_node(state: AgentState, config: RunnableConfig):
-    """
-    Proactive Linter Agent — runs syntax checks if files were modified.
-    Provides deterministic grounding for the evaluator.
-    """
-    messages = state["messages"]
-    if not messages:
-        return {}
+    """Run deterministic syntax checks once at the end of Goal mode."""
+    import asyncio
+    from agent.tools.utils import get_workspace_for_tool
 
-    from langchain_core.messages import ToolMessage
-    
-    # Check if the last messages are ToolMessages from write/edit tools
-    modifications = False
-    for msg in reversed(messages):
-        if not isinstance(msg, ToolMessage):
-            break
-        if msg.name in ("write_to_file", "edit_file"):
-            modifications = True
-            break
-
-    if not modifications:
-        return {}
-
-    workspace_dir = config.get("configurable", {}).get("workspace_dir")
-    if not workspace_dir or not os.path.isdir(workspace_dir):
-        return {}
+    try:
+        workspace = get_workspace_for_tool(config)
+    except ValueError:
+        return {"syntax_checked": True, "syntax_check_failed": True}
 
     errors = []
-    # Check TypeScript
-    if os.path.exists(os.path.join(workspace_dir, "tsconfig.json")):
+    if (workspace.root / "tsconfig.json").exists():
         try:
-            result = subprocess.run(
-                ["npx", "tsc", "--noEmit"],
-                cwd=workspace_dir,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            result = await asyncio.to_thread(_typescript_check, workspace.root)
             if result.returncode != 0:
                 errors.append(f"TypeScript Errors:\n{result.stdout}\n{result.stderr}")
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError):
             pass
 
-    # Check Python syntax
-    try:
-        result = subprocess.run(
-            ["python", "-m", "compileall", "-q", "."],
-            cwd=workspace_dir,
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode != 0:
-            errors.append(f"Python Syntax Errors:\n{result.stderr}")
-    except Exception as e:
-        pass
+    python_errors = await asyncio.to_thread(_python_syntax_errors, workspace.root)
+    if python_errors:
+        errors.append("Python Syntax Errors:\n" + "\n".join(python_errors))
 
     if errors:
-        linter_msg = (
-            "LINTER FAILED! Please fix the following syntax errors before continuing:\n\n" + 
-            "\n".join(errors)
-        )
-        # We append a ToolMessage pretending to be a linter output, or just a SystemMessage
-        # A SystemMessage is best to guide the executor on the next loop
-        return {"messages": [SystemMessage(content=linter_msg[:2000])]}
-    
-    return {"messages": [SystemMessage(content="LINTER PASSED. No syntax errors detected.")]}
+        return {
+            "messages": [
+                SystemMessage(
+                    content=(
+                        "Syntax validation failed. Fix these errors before continuing:\n\n"
+                        + "\n".join(errors)
+                    )[:2000]
+                )
+            ],
+            "syntax_checked": True,
+            "syntax_check_failed": True,
+        }
+    return {"syntax_checked": True, "syntax_check_failed": False}
+
 
 async def evaluator_node(state: AgentState, config: RunnableConfig):
     """
@@ -667,16 +716,18 @@ async def context_injector_node(state: AgentState, config: RunnableConfig):
     """
     Context Injector Agent — injects relevant codebase context before routing to planner.
     """
-    workspace = config.get("configurable", {}).get("workspace_dir")
+    from agent.tools.utils import get_workspace_for_tool
+
     messages = list(state.get("messages", []))
-    if workspace and messages:
+    if messages:
         try:
             import os
+            workspace = get_workspace_for_tool(config)
             tree = []
-            for item in os.listdir(workspace):
+            for item in os.listdir(workspace.root):
                 if item.startswith('.') or item == '__pycache__':
                     continue
-                path = os.path.join(workspace, item)
+                path = os.path.join(workspace.root, item)
                 if os.path.isdir(path):
                     tree.append(f"{item}/")
                 else:
@@ -685,10 +736,12 @@ async def context_injector_node(state: AgentState, config: RunnableConfig):
             tree_str = ", ".join(sorted(tree))
             if tree_str:
                 sys_msg = SystemMessage(
-                    content=f"Background Context:\nThe current workspace is `{workspace}`. It contains: {tree_str}"
+                    content=f"Background Context:\nThe active project contains: {tree_str}"
                 )
                 return {"messages": [sys_msg]}
-        except Exception:
+        except ValueError:
+            raise
+        except OSError:
             pass
     return {}
 

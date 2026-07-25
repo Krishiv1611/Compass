@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     google_client_secret: str | None = Field(default=None, env="GOOGLE_CLIENT_SECRET")
     github_client_id: str | None = Field(default=None, env="GITHUB_CLIENT_ID")
     github_client_secret: str | None = Field(default=None, env="GITHUB_CLIENT_SECRET")
+    credential_encryption_key: str | None = Field(
+        default=None, env="CREDENTIAL_ENCRYPTION_KEY"
+    )
+    secure_cookies: bool = Field(default=False, env="SECURE_COOKIES")
 
     # ── CORS ─────────────────────────────────────────────────
     cors_origins: list[str] | str = Field(

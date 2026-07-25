@@ -1,230 +1,234 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactDiffViewer from "react-diff-viewer-continued";
-import { CheckCircle, Download, Loader2, XCircle, RotateCcw, History } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  FileCode2,
+  Loader2,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "react-toastify";
 import { useTheme } from "@/components/ThemeProvider";
-import { workspaceApi } from "@/api";
+import { patchesApi } from "@/api";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
+import type { WorkspacePatch } from "@/types/patch";
 
 interface PatchReviewProps {
   workspaceId: string;
   onResolved?: () => void;
+  onOpenFile?: (path: string) => void;
 }
 
-export default function DiffReviewPanel({ workspaceId, onResolved }: PatchReviewProps) {
-  const [pendingPatches, setPendingPatches] = useState<any[]>([]);
-  const [appliedPatches, setAppliedPatches] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("pending");
-  const { theme } = useTheme();
+type FileChange = {
+  patchId: string;
+  path: string;
+  type: string;
+  before: string;
+  after: string;
+  status: "pending" | "applied" | "rejected" | "reverted";
+  createdAt?: string;
+  diff?: string;
+};
 
-  const fetchPatches = async () => {
+const diffStats = (change: FileChange) => {
+  if (change.diff) {
+    const lines = change.diff.split(/\r?\n/);
+    return {
+      additions: lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length,
+      deletions: lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length,
+    };
+  }
+  const before = change.before.split(/\r?\n/);
+  const after = change.after.split(/\r?\n/);
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix &&
+    suffix < after.length - prefix &&
+    before[before.length - suffix - 1] === after[after.length - suffix - 1]
+  ) suffix += 1;
+  return {
+    additions: Math.max(0, after.length - prefix - suffix),
+    deletions: Math.max(0, before.length - prefix - suffix),
+  };
+};
+
+export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }: PatchReviewProps) {
+  const [patches, setPatches] = useState<WorkspacePatch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const { resolvedTheme } = useTheme();
+  const { state, notifyPatchesChanged, refreshWorkspace } = useWorkbench();
+
+  const fetchPatches = useCallback(async () => {
     try {
-      const response = await workspaceApi.getPatches(workspaceId);
-      setPendingPatches(response.filter((p: any) => p.status === "pending"));
-      setAppliedPatches(response.filter((p: any) => p.status === "applied").sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-    } catch (error) {
-      console.error("Failed to fetch patches", error);
+      setPatches(await patchesApi.getPatches(workspaceId));
+    } catch {
+      toast.error("Failed to load project changes", { toastId: "patch-load-error" });
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchPatches();
-    const refresh = () => fetchPatches();
-    window.addEventListener("agent-done", refresh);
-    window.addEventListener("patches-changed", refresh);
-    return () => {
-      window.removeEventListener("agent-done", refresh);
-      window.removeEventListener("patches-changed", refresh);
-    };
-  }, [workspaceId]);
+  }, [fetchPatches, state.patchesVersion]);
 
-  const notifyResolved = () => {
+  const changes = useMemo<FileChange[]>(() =>
+    patches.flatMap((patch) => (patch.changes || []).map((change) => ({
+      patchId: patch.id,
+      path: change.path,
+      type: change.type || "edit",
+      before: change.before ?? "",
+      after: change.after ?? change.content ?? "",
+      status: change.status || patch.status || "pending",
+      createdAt: patch.created_at,
+      diff: change.diff,
+    }))), [patches]);
+
+  const pending = changes.filter((change) => change.status === "pending");
+  const totals = changes.reduce((result, change) => {
+    const stats = diffStats(change);
+    return { additions: result.additions + stats.additions, deletions: result.deletions + stats.deletions };
+  }, { additions: 0, deletions: 0 });
+
+  const finish = async () => {
+    await fetchPatches();
     onResolved?.();
-    window.dispatchEvent(new Event("patches-changed"));
+    notifyPatchesChanged();
+    refreshWorkspace();
   };
 
-  const handleApply = async (patchId: string) => {
+  const resolveFile = async (change: FileChange, action: "apply" | "reject" | "undo") => {
+    const key = `${change.patchId}:${change.path}:${action}`;
+    setBusy(key);
     try {
-      await workspaceApi.applyPatch(workspaceId, patchId);
-      toast.success("Patch applied");
-      fetchPatches();
-      notifyResolved();
-      window.dispatchEvent(new Event("refresh-workspace-tree"));
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to apply patch");
+      await patchesApi.resolvePatchFile(workspaceId, change.patchId, change.path, action);
+      toast.success(action === "apply" ? "File applied" : action === "reject" ? "File rejected" : "File reverted");
+      await finish();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not ${action} file`);
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleReject = async (patchId: string) => {
+  const resolveAll = async (action: "apply" | "reject") => {
+    setBusy(action);
     try {
-      await workspaceApi.rejectPatch(workspaceId, patchId);
-      toast.success("Patch rejected");
-      fetchPatches();
-      notifyResolved();
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to reject patch");
+      if (action === "apply") await patchesApi.acceptAllPatches(workspaceId);
+      else await patchesApi.rejectAllPatches(workspaceId);
+      toast.success(action === "apply" ? "All changes applied" : "All changes rejected");
+      await finish();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not ${action} changes`);
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleUndo = async (patchId: string) => {
-    try {
-      await workspaceApi.undoPatch(workspaceId, patchId);
-      toast.success("Patch reverted successfully");
-      fetchPatches();
-      notifyResolved();
-      window.dispatchEvent(new Event("refresh-workspace-tree"));
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to undo patch");
-    }
-  };
-
-  const handleAcceptAll = async () => {
-    try {
-      await workspaceApi.acceptAllPatches(workspaceId);
-      toast.success("All patches accepted");
-      fetchPatches();
-      notifyResolved();
-      window.dispatchEvent(new Event("refresh-workspace-tree"));
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to accept all patches");
-    }
-  };
-
-  const handleRejectAll = async () => {
-    try {
-      await workspaceApi.rejectAllPatches(workspaceId);
-      toast.success("All patches rejected");
-      fetchPatches();
-      notifyResolved();
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || "Failed to reject all patches");
-    }
-  };
-
-  if (loading && pendingPatches.length === 0 && appliedPatches.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading patches...
-      </div>
-    );
+  if (loading) {
+    return <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading changes</div>;
   }
 
-  const renderPatch = (patch: any, isApplied: boolean = false) => (
-    <div key={patch.id} className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className={isApplied ? "border-green-500/30 text-green-500" : "border-amber-500/30 text-amber-500"}>
-            {isApplied ? "Applied" : "Pending"}
-          </Badge>
-          <span className="font-mono text-xs text-muted-foreground">{patch.id.slice(0, 8)}</span>
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/20 px-4 py-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold">Project changes</h2>
+            <Badge variant={pending.length ? "default" : "secondary"}>{pending.length} pending</Badge>
+          </div>
+          <div className="mt-1 flex gap-3 font-mono text-xs text-muted-foreground">
+            <span className="text-success">+{totals.additions}</span>
+            <span className="text-destructive">-{totals.deletions}</span>
+            <span>{changes.length} files</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {isApplied ? (
-            <Button size="sm" variant="outline" onClick={() => handleUndo(patch.id)} className="text-red-500 hover:bg-red-500/10 hover:text-red-600">
-              <RotateCcw className="mr-1 h-4 w-4" /> Undo
+        {pending.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => resolveAll("reject")} disabled={!!busy}>
+              <X className="mr-1 h-3.5 w-3.5" /> Reject all
             </Button>
-          ) : (
-            <>
-              <Button size="sm" variant="outline" onClick={() => handleReject(patch.id)} className="text-red-500 hover:bg-red-500/10 hover:text-red-600">
-                <XCircle className="mr-1 h-4 w-4" /> Reject
-              </Button>
-              <Button size="sm" onClick={() => handleApply(patch.id)} className="bg-green-600 text-white hover:bg-green-700">
-                <CheckCircle className="mr-1 h-4 w-4" /> Apply
-              </Button>
-            </>
-          )}
-        </div>
+            <Button size="sm" onClick={() => resolveAll("apply")} disabled={!!busy}>
+              <Check className="mr-1 h-3.5 w-3.5" /> Apply all
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-col gap-4">
-        {patch.changes.map((change: any, idx: number) => {
-          const originalContent = change.before !== undefined ? change.before : "";
-          const modifiedContent = change.after !== undefined ? change.after : change.content || "";
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {changes.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">No project changes to review.</div>
+        ) : changes.map((change) => {
+          const key = `${change.patchId}:${change.path}`;
+          const isExpanded = expanded[key] ?? change.status === "pending";
+          const actionBusy = busy?.startsWith(key);
           return (
-            <div key={idx} className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase text-muted-foreground">{change.type}</span>
-                <span className="font-mono text-xs text-foreground">{change.path}</span>
+            <section key={key} className="border-b border-border">
+              <div className="flex min-h-12 items-center gap-2 px-3">
+                <button type="button" className="rounded p-1 hover:bg-muted" onClick={() => setExpanded((state) => ({ ...state, [key]: !isExpanded }))} title={isExpanded ? "Collapse diff" : "Expand diff"}>
+                  {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                </button>
+                <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpenFile?.(change.path)}>
+                  <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate font-mono text-xs">{change.path}</span>
+                  <StatusBadge status={change.status} />
+                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {change.status === "pending" && (
+                    <>
+                      <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "reject")} disabled={actionBusy} title="Reject file"><X className="h-3.5 w-3.5 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "apply")} disabled={actionBusy} title="Apply file"><Check className="h-3.5 w-3.5 text-success" /></Button>
+                    </>
+                  )}
+                  {change.status === "applied" && (
+                    <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "undo")} disabled={actionBusy} title="Undo file"><RotateCcw className="h-3.5 w-3.5" /></Button>
+                  )}
+                </div>
               </div>
-              <div className="overflow-hidden rounded border border-border bg-card">
-                <ReactDiffViewer
-                  oldValue={originalContent}
-                  newValue={modifiedContent}
-                  splitView={true}
-                  useDarkTheme={theme === "dark"}
-                  leftTitle="Original"
-                  rightTitle="Modified"
-                />
-              </div>
-            </div>
+              {isExpanded && (
+                <div className="overflow-x-auto border-t border-border text-xs">
+                  <ReactDiffViewer
+                    oldValue={change.before}
+                    newValue={change.after}
+                    splitView
+                    useDarkTheme={resolvedTheme === "dark"}
+                    leftTitle="Original"
+                    rightTitle="Proposed"
+                  />
+                </div>
+              )}
+            </section>
           );
         })}
       </div>
     </div>
   );
+}
 
+function StatusBadge({ status }: { status: FileChange["status"] }) {
+  const labels = {
+    pending: "Pending",
+    applied: "Applied",
+    rejected: "Rejected",
+    reverted: "Reverted",
+  };
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="px-4 py-2 border-b border-border bg-muted/20">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-[200px] grid-cols-2">
-            <TabsTrigger value="pending">Pending ({pendingPatches.length})</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === "pending" && (
-          <>
-            {pendingPatches.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-                <span>No pending patches.</span>
-                <Button size="sm" variant="outline" onClick={() => window.open(workspaceApi.getDownloadUrl(workspaceId))}>
-                  <Download className="mr-1 h-4 w-4" /> Download ZIP
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-muted-foreground">
-                    Review {pendingPatches.length} patch{pendingPatches.length !== 1 ? "es" : ""}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={handleRejectAll} className="text-red-500 hover:bg-red-500/10 hover:text-red-600">
-                      <XCircle className="mr-1 h-4 w-4" /> Reject All
-                    </Button>
-                    <Button size="sm" onClick={handleAcceptAll} className="bg-green-600 text-white hover:bg-green-700">
-                      <CheckCircle className="mr-1 h-4 w-4" /> Accept All
-                    </Button>
-                  </div>
-                </div>
-                {pendingPatches.map(p => renderPatch(p, false))}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === "history" && (
-          <>
-            {appliedPatches.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted-foreground">
-                <History className="h-8 w-8 mb-2 opacity-50" />
-                <span>No patch history.</span>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {appliedPatches.map(p => renderPatch(p, true))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+    <Badge variant="outline" className={`ml-auto h-5 shrink-0 text-xs ${
+      status === "applied" ? "border-success/40 text-success" :
+      status === "pending" ? "border-warning/40 text-warning" :
+      "text-muted-foreground"
+    }`}>
+      {status === "applied" && <CheckCircle2 className="mr-1 h-3 w-3" />}
+      {labels[status]}
+    </Badge>
   );
 }

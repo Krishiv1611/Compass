@@ -5,8 +5,9 @@ Access tokens (short-lived) and refresh tokens (long-lived).
 """
 
 from datetime import datetime, timedelta, timezone
+from secrets import token_urlsafe
 
-from jose import jwt
+from jose import JWTError, jwt
 
 from backend.config import settings
 from backend.schemas.auth import TokenResponse
@@ -55,3 +56,32 @@ def create_token_pair(user_id: str) -> TokenResponse:
         refresh_token=create_refresh_token(user_id),
         expires_in=settings.access_token_expire_minutes * 60,
     )
+
+
+def create_oauth_state(
+    provider: str,
+    *,
+    redirect_uri: str = "",
+    intent: str = "login",
+    return_to: str = "/chat",
+) -> str:
+    """Create a short-lived signed OAuth state value owned by the backend."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=10)
+    payload = {
+        "type": "oauth_state",
+        "provider": provider,
+        "redirect_uri": redirect_uri,
+        "intent": intent,
+        "return_to": return_to if return_to.startswith("/") else "/chat",
+        "nonce": token_urlsafe(24),
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_oauth_state(state: str, expected_provider: str) -> dict:
+    """Validate a signed OAuth state and its intended provider."""
+    payload = decode_token(state)
+    if payload.get("type") != "oauth_state" or payload.get("provider") != expected_provider:
+        raise JWTError("Invalid OAuth state")
+    return payload

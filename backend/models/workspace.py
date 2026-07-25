@@ -33,6 +33,11 @@ class Workspace(Base):
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="upload")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="empty")
+    project_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    git_remote: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    git_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    git_head: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    context_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
     file_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)

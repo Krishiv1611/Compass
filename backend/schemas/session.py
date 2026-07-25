@@ -29,6 +29,10 @@ class SessionSummary(BaseModel):
     updated_at: datetime
     message_count: int = 0
     workspace_name: str | None = None
+    project_id: str | None = None
+    git_branch: str | None = None
+    git_head: str | None = None
+    context_version: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -53,6 +57,11 @@ class SessionDetail(BaseModel):
     id: str
     title: str | None
     thread_id: str
+    project_id: str | None = None
+    git_remote: str | None = None
+    git_branch: str | None = None
+    git_head: str | None = None
+    context_version: str | None = None
     created_at: datetime
     updated_at: datetime
     messages: list[MessageInSession] = []

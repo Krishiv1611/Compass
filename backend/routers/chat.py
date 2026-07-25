@@ -108,10 +108,14 @@ async def send_message(
             user_id=current_user.id,
             mode=body.mode,
             user_prefs=current_user.preferences,
+            context_files=body.context_files,
         )
     except Exception as exc:
         error_msg = str(exc)
         logger.exception("Agent run failed")
+
+        if "Project changed since this task was created" in error_msg:
+            raise HTTPException(status_code=409, detail=error_msg)
 
         if "UnauthorizedResponseError" in error_msg or "User not found" in error_msg or "401" in error_msg:
             raise HTTPException(
@@ -279,7 +283,13 @@ async def websocket_chat(
                 db_fallback = SessionLocal()
                 run = None
                 try:
-                    run = create_agent_run(db_fallback, session_id=session_id)
+                    from backend.services.workspace import get_workspace_by_session
+                    workspace = get_workspace_by_session(db_fallback, session_id, user_id)
+                    run = create_agent_run(
+                        db_fallback,
+                        session_id=session_id,
+                        workspace_id=workspace.id,
+                    )
                     async for event in agent_runner.run_agent_stream(
                         user_message=client_msg.content or "",
                         thread_id=thread_id,
@@ -289,6 +299,7 @@ async def websocket_chat(
                         resume_action=client_msg.action,
                         user_prefs=user_prefs,
                         run_id=run.id,
+                        context_files=client_msg.context_files,
                     ):
                         event.run_id = run.id
                         event.session_id = session_id

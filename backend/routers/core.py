@@ -19,72 +19,95 @@ router = APIRouter(tags=["core"])
 # ─── Settings Endpoints ────────────────────────────────────────────────────────
 
 class UserPreferences(BaseModel):
-    """User preferences schema."""
+    """Safe preferences returned to the browser."""
     theme: str = "dark"
     model: str = "google/gemma-4-31b-it:free"
     llm_provider: str = "openrouter"
-    llm_api_key: str = ""
     language: str = "en"
     safe_mode: bool = False
     fast_mode: bool = False
-    model_config = {"extra": "allow"}
+    has_llm_api_key: bool = False
+    model_config = {"extra": "ignore"}
+
+
+class UserPreferencesUpdate(BaseModel):
+    theme: str = "dark"
+    model: str = "google/gemma-4-31b-it:free"
+    llm_provider: str = "openrouter"
+    llm_api_key: str | None = None
+    language: str = "en"
+    safe_mode: bool = False
+    fast_mode: bool = False
 
 @router.get("/settings", response_model=UserPreferences)
 def get_settings(current_user: User = Depends(get_current_user)):
     """Return the current user's preferences."""
     prefs = getattr(current_user, "preferences", None) or {}
-    return UserPreferences(**prefs)
+    return UserPreferences(
+        **prefs,
+        has_llm_api_key=bool(prefs.get("llm_api_key_encrypted")),
+    )
 
 @router.put("/settings", response_model=UserPreferences)
 def update_settings(
-    body: UserPreferences,
+    body: UserPreferencesUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Update the current user's preferences."""
-    current_user.preferences = body.model_dump()
+    from backend.auth.credentials import encrypt_credential
+
+    existing = dict(current_user.preferences or {})
+    next_preferences = body.model_dump(exclude={"llm_api_key"})
+    if body.llm_api_key:
+        next_preferences["llm_api_key_encrypted"] = encrypt_credential(body.llm_api_key)
+    elif existing.get("llm_api_key_encrypted"):
+        next_preferences["llm_api_key_encrypted"] = existing["llm_api_key_encrypted"]
+    current_user.preferences = next_preferences
     db.commit()
     db.refresh(current_user)
-    return UserPreferences(**current_user.preferences)
+    return UserPreferences(
+        **current_user.preferences,
+        has_llm_api_key=bool(current_user.preferences.get("llm_api_key_encrypted")),
+    )
 
 
 # ─── MCP Settings Endpoints ────────────────────────────────────────────────────────
 
-import os
-import json
-from pydantic import BaseModel, Field
-
-MCP_CONFIG_FILE = os.path.join(os.getcwd(), ".compass", "mcp_servers.json")
-
 class McpServerConfig(BaseModel):
+    """Legacy local MCP shape, retained only for a clear rejected-request contract."""
     command: str
     args: List[str] = []
     env: dict[str, str] = {}
+
 
 class McpConfig(BaseModel):
     mcpServers: dict[str, McpServerConfig] = {}
 
 @router.get("/settings/mcp-servers")
 def get_mcp_servers(current_user: User = Depends(get_current_user)):
-    """Return the current MCP server configuration."""
-    if not os.path.exists(MCP_CONFIG_FILE):
-        return {"mcpServers": {}}
-    try:
-        with open(MCP_CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"mcpServers": {}}
+    """Expose only managed MCP capability status to hosted web clients.
+
+    Local command-based MCP remains a TUI/project configuration concern. Letting a
+    browser user submit an executable command here would turn the web settings page
+    into a remote process-launch surface.
+    """
+    return {
+        "mcpServers": {},
+        "managed": True,
+        "message": "MCP capabilities are managed by this workspace. Configure local command MCP servers in the TUI.",
+    }
 
 @router.post("/settings/mcp-servers")
 def update_mcp_servers(
     config: McpConfig,
     current_user: User = Depends(get_current_user)
 ):
-    """Update the MCP server configuration."""
-    os.makedirs(os.path.dirname(MCP_CONFIG_FILE), exist_ok=True)
-    with open(MCP_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config.model_dump(), f, indent=2)
-    return config
+    """Reject arbitrary executable MCP configuration in the hosted web product."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Hosted workspaces cannot configure local MCP commands. Use the TUI for local MCP configuration.",
+    )
 
 class McpTestRequest(BaseModel):
     name: str
@@ -95,19 +118,11 @@ def test_mcp_server(
     request: McpTestRequest,
     current_user: User = Depends(get_current_user)
 ):
-    """Test connectivity to an MCP server."""
-    # To truly test an MCP server, we'd need to spin up an MCPClient for it.
-    # For now, we will perform a basic validation that the command exists
-    # and we can invoke it. A true test requires langchain_mcp_adapters logic.
-    import shutil
-    import subprocess
-    cmd = request.config.command
-    if not shutil.which(cmd):
-        raise HTTPException(status_code=400, detail=f"Command '{cmd}' not found on system path.")
-    
-    # Optional: We could run the command briefly, but standard MCP servers block on stdin.
-    # We will just return success if the binary exists, as deep protocol testing is complex.
-    return {"status": "ok", "message": f"'{cmd}' is available and valid."}
+    """Reject local executable probes from the hosted web product."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Hosted workspaces cannot test local MCP commands. Use the TUI for local MCP configuration.",
+    )
 
 
 # ─── Tools Endpoints ──────────────────────────────────────────────────────────
@@ -278,4 +293,3 @@ def delete_skill(
     skill_registry.reload()
 
     return {"status": "ok", "message": f"Skill '{skill_name}' deleted."}
-

@@ -7,6 +7,8 @@ import { html } from "@codemirror/lang-html";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { EditorView } from "@codemirror/view";
+import { useTheme } from "@/components/ThemeProvider";
 
 interface CodeMirrorEditorProps {
   code: string;
@@ -16,6 +18,7 @@ interface CodeMirrorEditorProps {
 }
 
 export default function CodeMirrorEditor({ code, onChange, language, readOnly = false }: CodeMirrorEditorProps) {
+  const { resolvedTheme } = useTheme();
   const extensions = useMemo(() => {
     const exts = [];
     switch (language.toLowerCase()) {
@@ -42,6 +45,12 @@ export default function CodeMirrorEditor({ code, onChange, language, readOnly = 
         // fallback
         break;
     }
+    exts.push(EditorView.theme({
+      "&": { backgroundColor: "var(--surface)", color: "var(--ink)" },
+      ".cm-content": { caretColor: "var(--primary)" },
+      ".cm-gutters": { backgroundColor: "var(--surface)", color: "var(--ink-muted)", borderColor: "var(--border)" },
+      ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--primary) 8%, transparent)" },
+    }));
     return exts;
   }, [language]);
 
@@ -50,7 +59,7 @@ export default function CodeMirrorEditor({ code, onChange, language, readOnly = 
       <CodeMirror
         value={code}
         height="100%"
-        theme={oneDark}
+        theme={resolvedTheme === "dark" ? oneDark : "light"}
         extensions={extensions}
         onChange={onChange}
         readOnly={readOnly}

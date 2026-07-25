@@ -18,7 +18,7 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     turn_count: int
     summary: str
-    mode: Literal["normal", "plan", "fast", "goal"]
+    mode: Literal["ask", "edit", "plan", "goal", "normal", "fast"]
 
     # ── Planner ──────────────────────────────────────────────────────────────
     plan: str  # Step-by-step plan from the planner agent
@@ -30,6 +30,8 @@ class AgentState(TypedDict):
     approval_status: str | None  # "approved" or "denied"
     approved_operations: list[str]  # Cache of auto-approved commands/edits
     token_usage: dict  # Token counts from usage_metadata
+    syntax_checked: bool
+    syntax_check_failed: bool
 
     # ── Loop Recovery ────────────────────────────────────────────────────────
     loop_detected: bool  # Set by loop detector in call_model

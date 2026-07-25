@@ -28,8 +28,6 @@ from agent.rag.vector_store import (
 
 load_dotenv()
 
-INDEX_STATE_FILE = os.path.join(WORKSPACE_DIR, ".compass", "index_state.json")
-
 # Directories to ignore during traversal
 IGNORE_DIRS = {
     ".git",
@@ -56,22 +54,24 @@ class IndexStats:
     errors: List[str] = field(default_factory=list)
 
 
-def load_index_state() -> dict:
-    """Load the index state holding file modification timestamps."""
-    if os.path.exists(INDEX_STATE_FILE):
+def load_index_state(state_file: str) -> dict:
+    """Load the versioned index state, upgrading the legacy flat format."""
+    if os.path.exists(state_file):
         try:
-            with open(INDEX_STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(state_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+                if "files" not in state:
+                    return {"context_version": None, "files": state}
+                return state
         except Exception as e:
             print(f"Error loading index state: {e}")
-            return {}
-    return {}
+    return {"context_version": None, "files": {}}
 
 
-def save_index_state(state: dict):
+def save_index_state(state: dict, state_file: str):
     """Save the index state."""
-    os.makedirs(os.path.dirname(INDEX_STATE_FILE), exist_ok=True)
-    with open(INDEX_STATE_FILE, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    with open(state_file, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=4)
 
 
@@ -117,12 +117,19 @@ def is_text_file(filepath: str) -> bool:
     return ext.lower() in valid_extensions
 
 
-def _delete_chunks_by_source(source_path: str) -> int:
+def _delete_chunks_by_source(source_path: str, project_id: str | None) -> int:
     """Delete all chunks for a source path from ChromaDB."""
-    return delete_chunks_by_filter({"source": source_path})
+    where = {"source": source_path}
+    if project_id:
+        where["project_id"] = project_id
+    return delete_chunks_by_filter(where)
 
 
-def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
+def index_workspace(
+    workspace_path: str = WORKSPACE_DIR,
+    project_id: str | None = None,
+    context_version: str | None = None,
+) -> IndexStats:
     """
     Traverse the workspace, chunk modified files, and index them into ChromaDB.
 
@@ -131,7 +138,25 @@ def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
     start_time = time.time()
     stats = IndexStats()
 
-    state = load_index_state()
+    workspace_path = os.path.abspath(workspace_path)
+    state_file = os.path.join(workspace_path, ".compass", "index_state.json")
+    stored_state = load_index_state(state_file)
+    state = stored_state.get("files", {})
+    version_changed = bool(
+        context_version
+        and stored_state.get("context_version") != context_version
+    )
+    if version_changed:
+        if not project_id:
+            stats.errors.append(
+                "Cannot rebuild a versioned index without a project_id."
+            )
+            stats.elapsed_seconds = time.time() - start_time
+            return stats
+        stats.chunks_removed += delete_chunks_by_filter(
+            {"source_type": "workspace", "project_id": project_id}
+        )
+        state = {}
     new_state = {}
 
     documents_to_index: List[Document] = []
@@ -160,10 +185,15 @@ def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
                 with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
 
+                relative_path = os.path.relpath(filepath, workspace_path).replace("\\", "/")
                 chunks = chunk_file(
-                    filepath,
+                    relative_path,
                     content,
-                    metadata={"source_type": "workspace"},
+                    metadata={
+                        "source_type": "workspace",
+                        "project_id": project_id or "",
+                        "context_version": context_version or "",
+                    },
                 )
                 chunks = [c for c in chunks if c.page_content.strip()]
                 documents_to_index.extend(chunks)
@@ -183,11 +213,13 @@ def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
         return stats
 
     for filepath in modified_files:
-        stats.chunks_removed += _delete_chunks_by_source(filepath)
+        relative_path = os.path.relpath(filepath, workspace_path).replace("\\", "/")
+        stats.chunks_removed += _delete_chunks_by_source(relative_path, project_id)
 
     stale_files = set(state.keys()) - set(new_state.keys())
     for filepath in stale_files:
-        stats.chunks_removed += _delete_chunks_by_source(filepath)
+        relative_path = os.path.relpath(filepath, workspace_path).replace("\\", "/")
+        stats.chunks_removed += _delete_chunks_by_source(relative_path, project_id)
         stats.files_removed += 1
 
     if documents_to_index:
@@ -195,7 +227,10 @@ def index_workspace(workspace_path: str = WORKSPACE_DIR) -> IndexStats:
         stats.chunks_added = len(documents_to_index)
 
     # Phase 3: Save state
-    save_index_state(new_state)
+    save_index_state(
+        {"context_version": context_version, "files": new_state},
+        state_file,
+    )
     stats.elapsed_seconds = time.time() - start_time
 
     return stats

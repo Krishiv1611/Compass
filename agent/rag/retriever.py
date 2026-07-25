@@ -6,21 +6,32 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
+from langchain_core.runnables.config import RunnableConfig
 
-from agent.rag.vector_store import WORKSPACE_DIR, get_vector_store
+from agent.rag.vector_store import get_vector_store
+from agent.tools.utils import get_workspace_for_tool
 
 load_dotenv()
 
 _rag_scope: ContextVar[dict[str, str] | None] = ContextVar("rag_scope", default=None)
 
 
-def set_rag_scope(user_id: str | None = None, session_id: str | None = None):
+def set_rag_scope(
+    user_id: str | None = None,
+    session_id: str | None = None,
+    project_id: str | None = None,
+    context_version: str | None = None,
+):
     """Set request-local RAG scope for web sessions."""
     scope = {}
     if user_id:
         scope["user_id"] = user_id
     if session_id:
         scope["session_id"] = session_id
+    if project_id:
+        scope["project_id"] = project_id
+    if context_version:
+        scope["context_version"] = context_version
     return _rag_scope.set(scope or None)
 
 
@@ -40,12 +51,13 @@ def _scope_filter() -> dict[str, Any] | None:
     if scope.get("session_id"):
         upload_terms.append({"session_id": scope["session_id"]})
 
-    return {
-        "$or": [
-            {"source_type": "workspace"},
-            {"$and": upload_terms},
-        ]
-    }
+    workspace_terms: list[dict[str, str]] = [{"source_type": "workspace"}]
+    if scope.get("project_id"):
+        workspace_terms.append({"project_id": scope["project_id"]})
+    if scope.get("context_version"):
+        workspace_terms.append({"context_version": scope["context_version"]})
+
+    return {"$or": [{"$and": workspace_terms}, {"$and": upload_terms}]}
 
 
 def _format_source(doc) -> str:
@@ -53,20 +65,17 @@ def _format_source(doc) -> str:
     filename = doc.metadata.get("filename")
     source = filename or doc.metadata.get("source", "Unknown Source")
 
-    if (
-        source_type == "workspace"
-        and isinstance(source, str)
-        and source.startswith(WORKSPACE_DIR)
-    ):
-        source = os.path.relpath(source, WORKSPACE_DIR)
-
     if source_type == "upload":
         return f"uploaded:{source}"
     return str(source)
 
 
 @tool
-def codebase_search(query: str, limit: int = 5) -> str:
+def codebase_search(
+    query: str,
+    limit: int = 5,
+    config: RunnableConfig = None,
+) -> str:
     """
     Search indexed project code and uploaded files semantically.
 
@@ -83,6 +92,14 @@ def codebase_search(query: str, limit: int = 5) -> str:
         return "Error: RAG index not found in .compass/chroma. Index the workspace or upload files first."
 
     try:
+        workspace = get_workspace_for_tool(config)
+        configurable = (config or {}).get("configurable", {})
+        scope_token = set_rag_scope(
+            user_id=configurable.get("user_id"),
+            session_id=configurable.get("session_id"),
+            project_id=workspace.project_id,
+            context_version=workspace.context_version,
+        )
         search_filter = _scope_filter()
         kwargs: dict[str, Any] = {"k": limit}
         if search_filter:
@@ -103,3 +120,6 @@ def codebase_search(query: str, limit: int = 5) -> str:
 
     except Exception as e:
         return f"Error performing semantic search: {str(e)}"
+    finally:
+        if "scope_token" in locals():
+            reset_rag_scope(scope_token)

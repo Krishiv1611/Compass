@@ -16,7 +16,19 @@ def cancel_agent_run(run_id: str) -> None:
 
 def create_agent_run(db: Session, session_id: str, workspace_id: str | None = None) -> AgentRun:
     """Create a new AgentRun in 'running' state."""
-    run = AgentRun(session_id=session_id, workspace_id=workspace_id, status="running")
+    from backend.models.workspace import Workspace
+
+    workspace = (
+        db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if workspace_id else None
+    )
+    run = AgentRun(
+        session_id=session_id,
+        workspace_id=workspace_id,
+        project_id=workspace.project_id if workspace else None,
+        context_version=workspace.context_version if workspace else None,
+        status="running",
+    )
     db.add(run)
     db.commit()
     db.refresh(run)

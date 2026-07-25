@@ -26,6 +26,8 @@ class AgentRun(Base):
         ForeignKey("workspaces.id", ondelete="SET NULL"),
         nullable=True,
     )
+    project_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    context_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(
         String(50), 
         nullable=False, 

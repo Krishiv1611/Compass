@@ -1,621 +1,328 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useOutletContext, useSearchParams } from "react-router-dom";
-import { Activity, Bot, FileCode2, GitPullRequest, Loader2, MessageSquare, Sparkles, UserCircle, Wrench, Terminal, RefreshCcw, LayoutGrid } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  Activity,
+  Command,
+  FileCode2,
+  FolderTree,
+  GitPullRequest,
+  MessageSquare,
+  PanelRight,
+} from "lucide-react";
 import { toast } from "react-toastify";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import CodeSandbox from "@/components/sandbox/CodeSandbox";
-import ChatInput from "@/components/chat/ChatInput";
-import LoginModal from "@/components/auth/LoginModal";
-import MessageSkeleton from "@/components/chat/MessageSkeleton";
-import RunTimeline from "@/components/chat/RunTimeline";
-import PlanChecklist from "@/components/chat/PlanChecklist";
-import MessageList from "@/components/chat/MessageList";
-import { Allotment } from "allotment";
-import "allotment/dist/style.css";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { chatApi, sessionsApi, uploadsApi, workspaceApi, runsApi } from "@/api";
-import { motion, AnimatePresence } from "framer-motion";
-import MarkdownMessage from "@/components/chat/MarkdownMessage";
+import { chatApi, patchesApi, sessionsApi, uploadsApi, workspaceApi } from "@/api";
 import { useRunEvents } from "@/contexts/RunContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
+import type { ChatMode } from "@/types/chat";
+import type { RunEvent } from "@/types/run";
+import type { TranscriptMessage } from "@/components/chat/MessageList";
+import AppLayout from "@/components/layout/AppLayout";
+import AgentPanel from "@/components/agent/AgentPanel";
+import CenterWorkbench from "@/components/workbench/CenterWorkbench";
+import WorkbenchComposition from "@/components/workbench/WorkbenchComposition";
+import WorkspaceLanding from "@/components/sandbox/WorkspaceLanding";
+import CommandPalette from "@/components/workbench/CommandPalette";
+import ContextDrawer from "@/components/workbench/ContextDrawer";
+import RunTimeline from "@/components/chat/RunTimeline";
+import GitHubPublishDialog from "@/components/github/GitHubPublishDialog";
+import { Button } from "@/components/ui/button";
 
-type Message = {
-  id?: string;
-  role: "user" | "assistant" | "tool" | string;
-  content?: string | null;
-  tool_calls?: any;
-  model?: string | null;
-  created_at?: string;
-  pending?: boolean;
-  plan?: string;
-  completedPlanSteps?: number[];
-};
-
-type OutletContext = {
-  user: any | null;
-  refreshUser: () => Promise<void>;
-};
-
-const titleFromMessage = (message: string) => {
-  const cleaned = message.replace(/[`*_#>()]/g, " ").replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim();
-  if (!cleaned) return "New Chat";
-  const words = cleaned.split(" ").slice(0, 6).join(" ");
-  return words.length > 54 ? `${words.slice(0, 51)}...` : words;
+type ApprovalState = {
+  content?: string;
+  data?: {
+    reason?: string;
+    plan?: string;
+    tool_calls?: Array<{ id?: string; name?: string; args?: unknown; arguments?: unknown }>;
+  };
 };
 
 export default function ChatPage() {
-  const { refreshUser } = useOutletContext<OutletContext>();
-  const { addEvent, clearRun, finishRun, isRunActive, startRun } = useRunEvents();
-  const [showLogin, setShowLogin] = useState(false);
-  const [showSandbox, setShowSandbox] = useState(true);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const {
+    state,
+    dispatch,
+    setContextFiles,
+    reviewPatches,
+  } = useWorkbench();
+  const {
+    addEvent,
+    finishRun,
+    isRunActive,
+    setOffline,
+    startRun,
+  } = useRunEvents();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionParam = searchParams.get("session");
+  const [sessionId, setSessionId] = useState<string | null>(sessionParam);
+  const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState("Ready");
   const [activeSocket, setActiveSocket] = useState<WebSocket | null>(null);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [pendingApproval, setPendingApproval] = useState<any | null>(null);
-  const [pendingPatchCount, setPendingPatchCount] = useState(0);
-  const lastSeqRef = useRef<number>(0);
-  const [mobilePanel, setMobilePanel] = useState<"chat" | "sandbox" | "diffs" | "files" | "logs" | null>(null);
-  const [headerNode, setHeaderNode] = useState<HTMLElement | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<ApprovalState | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const assistantMessageId = useRef<string | null>(null);
 
-  useEffect(() => {
-    setHeaderNode(document.getElementById("header-actions"));
-  }, []);
+  const ensureSession = useCallback(async (title = "New task") => {
+    if (sessionId) return sessionId;
+    const session = await sessionsApi.createSession(title);
+    setSessionId(session.id);
+    setSearchParams({ session: session.id });
+    dispatch({ type: "sessionsChanged" });
+    return session.id as string;
+  }, [dispatch, sessionId, setSearchParams]);
 
-  const refreshPendingPatches = async (currentSessionId: string) => {
+  const refreshWorkspace = useCallback(async (currentSessionId: string) => {
     try {
       const workspaces = await workspaceApi.listWorkspaces(currentSessionId);
-      const workspace = workspaces?.[0];
-      if (!workspace?.id) {
-        setPendingPatchCount(0);
+      const workspace = workspaces[0];
+      if (!workspace) {
+        dispatch({ type: "setWorkspace", workspaceId: null });
+        dispatch({ type: "setPendingPatchCount", count: 0 });
         return;
       }
-      const patches = await workspaceApi.getPatches(workspace.id);
-      setPendingPatchCount(patches.filter((patch: any) => patch.status === "pending").length);
+      dispatch({ type: "setWorkspace", workspaceId: workspace.id, projectName: workspace.name });
+      const patches = await patchesApi.getPatches(workspace.id);
+      const pending = patches.reduce(
+        (count, patch) => count + patch.changes.filter((change) => (change.status || patch.status) === "pending").length,
+        0,
+      );
+      dispatch({ type: "setPendingPatchCount", count: pending });
     } catch {
-      setPendingPatchCount(0);
+      dispatch({ type: "setPendingPatchCount", count: 0 });
     }
-  };
-  const handleApprovalAction = (action: string) => {
-    if (activeSocket) {
-      activeSocket.send(JSON.stringify({ type: "resume", action }));
-      setPendingApproval(null);
-      setStreamStatus("Streaming");
-    }
-  };
-
-  const handleCancel = () => {
-    if (activeSocket) {
-      if (sessionId && activeRunId) {
-        runsApi.cancelRun(sessionId, activeRunId).catch((err) => {
-          console.error("Failed to cancel backend run", err);
-        });
-      }
-      activeSocket.close();
-      setActiveSocket(null);
-      setActiveRunId(null);
-      setStreamStatus("Cancelled");
-      setIsLoading(false);
-      finishRun();
-    }
-  };
-  const [searchParams, setSearchParams] = useSearchParams();
-  const sessionParam = searchParams.get("session");
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, isLoading, pendingApproval]);
+  }, [dispatch]);
 
   useEffect(() => {
     let cancelled = false;
-
-    const loadSession = async () => {
+    const load = async () => {
+      setSessionId(sessionParam);
       if (!sessionParam) {
-        setSessionId(null);
         setMessages([]);
-        setStreamStatus("Ready");
+        dispatch({ type: "setWorkspace", workspaceId: null });
         return;
       }
-
+      setStreamStatus("Loading task");
       try {
-        setStreamStatus("Loading chat");
         const session = await sessionsApi.getSession(sessionParam);
         if (cancelled) return;
-        setSessionId(session.id);
         setMessages(session.messages || []);
-        setStreamStatus("Ready");
-      } catch (error: any) {
-        if (!cancelled) {
-          toast.error(error?.response?.data?.detail || "Failed to load session", { toastId: "load-session-error" });
-          setSessionId(null);
-          setMessages([]);
-          setStreamStatus("Ready");
-        }
+        await refreshWorkspace(sessionParam);
+      } catch (error) {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Could not load task");
+      } finally {
+        if (!cancelled) setStreamStatus("Ready");
       }
     };
-
-    loadSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionParam]);
+    void load();
+    return () => { cancelled = true; };
+  }, [dispatch, refreshWorkspace, sessionParam]);
 
   useEffect(() => {
-    const handleNewChat = () => {
-      setSessionId(null);
-      setMessages([]);
-      setSearchParams({});
-      setStreamStatus("Ready");
-      setPendingApproval(null);
-      setActiveSocket(null);
-      setPendingPatchCount(0);
-      clearRun();
-    };
-    window.addEventListener("new-chat", handleNewChat);
-    return () => window.removeEventListener("new-chat", handleNewChat);
-  }, [setSearchParams]);
+    return () => socketRef.current?.close();
+  }, []);
 
+  const appendAssistantText = (content: string) => {
+    const id = assistantMessageId.current;
+    if (!id) return;
+    setMessages((items) => items.map((item) =>
+      item.id === id ? { ...item, content: `${item.content || ""}${content}`, pending: true } : item
+    ));
+  };
 
-  useEffect(() => {
-    if (mobilePanel === "diffs") {
-      window.setTimeout(() => window.dispatchEvent(new Event("review-patches-request")), 0);
+  const handleSend = async (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => {
+    if (!content.trim() && files.length === 0) return;
+    setIsLoading(true);
+    setPendingApproval(null);
+    setStreamStatus("Preparing task");
+    try {
+      const currentSessionId = await ensureSession(content.split(/\s+/).slice(0, 7).join(" ") || "New task");
+      if (files.length) {
+        setStreamStatus("Uploading context");
+        await Promise.all(files.map((file) => uploadsApi.uploadFile(currentSessionId, file)));
+      }
+      const userMessage: TranscriptMessage = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content,
+        created_at: new Date().toISOString(),
+      };
+      const assistantId = `assistant-${Date.now()}`;
+      assistantMessageId.current = assistantId;
+      setMessages((items) => [...items, userMessage, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        created_at: new Date().toISOString(),
+        pending: true,
+      }]);
+      startRun(currentSessionId);
+      const socket = chatApi.createWebSocket(currentSessionId);
+      socketRef.current = socket;
+      setActiveSocket(socket);
+      socket.onopen = () => {
+        setStreamStatus("Connected · waiting for first event");
+        socket.send(JSON.stringify({
+          type: "message",
+          content,
+          mode,
+          context_files: contextFiles,
+        }));
+      };
+      socket.onmessage = (messageEvent) => {
+        let event: Record<string, unknown>;
+        try {
+          event = JSON.parse(messageEvent.data) as Record<string, unknown>;
+        } catch {
+          return;
+        }
+        const type = String(event.type || "status");
+        if (type === "token" || type === "assistant_delta") {
+          appendAssistantText(String(event.content || ""));
+          setStreamStatus("Writing response");
+          return;
+        }
+        addEvent(event as unknown as RunEvent);
+        if (type === "status") setStreamStatus(String(event.content || "Working"));
+        if (type === "approval_required") {
+          setPendingApproval({ data: event.data as ApprovalState["data"] });
+          setStreamStatus("Waiting for approval");
+        }
+        if (type === "workspace_patch") {
+          setStreamStatus("Changes ready for review");
+          void refreshWorkspace(currentSessionId);
+        }
+        if (type === "error") {
+          toast.error(String(event.content || "The run failed"));
+          setStreamStatus("Run failed");
+        }
+        if (type === "done" || type === "error") {
+          setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, pending: false } : item));
+          setIsLoading(false);
+          setActiveSocket(null);
+          finishRun();
+          dispatch({ type: "sessionsChanged" });
+          void refreshWorkspace(currentSessionId);
+        }
+      };
+      socket.onerror = () => {
+        setOffline();
+        setStreamStatus("Connection lost");
+      };
+      socket.onclose = () => {
+        socketRef.current = null;
+        setActiveSocket(null);
+        setIsLoading(false);
+        setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, pending: false } : item));
+      };
+    } catch (error) {
+      setIsLoading(false);
+      finishRun();
+      toast.error(error instanceof Error ? error.message : "Could not start task");
     }
-  }, [mobilePanel]);
-  const visibleMessages = useMemo(
-    () => messages.filter((message) => message.content || message.tool_calls),
-    [messages]
+  };
+
+  const handleApprovalAction = (action: string, feedback?: string) => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "resume", action, content: feedback || "" }));
+    setPendingApproval(null);
+    setStreamStatus("Resuming");
+  };
+
+  const handleCancel = () => {
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "cancel" }));
+    socket?.close();
+    finishRun();
+    setIsLoading(false);
+    setStreamStatus("Stopped");
+  };
+
+  const centerPanel = state.activeWorkspaceId ? (
+    <CenterWorkbench activeWorkspaceId={state.activeWorkspaceId} />
+  ) : (
+    <WorkspaceLanding
+      sessionId={sessionId}
+      ensureSession={ensureSession}
+      onWorkspaceReady={(workspaceId, name) => dispatch({ type: "setWorkspace", workspaceId, projectName: name })}
+    />
   );
 
-  const ensureSession = async (message: string = "New Chat") => {
-    if (sessionId) return sessionId;
-    const optimisticTitle = titleFromMessage(message);
-    const session = await sessionsApi.createSession(optimisticTitle);
-    setSessionId(session.id);
-    setSearchParams({ session: session.id });
-    window.dispatchEvent(new Event("sessions-refresh"));
-    return session.id as string;
-  };
-
-  const uploadFiles = async (currentSessionId: string, files: File[]) => {
-    if (files.length === 0) return;
-    setStreamStatus("Indexing files");
-    const uploads = await Promise.allSettled(files.map((file) => uploadsApi.uploadFile(currentSessionId, file)));
-    const failed = uploads.filter((upload) => upload.status === "rejected").length;
-    if (failed) {
-      toast.warning(`${failed} attachment${failed > 1 ? "s" : ""} could not be indexed`, { toastId: "upload-warning" });
-    } else {
-      toast.success(`${files.length} attachment${files.length > 1 ? "s" : ""} indexed`, { toastId: "upload-success" });
-    }
-  };
-
-  const refreshSessionAfterResponse = async (currentSessionId: string) => {
-    try {
-      // Just fire the event to update the sidebar, we already maintain messages via stream
-      window.dispatchEvent(new Event("sessions-refresh"));
-    } catch {
-      window.dispatchEvent(new Event("sessions-refresh"));
-    }
-  };
-
-  const sendWithWebSocket = (currentSessionId: string, message: string, mode: "normal" | "plan" | "fast" | "goal") =>
-    new Promise<boolean>((resolve, reject) => {
-      let retryCount = 0;
-      const MAX_RETRIES = 3;
-      const RETRY_DELAY_MS = 1500;
-
-      const attempt = () => {
-        const socket = chatApi.createWebSocket(currentSessionId);
-        setActiveSocket(socket);
-        let opened = false;
-        let completed = false;
-        const assistantId = `assistant-${Date.now()}`;
-        let expectedSeq = 1;
-
-        const failTimer = window.setTimeout(() => {
-          if (!opened) {
-            socket.close();
-            reject(new Error("Streaming connection timed out"));
-          }
-        }, 4500);
-
-        socket.onopen = () => {
-          opened = true;
-          window.clearTimeout(failTimer);
-          setStreamStatus("Streaming");
-          if (lastSeqRef.current > 0 && activeRunId) {
-             socket.send(JSON.stringify({ type: "resume", run_id: activeRunId, last_seq: lastSeqRef.current, mode }));
-          } else {
-             setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "", pending: true }]);
-             socket.send(JSON.stringify({ type: "message", content: message, mode }));
-          }
-        };
-
-        socket.onmessage = (event) => {
-          const payload = JSON.parse(event.data);
-          if (payload.type === "ping") {
-            socket.send(JSON.stringify({ type: "pong" }));
-            return;
-          }
-
-          if (payload.seq !== undefined) {
-            if (payload.seq <= lastSeqRef.current) {
-                // Ignore old events during replay
-                return;
-            }
-            if (payload.seq > expectedSeq) {
-              console.warn(`Gap detected! Expected ${expectedSeq}, got ${payload.seq}`);
-              // Fallback to REST API fetch
-              refreshSessionAfterResponse(currentSessionId);
-            }
-            expectedSeq = payload.seq + 1;
-            lastSeqRef.current = payload.seq;
-          }
-
-          if (payload.run_id) {
-            setActiveRunId(payload.run_id);
-          }
-
-          addEvent(payload);
-          const msgId = payload.message_id || assistantId;
-
-          if (payload.type === "token" || payload.type === "assistant_delta") {
-            setMessages((prev) => {
-              const exists = prev.some((item) => item.id === msgId);
-              if (!exists) {
-                return [...prev, { id: msgId, role: "assistant", content: payload.content || "", pending: true }];
-              }
-              return prev.map((item) =>
-                item.id === msgId ? { ...item, content: `${item.content || ""}${payload.content || ""}` } : item
-              );
-            });
-          }
-          if (payload.type === "tool_call") {
-            setMessages((prev) => [
-              ...prev,
-              { id: `tool-call-${payload.tool_call_id || Date.now()}`, role: "tool", content: `Calling ${payload.tool_call?.name || "tool"}` },
-            ]);
-            setStreamStatus(`Using ${payload.tool_call?.name || "tool"}`);
-          }
-          if (payload.type === "rpc_call") {
-            // Execute the RPC call locally and send back the result
-            const callId = payload.data?.call_id || payload.tool_call_id;
-            const toolName = payload.data?.name || payload.tool_call?.name;
-            const toolArgs = payload.data?.args || payload.tool_call?.args || {};
-            try {
-              // Dispatch to any registered local RPC handlers
-              const rpcEvent = new CustomEvent("rpc-execute", {
-                detail: { callId, toolName, toolArgs, raw: payload }
-              });
-              window.dispatchEvent(rpcEvent);
-              // Default: echo back a not-supported result so the agent can continue
-              socket.send(JSON.stringify({
-                type: "tool_result",
-                call_id: callId,
-                result: `RPC tool '${toolName}' executed in browser context`,
-              }));
-            } catch (rpcErr: any) {
-              socket.send(JSON.stringify({
-                type: "tool_result",
-                call_id: callId,
-                error: String(rpcErr?.message || rpcErr),
-              }));
-            }
-          }
-          if (payload.type === "tool_result") {
-            setMessages((prev) => [
-              ...prev,
-              { id: `tool-result-${payload.tool_call_id || Date.now()}`, role: "tool", content: payload.content || "Tool completed" },
-            ]);
-          }
-          if (payload.type === "plan_created") {
-            setMessages((prev) => {
-              const exists = prev.some((item) => item.id === msgId);
-              if (!exists) {
-                return [
-                  ...prev,
-                  {
-                    id: msgId,
-                    role: "assistant",
-                    content: "",
-                    pending: true,
-                    plan: payload.content || "",
-                    completedPlanSteps: [],
-                  },
-                ];
-              }
-              return prev.map((item) =>
-                item.id === msgId
-                  ? { ...item, plan: payload.content || "", completedPlanSteps: [] }
-                  : item
-              );
-            });
-          }
-          if (payload.type === "plan_step") {
-            const step =
-              payload.data?.step_index ??
-              payload.data?.step ??
-              payload.data?.current_step;
-            if (step !== undefined) {
-              setMessages((prev) =>
-                prev.map((item) =>
-                  item.id === msgId
-                    ? {
-                        ...item,
-                        completedPlanSteps: Array.from(
-                          new Set([...(item.completedPlanSteps || []), Number(step)])
-                        ),
-                      }
-                    : item
-                )
-              );
-            }
-          }
-          if (payload.type === "workspace_patch") {
-            refreshPendingPatches(currentSessionId);
-            window.dispatchEvent(new Event("workspace-updated"));
-          }
-          if (payload.type === "approval_required") {
-            setPendingApproval(payload);
-            setStreamStatus("Waiting for approval");
-          }
-          if (payload.type === "done") {
-            completed = true;
-            setActiveSocket(null);
-            socket.close();
-            setMessages((prev) => prev.map((item) => (item.id === msgId ? { ...item, pending: false } : item)));
-            setIsLoading(false);
-            lastSeqRef.current = 0; // Reset
-            finishRun();
-            window.dispatchEvent(new Event("agent-done"));
-            resolve(true);
-          }
-          if (payload.type === "error") {
-            completed = true;
-            setActiveSocket(null);
-            socket.close();
-            setIsLoading(false);
-            finishRun();
-            reject(new Error(payload.content || "Streaming failed"));
-          }
-        };
-
-        socket.onerror = () => {
-          window.clearTimeout(failTimer);
-          if (!completed) {
-            if (opened) {
-              // Opened but errored mid-stream â€” retry
-              if (retryCount < MAX_RETRIES) {
-                retryCount++;
-                setStreamStatus(`Reconnecting (${retryCount}/${MAX_RETRIES})...`);
-                setTimeout(attempt, RETRY_DELAY_MS);
-              } else {
-                reject(new Error("Streaming interrupted"));
-              }
-            } else {
-              reject(new Error("Streaming unavailable"));
-            }
-          }
-        };
-
-        socket.onclose = () => {
-          window.clearTimeout(failTimer);
-          if (!opened && !completed) {
-            if (retryCount < MAX_RETRIES) {
-              retryCount++;
-              setStreamStatus(`Reconnecting (${retryCount}/${MAX_RETRIES})...`);
-              setTimeout(attempt, RETRY_DELAY_MS);
-            } else {
-              reject(new Error("Streaming unavailable"));
-            }
-          }
-        };
-      };
-
-      attempt();
-    });
-
-  const sendWithHttpFallback = async (currentSessionId: string, message: string, mode: "normal" | "plan" | "fast" | "goal") => {
-    setStreamStatus("Thinking");
-    const response = await chatApi.sendMessage(currentSessionId, message, mode);
-    setMessages(response.messages || []);
-  };
-
-  const handleSend = async (message: string, files: File[], mode: "normal" | "plan" | "fast" | "goal") => {
-    const token = sessionStorage.getItem("compass_access_token");
-    if (!token) {
-      setShowLogin(true);
-      return;
-    }
-
-    const cleanMessage = message.trim() || "Use the attached files.";
-    const userMessage: Message = { id: `user-${Date.now()}`, role: "user", content: cleanMessage };
-
-    try {
-      setIsLoading(true);
-      const currentSessionId = await ensureSession(cleanMessage);
-      startRun(currentSessionId);
-      await uploadFiles(currentSessionId, files);
-      setMessages((prev) => [...prev, userMessage]);
-
-      try {
-        lastSeqRef.current = 0;
-        await sendWithWebSocket(currentSessionId, cleanMessage, mode);
-      } catch (streamError: any) {
-        if (streamError?.message === "Streaming unavailable" || streamError?.message === "Streaming connection timed out") {
-          toast.info("Streaming unavailable, using standard response", { toastId: "streaming-unavailable" });
-          await sendWithHttpFallback(currentSessionId, cleanMessage, mode);
-        } else {
-          throw streamError;
-        }
-      }
-
-      await refreshSessionAfterResponse(currentSessionId);
-      await refreshPendingPatches(currentSessionId);
-      setStreamStatus("Ready");
-    } catch (error: any) {
-      toast.error(error?.response?.data?.detail || error?.message || "Failed to send message", { toastId: "send-message-error" });
-      setStreamStatus("Ready");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const MIN_SIDEBAR_WIDTH = 200;
-  const MAX_SIDEBAR_WIDTH = 800;
-  const DEFAULT_CONVERSATION_SIDEBAR_WIDTH = 400;
-  const DEFAULT_MAIN_SIZE = 1000;
-
-  const chatUI = (
-    <div className="flex h-full min-w-0 flex-col bg-background relative transition-all duration-300">
-      <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full px-4 py-5 md:px-6">
-          <div className="mx-auto flex w-full flex-col gap-5">
-            <MessageList 
-              messages={visibleMessages} 
-              isLoading={isLoading} 
-              onRetry={(content) => handleSend(content, [], "normal")} 
-              pendingApproval={pendingApproval} 
-              onApprove={handleApprovalAction} 
-            />
-            <div ref={bottomRef} />
-          </div>
-        </ScrollArea>
+  const rightPanel = (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className={`${state.mobileDestination === "activity" ? "hidden" : "min-h-0 flex-1"} lg:block lg:min-h-0 lg:flex-1`}>
+        <AgentPanel
+          messages={messages}
+          isLoading={isLoading}
+          streamStatus={streamStatus}
+          activeSocket={activeSocket}
+          pendingApproval={pendingApproval}
+          pendingPatchCount={state.pendingPatchCount}
+          activeWorkspaceId={state.activeWorkspaceId}
+          handleSend={handleSend}
+          handleApprovalAction={handleApprovalAction}
+          handleCancel={handleCancel}
+          reviewPatches={reviewPatches}
+          onContextChange={setContextFiles}
+        />
       </div>
-
-      <div className="border-t border-border bg-background/95 shrink-0 pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto flex w-full items-center justify-between px-4 pt-3 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            {isLoading && (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                <span className="animate-pulse">{streamStatus}</span>
-                {activeSocket && (
-                  <Button variant="ghost" size="sm" onClick={handleCancel} className="h-6 text-[10px] uppercase text-muted-foreground ml-2 hover:text-red-400 hover:bg-red-500/10">
-                    <span className="bg-red-500 w-1.5 h-1.5 rounded-sm mr-1"></span> Stop
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-          <div className="hidden items-center gap-2 sm:flex">
-          </div>
-        </div>
-        
-        {pendingPatchCount > 0 && (
-          <div className="mx-4 mb-2 mt-2 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-foreground">
-            <div className="flex min-w-0 items-center gap-2">
-              <GitPullRequest className="h-4 w-4 shrink-0 text-amber-500" />
-              <span>{pendingPatchCount} pending patch{pendingPatchCount === 1 ? "" : "es"}</span>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => window.dispatchEvent(new Event("review-patches-request"))}>
-              Review
-            </Button>
-          </div>
-        )}
-        
-        <ChatInput onSend={handleSend} isLoading={isLoading} />
+      <div className={`${state.mobileDestination === "activity" ? "flex min-h-0 flex-1 flex-col" : "hidden"} lg:block lg:flex-none`}>
+        <RunTimeline sessionId={sessionId} showEmpty={state.mobileDestination === "activity"} />
       </div>
     </div>
+  );
+
+  const headerActions = (
+    <>
+      <Button variant="ghost" size="icon-sm" onClick={() => dispatch({ type: "setCommandPalette", open: true })} aria-label="Open command palette" title="Command palette"><Command className="h-4 w-4" /></Button>
+      <Button variant="ghost" size="icon-sm" onClick={() => dispatch({ type: "setContextDrawer", open: true })} aria-label="Inspect context" title="Context"><PanelRight className="h-4 w-4" /></Button>
+      <Button variant="ghost" size="sm" onClick={() => dispatch({ type: "setPublish", open: true })} disabled={!state.activeWorkspaceId}><GitPullRequest className="h-4 w-4" /> Publish</Button>
+    </>
   );
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col lg:flex-row bg-background">
-      {headerNode && createPortal(
-        <Button 
-          variant={showSandbox ? "secondary" : "ghost"} 
-          size="icon-sm" 
-          className="h-7 w-7 text-muted-foreground hover:text-foreground mr-2" 
-          onClick={() => setShowSandbox(!showSandbox)} 
-          title={showSandbox ? "Close Sandbox" : "Open Sandbox"}
-        >
-          <LayoutGrid className="h-4 w-4" />
-        </Button>,
-        headerNode
-      )}
-
-      {showSandbox ? (
-        <div className="flex-1 min-h-0 h-full w-full">
-          <CodeSandbox 
-            language="typescript" 
-            sessionId={sessionId} 
-            ensureSession={ensureSession}
-            chatPanel={chatUI}
-            timelinePanel={<RunTimeline sessionId={sessionId} />}
-          />
-        </div>
-      ) : (
-        <div className="flex min-w-0 flex-col bg-background relative flex-1">
-          {chatUI}
-        </div>
-      )}
-
-      <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] lg:hidden">
-        <button className="flex min-h-11 flex-col items-center justify-center text-[11px] text-primary hover:text-primary/80 transition-colors" onClick={() => setMobilePanel(null)}>
-          <MessageSquare className="h-4 w-4 mb-0.5" /> Chat
-        </button>
-        <button className="flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground hover:text-foreground transition-colors" onClick={() => setMobilePanel("files")}>
-          <FileCode2 className="h-4 w-4 mb-0.5" /> Files
-        </button>
-        <button className="relative flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground hover:text-foreground transition-colors" onClick={() => setMobilePanel("diffs")}>
-          <GitPullRequest className="h-4 w-4 mb-0.5" /> Diffs
-          {pendingPatchCount > 0 && <span className="absolute right-5 top-1 rounded-full bg-primary px-1 text-[10px] text-primary-foreground">{pendingPatchCount}</span>}
-        </button>
-        <button className="relative flex min-h-11 flex-col items-center justify-center text-[11px] text-muted-foreground hover:text-foreground transition-colors" onClick={() => setMobilePanel("logs")}>
-          <Activity className="h-4 w-4 mb-0.5" /> Logs
-          {isRunActive && <span className="absolute right-5 top-1 h-2 w-2 rounded-full bg-green-500" />}
-        </button>
+    <AppLayout headerActions={headerActions}>
+      <div className="relative flex min-h-0 flex-1 flex-col pb-12 lg:pb-0">
+        <WorkbenchComposition
+          centerPanel={centerPanel}
+          rightPanel={rightPanel}
+          showRightPanel={state.rightPanelOpen}
+          mobileDestination={state.mobileDestination}
+        />
+        <nav className="fixed inset-x-0 bottom-6 z-[60] grid h-12 grid-cols-5 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="Workbench destinations">
+          <MobileNavButton icon={MessageSquare} label="Agent" active={state.mobileDestination === "agent"} onClick={() => dispatch({ type: "setMobileDestination", destination: "agent" })} />
+          <MobileNavButton icon={FolderTree} label="Files" active={state.mobileDestination === "files"} onClick={() => dispatch({ type: "setMobileDestination", destination: "files" })} />
+          <MobileNavButton icon={FileCode2} label="Editor" active={state.mobileDestination === "editor"} onClick={() => { dispatch({ type: "setCenterTab", tab: "editor" }); dispatch({ type: "setMobileDestination", destination: "editor" }); }} />
+          <MobileNavButton icon={GitPullRequest} label="Changes" active={state.mobileDestination === "changes"} badge={state.pendingPatchCount} onClick={() => { dispatch({ type: "setCenterTab", tab: "changes" }); dispatch({ type: "setMobileDestination", destination: "changes" }); }} />
+          <MobileNavButton icon={Activity} label="Activity" active={state.mobileDestination === "activity"} live={isRunActive} onClick={() => dispatch({ type: "setMobileDestination", destination: "activity" })} />
+        </nav>
       </div>
-
-      <AnimatePresence>
-        {mobilePanel && (
-          <motion.div
-            className="fixed inset-x-0 bottom-0 z-50 flex h-[88dvh] flex-col rounded-t-lg border-t border-border bg-card shadow-2xl lg:hidden"
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ duration: 0.2 }}
-          >
-            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
-              <span className="text-sm font-semibold capitalize">{mobilePanel}</span>
-              <Button size="sm" variant="ghost" onClick={() => setMobilePanel(null)}>Close</Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden p-2">
-              {mobilePanel === "logs" ? (
-                <RunTimeline sessionId={sessionId} />
-              ) : (
-                <CodeSandbox language="typescript" sessionId={sessionId} ensureSession={ensureSession} />
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <LoginModal
-        isOpen={showLogin}
-        onClose={() => setShowLogin(false)}
-        onSuccess={async () => {
-          await refreshUser();
-          window.dispatchEvent(new Event("auth-changed"));
-        }}
-      />
-    </div>
+      <CommandPalette open={state.commandPaletteOpen} onOpenChange={(open) => dispatch({ type: "setCommandPalette", open })} onContext={() => dispatch({ type: "setContextDrawer", open: true })} workspaceId={state.activeWorkspaceId} />
+      <ContextDrawer open={state.contextDrawerOpen} onOpenChange={(open) => dispatch({ type: "setContextDrawer", open })} workspaceId={state.activeWorkspaceId} sessionId={sessionId} selectedFiles={state.selectedContextFiles} />
+      {state.activeWorkspaceId && <GitHubPublishDialog open={state.publishOpen} onClose={() => dispatch({ type: "setPublish", open: false })} workspaceId={state.activeWorkspaceId} />}
+    </AppLayout>
   );
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+function MobileNavButton({
+  icon: Icon,
+  label,
+  active,
+  badge,
+  live,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  active: boolean;
+  badge?: number;
+  live?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} aria-current={active ? "page" : undefined} className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-xs ${active ? "text-primary" : "text-muted-foreground"}`}>
+      <Icon className="h-4 w-4" /><span>{label}</span>
+      {!!badge && <span className="absolute right-3 top-1 min-w-4 rounded-full bg-warning px-1 font-mono text-xs text-white">{badge}</span>}
+      {live && <span className="absolute right-4 top-1 h-2 w-2 rounded-full bg-success" />}
+    </button>
+  );
+}

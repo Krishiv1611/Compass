@@ -7,6 +7,7 @@ Provides the same API that `agent/ui/tui.py` and `main.py` expect, but uses
 from datetime import datetime, timezone
 from backend.db import SessionLocal
 from backend.services import session_manager as backend_sm
+from agent.workspace import discover_local_workspace
 
 # CLI users don't have authentication, so we use a hardcoded local user ID.
 CLI_USER_ID = "local_cli_user"
@@ -15,6 +16,7 @@ class SessionManager:
     """Manage session metadata via the backend database."""
 
     def __init__(self):
+        self.workspace = discover_local_workspace()
         # Ensure the CLI user exists
         with SessionLocal() as db:
             from backend.models.user import User
@@ -28,6 +30,13 @@ class SessionManager:
         """Create a new session and return its metadata as a dict."""
         with SessionLocal() as db:
             session = backend_sm.create_session(db, CLI_USER_ID, title=name)
+            session.project_id = self.workspace.project_id
+            session.git_remote = self.workspace.git_remote
+            session.git_branch = self.workspace.git_branch
+            session.git_head = self.workspace.git_head
+            session.context_version = self.workspace.context_version
+            db.commit()
+            db.refresh(session)
             return {
                 "id": session.id,
                 "thread_id": session.thread_id,
@@ -35,6 +44,11 @@ class SessionManager:
                 "created_at": session.created_at.isoformat(),
                 "last_active": session.updated_at.isoformat(),
                 "turn_count": 0,  # We can't easily track this without counting messages
+                "project_id": session.project_id,
+                "git_remote": session.git_remote,
+                "git_branch": session.git_branch,
+                "git_head": session.git_head,
+                "context_version": session.context_version,
             }
 
     def get_session(self, thread_id_prefix: str) -> dict | None:
@@ -56,6 +70,11 @@ class SessionManager:
                 "name": session.title,
                 "created_at": session.created_at.isoformat(),
                 "last_active": session.updated_at.isoformat(),
+                "project_id": session.project_id,
+                "git_remote": session.git_remote,
+                "git_branch": session.git_branch,
+                "git_head": session.git_head,
+                "context_version": session.context_version,
             }
 
     def get_last_session(self) -> dict | None:
@@ -76,6 +95,11 @@ class SessionManager:
                 "name": session.title,
                 "created_at": session.created_at.isoformat(),
                 "last_active": session.updated_at.isoformat(),
+                "project_id": session.project_id,
+                "git_remote": session.git_remote,
+                "git_branch": session.git_branch,
+                "git_head": session.git_head,
+                "context_version": session.context_version,
             }
 
     def list_sessions(self, limit: int = 10) -> list[dict]:
@@ -90,6 +114,10 @@ class SessionManager:
                     "created_at": s.created_at.isoformat(),
                     "last_active": s.updated_at.isoformat(),
                     "turn_count": s.message_count // 2,
+                    "project_id": s.project_id,
+                    "git_branch": s.git_branch,
+                    "git_head": s.git_head,
+                    "context_version": s.context_version,
                 }
                 for s in summaries
             ]

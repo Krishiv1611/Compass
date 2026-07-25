@@ -1,720 +1,403 @@
-# 🧭 Compass — AI Coding Agent
+# Compass
 
-Compass is a fully autonomous AI coding agent that can read, write, debug, and refactor entire codebases on your behalf. It ships with three interfaces — a feature-rich **Terminal UI (TUI)**, a modern **Web Application**, and a **VS Code Extension** — all powered by a shared LangGraph agent backend.
+Compass is an AI coding workbench for understanding, changing, reviewing, and publishing software projects. It pairs a LangGraph-powered agent with two first-class interfaces:
 
----
+- a local terminal UI for working directly in a checked-out repository; and
+- an authenticated web workbench for isolated uploaded or GitHub-imported projects.
 
-## Table of Contents
+Compass is built around a simple principle: powerful coding automation should remain inspectable and under the developer's control. Project context, run activity, approvals, patches, and GitHub publishing are explicit product surfaces rather than hidden behind a chat transcript.
 
-- [Features](#features)
-- [Architecture Overview](#architecture-overview)
-- [Project Structure](#project-structure)
-- [Agent Core (`agent/`)](#agent-core)
-- [Backend API (`backend/`)](#backend-api)
-- [Frontend Web UI (`frontend/`)](#frontend-web-ui)
-- [Terminal UI (TUI)](#terminal-ui-tui)
-- [VS Code Extension (`vscode-extension/`)](#vs-code-extension)
-- [Evaluation Suite (`evals/`)](#evaluation-suite)
-- [Built-in Tools](#built-in-tools)
-- [Safety & Guardrails](#safety--guardrails)
-- [Model Context Protocol (MCP)](#model-context-protocol-mcp)
-- [Skills System](#skills-system)
+> **Status:** Active development. The web workbench implementation phases F0-F8 are complete. Review the security notes before exposing the service publicly.
+
+## Contents
+
+- [What Compass does](#what-compass-does)
+- [Architecture](#architecture)
+- [Interfaces](#interfaces)
+- [Quick start](#quick-start)
 - [Configuration](#configuration)
-- [Getting Started](#getting-started)
-- [Deployment](#deployment)
-- [Environment Variables](#environment-variables)
-- [License](#license)
+- [Safety and security](#safety-and-security)
+- [Web API and workspaces](#web-api-and-workspaces)
+- [Repository layout](#repository-layout)
+- [Development and verification](#development-and-verification)
+- [Docker and deployment](#docker-and-deployment)
+- [Troubleshooting](#troubleshooting)
+- [Project documents](#project-documents)
 
----
+## What Compass does
 
-## Features
+Compass can:
 
-| Category | Details |
-|---|---|
-| **Multi-Interface** | Terminal UI (Rich + prompt_toolkit), Web App (React + Vite), VS Code Extension |
-| **Agent Architecture** | Multi-node LangGraph state machine: Planner → Executor → Safety → Tools → Recovery → Summarizer |
-| **12 Built-in Tools** | File I/O, directory listing, grep, semantic codebase search, shell execution, web search, memory, todos, skill creation |
-| **MCP Integration** | Dynamically load external tools from any Model Context Protocol server (GitHub, databases, etc.) |
-| **Human-in-the-Loop** | Risky operations (shell commands, file writes) require explicit user approval with Yes / No / Always / Skip options |
-| **Fast Mode** | Global or per-query toggle to bypass all safety checks and HITL approvals for maximum speed |
-| **RAG Pipeline** | Automatic codebase indexing with ChromaDB for semantic search across your project |
-| **Loop Detection** | Detects when the agent repeats identical tool calls and auto-recovers with a dedicated Recovery Agent |
-| **LLMOps** | LangSmith tracing, per-node token tracking, cost estimation, and structured logging with `structlog` |
-| **NeMo Guardrails** | Input/output content filtering powered by NVIDIA NeMo Guardrails |
-| **Skills** | Modular, reusable sub-agents that can be loaded from YAML definitions and invoked dynamically |
-| **Session Management** | Persistent sessions with PostgreSQL-backed checkpointing, resumable across restarts |
-| **OAuth & JWT Auth** | Google OAuth login, JWT access/refresh tokens, rate limiting |
-| **Docker Ready** | Full `docker-compose.yml` and `docker-compose.prod.yml` for one-command deployment |
-| **Evaluations** | LangSmith-powered eval suite with answer relevance, hallucination, and tool correctness evaluators |
+- plan and execute coding tasks through `Ask`, `Edit`, `Plan`, and `Goal` modes;
+- read files, search source, retrieve semantic project context, maintain task context, and use connected tools;
+- create patches, show actual change statistics, apply or reject individual changes, and undo applied patches;
+- persist web conversations, runs, workspace metadata, and project context versions in PostgreSQL;
+- import a GitHub repository, create a branch, commit reviewed files, and open a pull request;
+- stream agent activity over WebSocket and show compact run stages, affected files, tool calls, approvals, and failures;
+- provide local semantic search/RAG, configurable skills, and local MCP support in the TUI; and
+- run the same agent workflow from a terminal or the web product while keeping their execution boundaries distinct.
 
----
+The hosted web UI deliberately does **not** allow arbitrary local shell commands or command-based MCP server configuration. Those capabilities remain local/TUI concerns.
 
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        User Interfaces                          │
-│  ┌──────────┐    ┌──────────────┐    ┌───────────────────────┐  │
-│  │   TUI    │    │   Web App    │    │  VS Code Extension    │  │
-│  │ (Rich +  │    │ (React +     │    │  (Webview sidebar)    │  │
-│  │  Click)  │    │  Vite)       │    │                       │  │
-│  └────┬─────┘    └──────┬───────┘    └───────────┬───────────┘  │
-│       │                 │                        │              │
-│       │    ┌────────────▼────────────┐           │              │
-│       │    │   FastAPI Backend       │◄──────────┘              │
-│       │    │  (REST + WebSocket)     │                          │
-│       │    └────────────┬────────────┘                          │
-│       │                 │                                       │
-│       ▼                 ▼                                       │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │              LangGraph Agent Core                        │   │
-│  │  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌───────────┐  │   │
-│  │  │ Planner │→ │ Executor │→ │ Safety │→ │   Tools   │  │   │
-│  │  └─────────┘  └──────────┘  └────────┘  └───────────┘  │   │
-│  │  ┌──────────┐  ┌────────────┐  ┌─────────────────────┐  │   │
-│  │  │ Recovery │  │ Summarizer │  │ Guardrails (NeMo)   │  │   │
-│  │  └──────────┘  └────────────┘  └─────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                  │
-│              ┌───────────────┼───────────────┐                  │
-│              ▼               ▼               ▼                  │
-│         PostgreSQL      ChromaDB        MCP Servers             │
-│        (Sessions)     (RAG Index)     (External Tools)          │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Project Structure
-
-```
-compass/
-├── main.py                        # CLI entry point (TUI launcher)
-├── requirements.txt               # Python dependencies
-├── pyproject.toml                 # Python project metadata
-├── alembic.ini                    # Database migration config
-├── docker-compose.yml             # Dev Docker stack
-├── docker-compose.prod.yml        # Production Docker stack
-├── backend.Dockerfile             # Backend container
-├── frontend.Dockerfile            # Frontend container
-├── DEPLOYMENT.md                  # Production deployment guide
-│
-├── agent/                         # 🧠 Agent Core (LangGraph)
-│   ├── config.py                  #   Settings manager (TOML-based)
-│   ├── llm.py                     #   Role-based LLM factory
-│   ├── safety.py                  #   Tool safety classification & HITL logic
-│   ├── mcp.py                     #   MCP client for external tool servers
-│   ├── loop_detector.py           #   Repeated tool-call detection
-│   ├── sessions.py                #   Local session management (SQLite)
-│   ├── telemetry.py               #   Token tracking & LangSmith tracing
-│   ├── graph/
-│   │   ├── state.py               #     AgentState TypedDict definition
-│   │   ├── nodes.py               #     All graph node functions
-│   │   ├── workflow.py            #     StateGraph assembly & routing
-│   │   ├── tools_registry.py      #     Central tool list
-│   │   └── remote_tool_node.py    #     Edge relay tool execution
-│   ├── guardrails/
-│   │   ├── engine.py              #     NeMo Guardrails wrapper
-│   │   ├── config.yml             #     Guardrails rail definitions
-│   │   └── rails.co               #     Colang safety rules
-│   ├── tools/
-│   │   ├── file_tools.py          #     read_file, write_to_file, edit_file
-│   │   ├── directory_tools.py     #     list_dir, find_files
-│   │   ├── search_tools.py        #     grep_search
-│   │   ├── shell_tool.py          #     shell_execute (sandboxed)
-│   │   ├── web_tools.py           #     web_search (DuckDuckGo)
-│   │   ├── memory_tool.py         #     Persistent key-value memory store
-│   │   ├── todo_tool.py           #     Task list management
-│   │   ├── change_tracker.py      #     File change history & undo support
-│   │   ├── create_skill_tool.py   #     Dynamically create new skills
-│   │   ├── discovery.py           #     Auto-discover custom tools
-│   │   └── utils.py               #     Shared tool utilities
-│   ├── rag/
-│   │   ├── indexer.py             #     Codebase indexing pipeline
-│   │   ├── retriever.py           #     Semantic search retriever
-│   │   ├── chunker.py             #     Text chunking strategies
-│   │   ├── loaders.py             #     File type loaders
-│   │   ├── uploads.py             #     User file upload processing
-│   │   └── vector_store.py        #     ChromaDB vector store wrapper
-│   ├── skills/
-│   │   ├── models.py              #     Skill data models
-│   │   ├── loader.py              #     YAML skill loader
-│   │   ├── registry.py            #     Skill discovery & registration
-│   │   ├── manager.py             #     SkillManagerAgent orchestration
-│   │   └── subagent_factory.py    #     Spawn isolated sub-agents per skill
-│   └── ui/
-│       ├── tui.py                 #     Full terminal UI (2400+ lines)
-│       ├── diff_renderer.py       #     Rich-powered unified diff display
-│       └── relay.py               #     WebSocket relay for edge execution
-│
-├── backend/                       # 🌐 FastAPI Web Backend
-│   ├── main.py                    #   App entry point, middleware, lifespan
-│   ├── config.py                  #   Pydantic settings (env-based)
-│   ├── db.py                      #   SQLAlchemy engine & session
-│   ├── auth/
-│   │   ├── jwt.py                 #     JWT token creation & verification
-│   │   ├── oauth.py               #     Google & GitHub OAuth flows
-│   │   ├── passwords.py           #     Bcrypt password hashing
-│   │   └── dependencies.py        #     FastAPI auth dependency injection
-│   ├── models/
-│   │   ├── user.py                #     User SQLAlchemy model
-│   │   ├── session.py             #     ChatSession model
-│   │   ├── message.py             #     Message model
-│   │   ├── run.py                 #     AgentRun model (status tracking)
-│   │   ├── workspace.py           #     Workspace model
-│   │   ├── patch.py               #     Code patch model (diffs)
-│   │   └── upload.py              #     File upload model
-│   ├── routers/
-│   │   ├── auth.py                #     Login, register, OAuth, token refresh
-│   │   ├── chat.py                #     WebSocket streaming & HTTP fallback
-│   │   ├── sessions.py            #     CRUD for chat sessions
-│   │   ├── core.py                #     Settings, MCP config, runs
-│   │   ├── uploads.py             #     File upload & indexing endpoints
-│   │   └── workspaces.py          #     Workspace & patch management
-│   ├── services/
-│   │   ├── agent_runner.py        #     LangGraph ↔ FastAPI bridge (streaming)
-│   │   ├── session_manager.py     #     Session lifecycle management
-│   │   ├── run_manager.py         #     Run cancellation signals
-│   │   ├── patch_manager.py       #     Diff generation & patch application
-│   │   └── workspace.py           #     Workspace directory operations
-│   ├── schemas/
-│   │   ├── auth.py                #     Auth request/response schemas
-│   │   ├── chat.py                #     Chat & streaming schemas
-│   │   ├── session.py             #     Session schemas
-│   │   └── upload.py              #     Upload schemas
-│   ├── middleware/
-│   │   ├── logging.py             #     Structured request logging
-│   │   └── rate_limit.py          #     IP-based rate limiting
-│   └── ws/
-│       └── hub.py                 #     WebSocket connection manager
-│
-├── frontend/                      # 💻 React Web UI
-│   ├── package.json               #   Dependencies & scripts
-│   └── src/
-│       ├── App.tsx                 #     Router & layout shell
-│       ├── api.ts                  #     Axios API client (all endpoints)
-│       ├── index.css               #     Global theme, scrollbars, animations
-│       ├── main.tsx                #     React DOM entry point
-│       ├── pages/
-│       │   ├── ChatPage.tsx        #       Main IDE layout (Allotment panes)
-│       │   ├── LoginPage.tsx       #       Login/register page
-│       │   └── AuthCallback.tsx    #       OAuth redirect handler
-│       ├── components/
-│       │   ├── layout/
-│       │   │   └── AppLayout.tsx   #         Sidebar + header + routing
-│       │   ├── chat/
-│       │   │   ├── ChatInput.tsx   #         Message input + mode selector
-│       │   │   ├── MessageList.tsx #         Message rendering + empty state
-│       │   │   ├── MarkdownMessage.tsx #     Markdown + syntax highlighting
-│       │   │   ├── ToolCallCard.tsx #        Collapsible tool invocation card
-│       │   │   ├── ThinkingBlock.tsx #       Chain-of-thought display
-│       │   │   ├── PlanChecklist.tsx #       Step-by-step plan renderer
-│       │   │   ├── RunTimeline.tsx  #        Live agent run event log
-│       │   │   ├── ShimmerLoader.tsx #       Skeleton loading animation
-│       │   │   └── MessageSkeleton.tsx #    Full message skeleton
-│       │   ├── sandbox/
-│       │   │   ├── CodeSandbox.tsx  #        File explorer + editor + diffs
-│       │   │   ├── CodeMirrorEditor.tsx #   CodeMirror 6 wrapper
-│       │   │   ├── WebPreview.tsx       #   WebContainer preview & terminal
-│       │   │   ├── FileExplorer.tsx #       Recursive file tree
-│       │   │   ├── DiffReviewPanel.tsx #    Side-by-side diff viewer
-│       │   │   ├── WorkspaceHeader.tsx #    Workspace status bar
-│       │   │   └── WorkspaceLanding.tsx #   Create/connect workspace
-│       │   ├── settings/
-│       │   │   ├── SettingsModal.tsx #      Full settings panel
-│       │   │   ├── McpServerManager.tsx #   Visual MCP server editor
-│       │   │   └── SkillsManager.tsx    #   Custom agent skill builder
-│       │   ├── auth/
-│       │   │   ├── LoginModal.tsx   #       Auth modal (email + OAuth)
-│       │   │   └── ProtectedRoute.tsx #    Route guard
-│       │   └── ui/                  #       Shared primitives (Button, Card, etc.)
-│       └── contexts/
-│           └── RunContext.tsx       #       Global agent run state
-│
-├── vscode-extension/              # 🔌 VS Code Extension
-│   ├── package.json               #   Extension manifest & commands
-│   ├── src/                       #   Extension host (TypeScript)
-│   └── webview/                   #   Sidebar webview UI
-│
-└── evals/                         # 🧪 Evaluation Suite
-    ├── run_evals.py               #   LangSmith evaluation runner
-    ├── evaluators.py              #   Custom evaluators (relevance, hallucination, tool correctness)
-    └── golden_dataset.json        #   Test cases with expected outputs
-```
-
----
-
-## Agent Core
+## Architecture
 
 ```mermaid
-stateDiagram-v2
-    direction TD
-    START --> guardrails_input
-    
-    state route_input <<choice>>
-    guardrails_input --> route_input
-    route_input --> END : Blocked
-    route_input --> direct_chat : Simple Chat
-    route_input --> context_injector : Complex Task
-    
-    context_injector --> planner
-    
-    state route_planner <<choice>>
-    planner --> route_planner
-    route_planner --> skill_manager : Skill Match
-    route_planner --> plan_approval : Plan Mode
-    route_planner --> executor : Default
-    
-    skill_manager --> executor
-    
-    state route_plan_approval <<choice>>
-    plan_approval --> route_plan_approval
-    route_plan_approval --> executor : Approved
-    route_plan_approval --> planner : Rejected
-    route_plan_approval --> END : Cancelled
-    
-    state route_executor <<choice>>
-    executor --> route_executor
-    route_executor --> loop_recovery : Loop < 2
-    route_executor --> clarifier : Loop >= 2
-    route_executor --> check_safety : Tool Calls
-    route_executor --> evaluator : Done
-    
-    loop_recovery --> executor
-    clarifier --> executor
-    
-    check_safety --> tools : Approved
-    check_safety --> executor : Denied
-    
-    tools --> linter_node
-    
-    state route_linter <<choice>>
-    linter_node --> route_linter
-    route_linter --> summary_node : Long Context
-    route_linter --> executor : Normal
-    
-    summary_node --> executor
-    
-    evaluator --> guardrails_output
-    direct_chat --> guardrails_output
-    guardrails_output --> END
+flowchart TB
+  tui["Terminal UI\nlocal repository"] --> agent
+  web["React workbench\nisolated workspace"] --> api
+  api["FastAPI API\nREST + WebSocket"] --> agent
+  api --> db[("PostgreSQL\nusers, sessions, runs, patches")]
+  api --> ws["Workspace storage\n~/.compass/workspaces"]
+  agent["LangGraph agent"] --> tools["Tools, RAG, skills, guardrails"]
+  agent --> checkpoints[("PostgreSQL checkpoints\nwhen DB_URI is configured")]
+  agent --> providers["LLM providers"]
+  api --> github["GitHub OAuth / PAT\nrepository connection"]
 ```
 
-### Key Nodes
+### Agent workflow
 
-| Node | File | Purpose |
-|---|---|---|
-| `guardrails_input_node` | `nodes.py` | Runs NeMo Guardrails input validation. Blocks prompt injection and unsafe content. |
-| `direct_chat_node` | `nodes.py` | Fast-path for simple conversational greetings without engaging tools or complex planning. |
-| `context_injector_node` | `nodes.py` | Injects RAG context, long-term memory, and workspace metadata into the conversation. |
-| `planner_node` | `nodes.py` | Analyzes the user request and outputs a numbered step-by-step plan. Detects skill matches. |
-| `plan_approval_node` | `nodes.py` | Halts execution to request explicit user approval for generated plans before proceeding. |
-| `skill_manager` | `manager.py` | Orchestrates skill execution by delegating to a specialized SubAgentFactory based on the active skill. |
-| `call_model` (Executor) | `nodes.py` | Invokes the LLM with all available tools bound. Tracks token usage and loop patterns. |
-| `check_safety_node` | `nodes.py` | Classifies pending tool calls as safe or risky. Risky calls trigger a LangGraph `interrupt()` for user approval. |
-| `linter_node` | `nodes.py` | Runs basic lint checks on generated code immediately after tools run. |
-| `summary_node` | `nodes.py` | Compacts long conversation histories to stay within context limits. |
-| `loop_recovery_node` | `nodes.py` | A separate LLM analyzes why the executor is stuck in a tool-calling loop and provides corrective guidance. |
-| `clarifier_node` | `nodes.py` | After repeated loop failures (2+), asks the user a clarifying question instead of retrying endlessly. |
-| `evaluator_node` | `nodes.py` | Post-execution quality check using a separate LLM to verify the response meets the user's intent. |
-| `guardrails_output_node` | `nodes.py` | Runs NeMo Guardrails output validation before sending the final response to the user. |
-| `title_generator_node` | `nodes.py` | Asynchronously generates a short title for new sessions (fire-and-forget). |
+The workflow starts with input guardrails, then routes through planning, execution, tool safety checks, tools, recovery, validation, and output guardrails as needed. Plan mode pauses for plan approval. Goal mode may work autonomously, but risky operations still follow the approval policy. The workflow enforces turn and token budgets, detects repeated tool calls, and routes unresolved loops to clarification rather than continuing indefinitely.
 
-### AgentState
+### Persistent state
 
-The shared state (`agent/graph/state.py`) includes:
+| Data | Store | Purpose |
+| --- | --- | --- |
+| Web users, sessions, messages, runs, patches, workspaces | PostgreSQL | Product state and ownership checks |
+| LangGraph checkpoints | PostgreSQL when `DB_URI` is set | Resume agent threads and workflow state |
+| Web workspace files | `~/.compass/workspaces/<user>/<workspace>` | Isolated project contents |
+| TUI configuration | `~/.compass/config.toml` or `<project>/.compass/config.toml` | Local preferences and agent settings |
+| Vector/search data | Local agent RAG storage | Semantic codebase retrieval |
 
-- `messages` — Full conversation history (with LangGraph's `add_messages` reducer)
-- `plan` / `current_step` — The active plan and which step the executor is on
-- `loop_detected` / `loop_count` / `recovery_guidance` — Loop recovery state
-- `pending_tool_calls` / `approval_status` — HITL approval flow
-- `active_skill` / `skill_result` — Skill sub-agent delegation
-- `guardrails_input_result` / `guardrails_output_result` — Safety gate results
-- `hitl_session_approvals` / `hitl_skip_count` — Cached "Always Yes" patterns
+## Interfaces
 
----
+### Web workbench
 
-## Backend API
+The React application is an authenticated coding workspace with:
 
-The FastAPI backend (`backend/`) exposes REST and WebSocket endpoints for the Web UI and VS Code Extension.
+- one shared responsive workbench state across desktop and mobile;
+- accessible file filtering and keyboard tree navigation;
+- editor, changes, preview, agent, and activity destinations;
+- a command palette, context inspector, project rail, status bar, and theme menu;
+- email/password, Google OAuth, and GitHub identity sign-in when configured;
+- separately managed GitHub repository connection via OAuth or a fine-grained PAT;
+- patch review and staged GitHub publishing: branch, commit, then pull request; and
+- light, dark, and system themes using locally bundled IBM Plex Sans and JetBrains Mono.
 
-### Key Endpoints
+By default, the frontend calls `http://localhost:8000/api` and opens WebSocket connections at `ws://localhost:8000/api/chat/ws/...`. Change those public endpoints with `VITE_API_URL` and `VITE_WS_URL` only; never put secrets in Vite environment variables.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/auth/register` | Create a new account |
-| `POST` | `/auth/login` | Email + password login |
-| `GET` | `/auth/google` | OAuth redirect flow |
-| `POST` | `/auth/refresh` | Refresh JWT access token |
-| `GET/POST` | `/sessions` | List and create chat sessions |
-| `WebSocket` | `/chat/ws/{session_id}` | Real-time streaming (tokens, tool calls, approvals) |
-| `POST` | `/chat/{session_id}/send` | HTTP fallback for non-WebSocket clients |
-| `GET/PUT` | `/settings` | User preferences (model, theme, fast mode) |
-| `GET/POST` | `/settings/mcp-servers` | MCP server configuration |
-| `GET` | `/workspaces/{id}/patches` | List pending code patches |
-| `POST` | `/workspaces/{id}/patches/{patch_id}/apply` | Apply a code diff |
-| `POST` | `/uploads/{session_id}` | Upload and index files for RAG |
-| `GET` | `/health` | Health check |
+### Terminal UI
 
-### Streaming Protocol
-
-The WebSocket handler in `backend/routers/chat.py` streams structured JSON events:
-
-```json
-{ "type": "token",       "content": "Hello" }
-{ "type": "tool_call",   "tool_call": { "name": "read_file", "args": {...} } }
-{ "type": "tool_result", "tool_result": { "name": "read_file", "output": "..." } }
-{ "type": "approval",    "approval": { "reason": "shell_execute", "options": ["yes","no","always","skip"] } }
-{ "type": "plan",        "content": "1. Read the file\n2. Edit line 42\n..." }
-{ "type": "done",        "content": "..." }
-{ "type": "error",       "content": "..." }
-```
-
----
-
-## Frontend Web UI
-
-The React frontend (`frontend/`) provides a modern IDE-like experience.
-
-### Layout
-
-The main `ChatPage.tsx` uses **Allotment** to create a resizable split-pane layout:
-
-- **Left Pane** — Chat interface with message list, streaming indicators, and input bar
-- **Right Pane** — CodeSandbox with file explorer, CodeMirror 6 editor, and diff review panel
-
-### Key Components
-
-| Component | Purpose |
-|---|---|
-| `ChatInput` | Multi-line input with file attachment, mode selector (Normal / Plan / Fast) |
-| `MessageList` | Renders user and assistant messages with animated transitions |
-| `ToolCallCard` | Collapsible card showing tool name, arguments, status, and result |
-| `ThinkingBlock` | Expandable chain-of-thought reasoning display |
-| `RunTimeline` | Live timeline of agent events (tool calls, tokens, errors) |
-| `CodeSandbox` | Tabbed workspace with file tree, code editor, and diff review |
-| `CodeMirrorEditor` | CodeMirror 6 with One Dark theme and multi-language support |
-| `FileExplorer` | Recursive, collapsible file tree with file-type icons |
-| `DiffReviewPanel` | Side-by-side diff viewer for pending patches |
-| `SettingsModal` | Full settings panel (model, API key, provider, guardrails, fast mode) |
-| `McpServerManager` | Visual form for adding/editing/testing MCP server connections |
-| `AppLayout` | Sidebar navigation with project-based session grouping, new task, and settings |
-
-### Tech Stack
-
-- **React 19** with TypeScript
-- **Vite 8** for fast dev builds
-- **Tailwind CSS 4** for styling
-- **CodeMirror 6** (JavaScript, Python, CSS, HTML, JSON, Markdown)
-- **Allotment** for resizable split panes
-- **Framer Motion** for animations
-- **Axios** for API calls
-- **react-toastify** for notifications
-- **react-markdown** + **remark-gfm** for Markdown rendering
-- **react-syntax-highlighter** for code blocks
-- **react-diff-viewer-continued** for diff display
-
----
-
-## Terminal UI (TUI)
-
-The TUI (`agent/ui/tui.py`) is a full-featured terminal interface built with **Rich**, **Click**, and **prompt_toolkit**. It provides the same agent capabilities as the Web UI, directly in your terminal.
-
-### Running the TUI
+Run the local experience from the repository root:
 
 ```bash
-# Interactive REPL (new session)
 python main.py
-
-# Resume the last session
-python main.py -r
-
-# Resume a specific session
-python main.py -s abc123
-
-# Single-shot mode (non-interactive)
-python main.py -m "Explain how the CLI works"
-
-# Specify a workspace directory
-python main.py -w /path/to/project
+python main.py --workspace /path/to/project
+python main.py --message "Explain the current authentication flow"
+python main.py --resume
+python main.py --session <session-id-prefix>
 ```
 
-### TUI Features
+The TUI includes session management, diffs, rollback, RAG indexing, configuration, diagnostics, Git/GitHub helpers, project context, and approval controls. Type `/help` in the TUI for the live command reference.
 
-- **Streaming output** — Token-by-token response rendering with Rich Markdown
-- **Multi-line input** — Paste detection via prompt_toolkit; Enter sends, Shift+Enter adds a newline
-- **Rich diff previews** — Every file write/edit shows a syntax-highlighted unified diff in the terminal
-- **File change tracking** — Undo any file change with `/undo`, view all changes with `/diff`
-- **Per-tool progress spinners** — Each tool call shows a live spinner with the tool name and arguments
-- **Token & cost tracking** — View cumulative token usage and estimated cost with `/cost`
-- **Session management** — `/sessions`, `/new`, `/resume`, `/rename` for managing multiple conversations
-- **Codebase indexing** — `/index` to build a ChromaDB vector index for semantic search
-- **Configuration** — `/config` to view and update all settings interactively
-- **Diagnostics** — `/doctor` to check API keys, database connectivity, and MCP server health
+| Area | Commands |
+| --- | --- |
+| Conversation | `/new`, `/sessions`, `/resume`, `/rename`, `/history`, `/compact` |
+| Project context | `/workspace`, `/index`, `/add`, `/context`, `/init`, `/learn` |
+| Changes | `/diff`, `/files`, `/review`, `/undo`, `/commit`, `/pr` |
+| Agent behavior | `/mode`, `/goal`, `/permissions`, `/model`, `/tools`, `/cost`, `/status` |
+| Integrations | `/github`, `/mcp`, `/config`, `/doctor` |
+| Utilities | `/clear`, `/ui`, `/schedule`, `/grill-me`, `/exit` |
 
-### Slash Commands
+## Quick start
 
-| Command | Description |
-|---|---|
-| `/help` | Show all available commands |
-| `/exit` | Exit Compass |
-| `/clear` | Clear the terminal |
-| `/model` | Show current model info |
-| `/tools` | List all available tools |
-| `/history` | Show conversation message count |
-| `/sessions` | List recent sessions |
-| `/new` | Start a new session |
-| `/resume` | Resume a session by ID |
-| `/rename` | Rename the current session |
-| `/index` | Index the codebase for semantic search |
-| `/compact` | Summarize and compact conversation context |
-| `/config` | View or update settings |
-| `/undo` | Undo the last file change |
-| `/diff` | Show all file changes this session |
-| `/files` | List files modified this session |
-| `/cost` | Show token usage and estimated cost |
-| `/init` | Generate a COMPASS.md project context file |
-| `/doctor` | Diagnose configuration and connectivity |
-| `/mode` | Toggle between plan and normal mode |
-| `/goal` | Enable deep autonomous execution mode |
-| `/workspace` | Show cwd, file count, and git branch |
-| `/mcp` | List configured MCP servers and tools |
+### Requirements
 
----
+- Python 3.12 or newer
+- Node.js 20 or newer
+- PostgreSQL 15 or newer for the web application and durable checkpoints
+- an LLM provider key; `OPENROUTER_API_KEY` is the default supported path
 
-## VS Code Extension
+Git, Docker, GitHub CLI, and OAuth credentials are optional but enable additional workflows.
 
-The VS Code extension (`vscode-extension/`) embeds Compass as a sidebar panel inside your editor.
-
-- **Activity Bar Icon** — Compass appears in the VS Code activity bar
-- **Webview Sidebar** — A full chat interface rendered as a webview
-- **Commands** — `Compass: New Session` to start a fresh conversation
-- The extension communicates with the same FastAPI backend over HTTP/WebSocket
-
-### Building the Extension
-
-```bash
-cd vscode-extension
-npm install
-npm run build:all    # Builds webview + bundles extension
-```
-
----
-
-## Evaluation Suite
-
-The `evals/` directory contains a LangSmith-powered evaluation framework for measuring agent quality.
-
-### Evaluators
-
-| Evaluator | What It Measures |
-|---|---|
-| `answer_relevance` | Is the agent's response relevant and helpful to the user's question? |
-| `hallucination` | Does the response make unverified claims without using tools to confirm? |
-| `tool_correctness` | Did the agent use the expected tool for the task? |
-| `safety_compliance` | Did the agent respect safety policies and avoid harmful outputs? |
-
-### Running Evaluations
-
-```bash
-python evals/run_evals.py
-```
-
-This loads test cases from `evals/golden_dataset.json`, runs each through the agent, and reports scores to LangSmith.
-
----
-
-## Built-in Tools
-
-| Tool | Description |
-|---|---|
-| `read_file` | Read the contents of a file (with optional line range) |
-| `write_to_file` | Create or overwrite a file |
-| `edit_file` | Surgically edit specific sections of a file using search-and-replace |
-| `list_dir` | List directory contents (files, sizes, subdirectories) |
-| `find_files` | Find files matching a glob pattern |
-| `grep_search` | Search file contents with regex patterns |
-| `codebase_search` | Semantic search across the indexed codebase (RAG) |
-| `web_search` | Search the web using DuckDuckGo |
-| `shell_execute` | Execute shell commands (sandboxed, requires approval) |
-| `memory` | Store and retrieve persistent key-value memories |
-| `todo` | Manage a task checklist |
-| `create_skill` | Create a new reusable skill from a YAML definition |
-
-Tools can be extended by placing Python files in a `custom_tools/` directory — they are auto-discovered at startup.
-
-In cloud deployments (`COMPASS_CLOUD_MODE=true`), `shell_execute` is automatically disabled for security.
-
----
-
-## Safety & Guardrails
-
-Compass implements multiple layers of safety:
-
-1. **Tool Classification** (`agent/safety.py`) — Tools are classified as `SAFE` (read-only) or `RISKY` (writes, shell). Risky tools trigger HITL approval.
-2. **Safety Modes** — Configurable via `safety.mode`:
-   - `auto` — Default. Safe tools auto-execute, risky tools require approval.
-   - `strict` — All tool calls require approval.
-   - `yolo` — No approvals required (use with caution).
-3. **NeMo Guardrails** (`agent/guardrails/`) — Input and output rails filter prompt injections and harmful content using Colang rules.
-4. **Fast Mode** — Bypasses both HITL approvals and guardrails for maximum speed. Configurable globally in Settings or per-query in the chat input.
-5. **Path Validation** — File operations are validated to stay within the workspace directory. System files and dotfiles are protected.
-6. **Loop Detection** (`agent/loop_detector.py`) — Hashes recent tool calls and detects repetition. After 2 consecutive loops, the Clarifier node asks the user for help instead of retrying.
-
----
-
-## Model Context Protocol (MCP)
-
-Compass can dynamically load tools from external MCP servers. Configuration is stored in `.compass/mcp_servers.json`.
-
-### Configuration Format
-
-```json
-{
-  "github": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-github"],
-    "env": { "GITHUB_TOKEN": "ghp_..." }
-  },
-  "filesystem": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-  }
-}
-```
-
-MCP servers can be managed visually through the **Settings → MCP Servers** panel in the Web UI, or via the `/mcp` command in the TUI.
-
----
-
-## Skills System
-
-Skills are modular, reusable sub-agents defined in YAML. They live in the `skills/` directory and are auto-loaded at startup.
-
-### Skill Definition Example
-
-```yaml
-name: code-review
-description: Perform a thorough code review of a file or directory
-system_prompt: |
-  You are a senior code reviewer. Analyze the provided code for bugs,
-  security issues, performance problems, and style violations.
-tools:
-  - read_file
-  - grep_search
-  - list_dir
-```
-
-The `SkillManagerAgent` detects when a user's request matches a registered skill and delegates execution to an isolated sub-agent with its own tool set and system prompt.
-
----
-
-## Configuration
-
-Compass uses a layered configuration system:
-
-1. **Defaults** — Defined in `agent/config.py` (`DEFAULT_CONFIG`)
-2. **Project-level** — `.compass/config.toml` in the workspace root
-3. **Environment variables** — Override any setting
-4. **Web UI Settings** — Saved to the database as user preferences
-
-### Key Configuration Options
-
-| Key | Default | Description |
-|---|---|---|
-| `model.planner` | `google/gemma-4-31b-it:free` | LLM for the planner node |
-| `model.executor` | `google/gemma-4-31b-it:free` | LLM for the executor node |
-| `safety.mode` | `auto` | Safety policy (`auto`, `strict`, `yolo`) |
-| `guardrails.enabled` | `true` | Enable NeMo Guardrails |
-| `fast_mode` | `false` | Bypass all safety checks |
-| `hitl.enabled` | `true` | Enable human-in-the-loop approvals |
-| `rag.auto_index` | `false` | Auto-index codebase on startup |
-| `rag.chunk_size` | `1000` | Chunk size for RAG indexing |
-| `context.summarize_after` | `10` | Messages before context compaction |
-| `tools.shell_timeout` | `30` | Shell command timeout (seconds) |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18+
-- PostgreSQL (for web mode, optional for TUI)
-
-### Quick Start (TUI only)
+### 1. Get the source and create a Python environment
 
 ```bash
 git clone https://github.com/Krishiv1611/Compass.git
 cd Compass
 python -m venv .venv
-.venv\Scripts\activate       # On Linux/Mac: source .venv/bin/activate
-pip install -r requirements.txt
-
-# Set your API key
-set OPENROUTER_API_KEY=your_key_here
-
-# Launch the TUI
-python main.py
 ```
 
-### Full Stack (Web UI + Backend)
+Activate the environment:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
 
 ```bash
-# 1. Start the backend
-uvicorn backend.main:app --reload
+# macOS / Linux
+source .venv/bin/activate
+```
 
-# 2. In a new terminal, start the frontend
+Install backend and agent dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Configure local development
+
+Start PostgreSQL with Docker, or point `DB_URI` to an existing PostgreSQL instance:
+
+```bash
+docker compose up -d postgres
+```
+
+Set the minimum environment variables for the web application. This PowerShell example matches the development Compose database:
+
+```powershell
+$env:DB_URI = "postgresql://compass_user:compass_password@localhost:5432/compass_db"
+$env:OPENROUTER_API_KEY = "<your-provider-key>"
+$env:JWT_SECRET = "<a-long-random-development-secret>"
+```
+
+For macOS or Linux:
+
+```bash
+export DB_URI='postgresql://compass_user:compass_password@localhost:5432/compass_db'
+export OPENROUTER_API_KEY='<your-provider-key>'
+export JWT_SECRET='<a-long-random-development-secret>'
+```
+
+The backend also reads `.env` and `backend/.env`. Keep both out of version control.
+
+### 3. Run database migrations
+
+```bash
+alembic upgrade head
+```
+
+### 4. Start the API and web application
+
+In one terminal, with the virtual environment and environment variables active:
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+In a second terminal:
+
+```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Open [http://localhost:5173](http://localhost:5173). The API health endpoint is [http://localhost:8000/health](http://localhost:8000/health), and interactive API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-### Docker
+### TUI-only quick start
+
+If you only need the local terminal agent, `DB_URI` is optional. Install the Python dependencies, set an LLM provider key, then run:
 
 ```bash
-# Development
-docker-compose up
-
-# Production
-docker-compose -f docker-compose.prod.yml up -d
+python main.py --workspace /path/to/project
 ```
 
----
+Without `DB_URI`, the agent runs without PostgreSQL-backed LangGraph checkpoints.
 
-## Deployment
+## Configuration
 
-For production deployments, see [DEPLOYMENT.md](DEPLOYMENT.md). Key requirements:
+### Backend and deployment environment
 
-- Set `COMPASS_CLOUD_MODE=true` to disable local-only features (shell tool)
-- Use a production PostgreSQL instance via `DB_URI`
-- Set a strong `JWT_SECRET`
-- Configure OAuth credentials for Google login
-- Proxy WebSocket connections (`/chat/ws/*`) with upgrade support
-- Serve the built frontend from a CDN or static host
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DB_URI` | Web app | PostgreSQL connection URL; also enables agent checkpoint persistence. |
+| `OPENROUTER_API_KEY` | Default provider | OpenRouter model-provider key. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY` | Optional | Provider-specific model keys. |
+| `JWT_SECRET` | Web app | Token signing secret; use a long random production value. |
+| `JWT_ALGORITHM` | Optional | JWT algorithm; defaults to `HS256`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | Access-token lifetime; defaults to `15`. |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | Optional | Refresh-cookie lifetime; defaults to `7`. |
+| `SECURE_COOKIES` | Production | Set `true` behind HTTPS. |
+| `CORS_ORIGINS` | Production | Comma-separated allowlist of browser origins. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional | Google identity OAuth credentials. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional | GitHub identity and repository-connect OAuth credentials. |
+| `CREDENTIAL_ENCRYPTION_KEY` | Recommended in production | Fernet key for stored provider credentials and GitHub PATs. |
+| `COMPASS_CLOUD_MODE` | Hosted deployments | Removes the shell tool from the agent tool registry. |
+| `TAVILY_API_KEY` | Optional | Enables Tavily-backed web search when configured. |
+| `COMPASS_REDIS_URL` | Optional | Enables the configured LLM response-cache path. |
+| `LANGCHAIN_API_KEY`, `LANGCHAIN_PROJECT` | Optional | LangSmith tracing configuration. |
+| `VITE_API_URL`, `VITE_WS_URL` | Frontend only | Public API and WebSocket bases for separately hosted frontend. Never put secrets here. |
 
----
+### Local agent configuration
 
-## Environment Variables
+The local agent merges built-in defaults, `~/.compass/config.toml`, `<project>/.compass/config.toml`, then `COMPASS_*` environment variables. A dotted setting maps to an environment variable by replacing dots with underscores; for example, `model.executor` becomes `COMPASS_MODEL_EXECUTOR`.
 
-| Variable | Required | Description |
-|---|---|---|
-| `OPENROUTER_API_KEY` | Yes | API key for OpenRouter (or your LLM provider) |
-| `DB_URI` | Web mode | PostgreSQL connection string |
-| `JWT_SECRET` | Web mode | Secret for JWT token signing |
-| `GOOGLE_CLIENT_ID` | Optional | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Optional | Google OAuth client secret |
-| `COMPASS_CLOUD_MODE` | Optional | Set to `true` for hosted deployments |
-| `CORS_ORIGINS` | Optional | Comma-separated allowed origins |
-| `LANGCHAIN_API_KEY` | Optional | LangSmith API key for tracing |
-| `LANGCHAIN_PROJECT` | Optional | LangSmith project name |
-| `COMPASS_REDIS_URL` | Optional | Redis URL for LLM response caching |
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `model.planner` / `model.executor` | `google/gemma-4-31b-it:free` | Role-specific model selection |
+| `safety.mode` | `auto` | Local TUI approval-policy setting; use the default for normal work |
+| `guardrails.enabled` | `true` | Enable input and output guardrails |
+| `hitl.enabled` | `true` | Enable human-in-the-loop requests |
+| `tools.shell_timeout` | `30` | Shell command timeout in seconds |
+| `rag.auto_index` | `false` | Index the codebase automatically |
+| `rag.chunk_size` | `1000` | RAG chunk size |
+| `context.summarize_after` | `10` | Conversation size before compaction |
 
----
+## Safety and security
+
+Compass is designed to make side effects visible and reviewable. It can modify code and execute local commands, so use it with the same care you would give any automation with repository access.
+
+### Approval model
+
+- Read/search tools are treated as safe.
+- Local file writes, edits, and shell commands are classified as risky and require approval under the default `auto` policy.
+- Approvals support `yes`, `no`, `always`, and `skip` decisions.
+- Goal mode can make progress autonomously, but it does not bypass risky-operation approval.
+- In hosted mode (`COMPASS_CLOUD_MODE=true`), `shell_execute` is removed from the available tool registry.
+
+### Workspace isolation and data handling
+
+- Web workspaces are created in a per-user directory and checked against ownership before access.
+- Workspace file APIs reject absolute paths and traversal attempts, and keep operations inside the workspace root.
+- GitHub access is separate from Compass identity login. Repository connections use OAuth or a user-supplied fine-grained PAT.
+- Refresh tokens use an HTTP-only cookie; the browser keeps access tokens in memory rather than persistent browser storage.
+- Stored provider credentials and PATs are encrypted using `CREDENTIAL_ENCRYPTION_KEY`; configure an independent, rotated Fernet key in production.
+- Hosted web settings reject arbitrary command-based MCP configuration. Configure local MCP servers from the TUI/project environment only.
+
+### Production checklist
+
+1. Use HTTPS and set `SECURE_COOKIES=true`.
+2. Set distinct, strong `JWT_SECRET` and `CREDENTIAL_ENCRYPTION_KEY` values.
+3. Set `COMPASS_CLOUD_MODE=true` for hosted installations.
+4. Set a precise `CORS_ORIGINS` allowlist.
+5. Run migrations before starting new releases.
+6. Put PostgreSQL and workspace storage on private, backed-up volumes.
+7. Run the backend as a non-root operating-system user.
+8. Review GitHub OAuth scopes and PAT permissions; use the smallest repository scope that works.
+
+## Web API and workspaces
+
+The FastAPI application mounts its product API under `/api`. Use the generated OpenAPI documentation at `/docs` as the source of truth for request and response shapes.
+
+| Area | Base path | Capabilities |
+| --- | --- | --- |
+| Health | `/health` | Liveness endpoint |
+| Authentication | `/api/auth` | Registration, login, refresh, profile, logout, Google/GitHub identity OAuth |
+| Sessions | `/api/sessions` | Create, list, rename, retrieve, and soft-delete conversations |
+| Chat | `/api/chat` | HTTP fallback and authenticated streamed WebSocket runs |
+| Workspaces | `/api/workspaces` | Upload/create/import projects, tree/file access, context, search, patches, review actions |
+| GitHub | `/api/github` | Connection status, OAuth/PAT connect, repository browsing, import, branch/commit/PR publishing |
+| Preferences and tools | `/api/settings`, `/api/tools` | Safe preferences, managed MCP status, available tools, run history, skills |
+
+The streaming endpoint is:
+
+```text
+ws://<host>/api/chat/ws/<session-id>?token=<access-token>
+```
+
+The browser application handles this connection. Direct clients should authenticate, create a session, then pass a short-lived access token only over a secure WebSocket connection.
+
+## Repository layout
+
+```text
+.
+├── agent/                  # LangGraph workflow, tools, RAG, skills, guardrails, TUI
+│   ├── graph/              # State, nodes, routing, and tool registry
+│   ├── tools/              # File, search, shell, web, memory, todo, skill tools
+│   ├── rag/                # Indexing, chunking, retrieval, vector storage
+│   ├── skills/             # Skill models, loading, registry, subagent support
+│   └── ui/                 # Terminal UI and relay support
+├── backend/                # FastAPI application
+│   ├── auth/               # JWT, OAuth, password, credential encryption
+│   ├── models/             # SQLAlchemy data models
+│   ├── routers/            # HTTP and WebSocket product APIs
+│   ├── services/           # Agent runner, sessions, patches, workspaces, GitHub
+│   └── alembic/            # Database migrations
+├── frontend/               # React 19 + TypeScript coding workbench
+│   ├── src/api/            # Typed domain API clients
+│   ├── src/contexts/       # Auth, run, and workbench UI state
+│   ├── src/components/     # Workbench, agent, project, review, settings UI
+│   └── src/pages/          # Login, callback, and workbench routes
+├── evals/                  # LangSmith-oriented evaluation data and runners
+├── main.py                 # TUI CLI entry point
+├── requirements.txt        # Python dependencies
+├── alembic.ini             # Migration configuration
+├── docker-compose.yml      # Development Docker stack
+└── docker-compose.prod.yml # Production-oriented Docker stack
+```
+
+## Development and verification
+
+### Backend and agent checks
+
+```bash
+python -m compileall -q agent backend
+alembic upgrade head
+```
+
+### Frontend checks
+
+```bash
+cd frontend
+npm run lint
+npx tsc -b --pretty false
+npm run build
+```
+
+The frontend pass also requires manual checks across desktop and mobile viewports, light/dark/system themes, keyboard navigation, reduced motion, empty/loading/error states, GitHub capability states, and browser-console cleanliness. See [frontend/README.md](frontend/README.md) for frontend-specific notes.
+
+### Evaluations
+
+The `evals/` directory contains the current evaluation harness and golden dataset. It uses LangSmith when configured:
+
+```bash
+python evals/run_evals.py
+```
+
+Set `LANGCHAIN_API_KEY` before running evaluations that report to LangSmith.
+
+## Docker and deployment
+
+### Development stack
+
+The development Compose file starts PostgreSQL, the backend, and the built frontend:
+
+```bash
+OPENROUTER_API_KEY=<your-provider-key> JWT_SECRET=<development-secret> docker compose up --build
+```
+
+The frontend is exposed on port `80`, the backend on port `8000`, and PostgreSQL on port `5432`. Apply migrations in the backend environment before relying on a fresh deployment.
+
+### Production stack
+
+`docker-compose.prod.yml` defines resource limits and health checks for PostgreSQL, backend, and frontend containers. Provide at minimum `POSTGRES_PASSWORD`, `DB_URI`, `OPENROUTER_API_KEY`, and `JWT_SECRET`, then start it with:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+For a public deployment, additionally configure `SECURE_COOKIES=true`, `CORS_ORIGINS`, OAuth redirect URLs and credentials, `CREDENTIAL_ENCRYPTION_KEY`, persistent volumes, TLS termination, backups, and `COMPASS_CLOUD_MODE=true`. See [DEPLOYMENT.md](DEPLOYMENT.md) for the deployment checklist.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| API fails at startup | Confirm `DB_URI` is set and PostgreSQL is reachable. The API logs database connectivity during startup. |
+| Migration command fails | Activate the Python environment, set `DB_URI`, and run `alembic upgrade head` from the repository root. |
+| Web app cannot sign in or load data | Confirm the API is running on port `8000`, the frontend uses the expected `VITE_API_URL`, and its origin is in `CORS_ORIGINS`. |
+| Browser keeps returning to login | Verify `JWT_SECRET` is stable and browser cookies match `SECURE_COOKIES` / HTTPS settings. |
+| GitHub connect is unavailable | Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, then check the OAuth redirect URL. |
+| Agent cannot call an LLM | Set the matching provider key and verify the selected model/provider settings. |
+| Shell tool is unavailable | It is intentionally unavailable in hosted mode. Use the local TUI only when shell execution is appropriate. |
+| Semantic search has no useful results | Run `/index` in the TUI or refresh workspace context in the web workbench. |
+
+## Project documents
+
+- [DEPLOYMENT.md](DEPLOYMENT.md) - production deployment notes and security checklist
+- [frontend/README.md](frontend/README.md) - frontend architecture and verification commands
+- [roadmap.md](roadmap.md) - future ideas; treat it as planning material, not a statement of shipped features
 
 ## License
 
-MIT License
+No license file is currently included in this repository. Add an explicit license before redistributing or accepting external contributions.

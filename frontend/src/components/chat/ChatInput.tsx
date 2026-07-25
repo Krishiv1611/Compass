@@ -1,10 +1,15 @@
-import { useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, Loader2, Paperclip, Send, Sparkles, X, Folder, Zap, Target, Activity } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { File as FileIcon, FilePenLine, Folder, HelpCircle, ListTree, Loader2, Paperclip, Send, Target, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { workspaceApi } from "@/api";
+import type { ChatMode } from "@/types/chat";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 
 interface ChatInputProps {
-  onSend: (message: string, files: File[], mode: "normal" | "plan" | "fast" | "goal") => void;
+  onSend: (message: string, files: File[], mode: ChatMode, contextFiles: string[]) => void;
   isLoading?: boolean;
+  workspaceId?: string | null;
+  onContextChange?: (paths: string[]) => void;
 }
 
 export type ReferencedPath = {
@@ -13,31 +18,58 @@ export type ReferencedPath = {
   type: "file" | "folder";
 };
 
-export default function ChatInput({ onSend, isLoading = false }: ChatInputProps) {
+export default function ChatInput({ onSend, isLoading = false, workspaceId, onContextChange }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggingPath, setIsDraggingPath] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [referencedPaths, setReferencedPaths] = useState<ReferencedPath[]>([]);
-  const [mode, setMode] = useState<"normal" | "plan" | "fast" | "goal">("normal");
+  const [mentionResults, setMentionResults] = useState<string[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const { state, setMode, dispatch } = useWorkbench();
+  const mode = state.mode;
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    onContextChange?.(referencedPaths.map((item) => item.path));
+  }, [onContextChange, referencedPaths]);
 
   const handleSend = () => {
     if (isLoading) return;
     if (input.trim() || attachedFiles.length > 0 || referencedPaths.length > 0) {
-      let finalMessage = input.trim();
-      
-      if (referencedPaths.length > 0) {
-        const pathsString = referencedPaths.map(p => p.path).join(", ");
-        const referencePrefix = `[Referring to: ${pathsString}]\n\n`;
-        finalMessage = referencePrefix + finalMessage;
-      }
-
-      onSend(finalMessage, attachedFiles, mode);
+      onSend(input.trim(), attachedFiles, mode, referencedPaths.map((item) => item.path));
       setInput("");
       setAttachedFiles([]);
       setReferencedPaths([]);
     }
+  };
+
+  useEffect(() => {
+    const match = input.match(/(?:^|\s)@([^\s@]*)$/);
+    const query = match?.[1] ?? null;
+    setMentionQuery(query);
+    if (query === null || !workspaceId) {
+      setMentionResults([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      workspaceApi.searchFiles(workspaceId, query, 8)
+        .then((files) => setMentionResults(files))
+        .catch(() => setMentionResults([]));
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [input, workspaceId]);
+
+  const selectMention = (path: string) => {
+    if (!referencedPaths.some((item) => item.path === path)) {
+      setReferencedPaths((prev) => [
+        ...prev,
+        { path, name: path.split("/").pop() || path, type: "file" },
+      ]);
+    }
+    setInput((value) => value.replace(/(?:^|\s)@[^\s@]*$/, (token) => token.startsWith(" ") ? " " : ""));
+    setMentionResults([]);
+    setMentionQuery(null);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -69,7 +101,7 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
     event.preventDefault();
     setIsDragging(false);
     setIsDraggingPath(false);
-    
+
     const pathData = event.dataTransfer.getData("application/x-compass-path");
     if (pathData) {
       try {
@@ -94,13 +126,13 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
   };
 
   return (
-    <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 md:px-8">
+    <div className="px-3 pb-[calc(.75rem+env(safe-area-inset-bottom))] pt-2 md:px-5">
       <div
-        className={`mx-auto max-w-3xl overflow-hidden transition-all duration-100 relative bg-card border border-border ${
-          isDraggingPath 
-            ? "border-accent ring-1 ring-accent" 
-            : isDragging 
-              ? "border-accent ring-1 ring-accent" 
+        className={`mx-auto overflow-hidden rounded-md transition-all duration-100 relative bg-card border border-border ${
+          isDraggingPath
+            ? "border-accent ring-1 ring-accent"
+            : isDragging
+              ? "border-accent ring-1 ring-accent"
               : "focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/50"
         } ${isLoading ? "opacity-80" : ""}`}
         onDragOver={handleDragOver}
@@ -131,15 +163,33 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
         )}
 
         <div className="relative flex items-start pt-3 px-4">
-          <Sparkles className="h-5 w-5 mt-1 mr-3 text-primary shrink-0" />
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isDraggingPath ? "Drop to reference path" : isDragging ? "Drop files here" : "Ask Anything..."}
-            className="max-h-44 min-h-20 w-full resize-none bg-transparent text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground/60"
+            placeholder={isDraggingPath ? "Drop to reference path" : isDragging ? "Drop files here" : "Describe the task or ask about this project"}
+            className="max-h-44 min-h-20 w-full resize-none bg-transparent text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
             disabled={isLoading}
           />
+          {mentionQuery !== null && workspaceId && mentionResults.length > 0 && (
+            <div className="absolute inset-x-3 bottom-full z-30 mb-2 overflow-hidden rounded-md border border-border bg-popover shadow-xl">
+              <div className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
+                Add project context
+              </div>
+              {mentionResults.map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-popover-foreground hover:bg-accent"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectMention(path)}
+                >
+                  <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate font-mono">{path}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between px-4 pb-3">
@@ -155,67 +205,97 @@ export default function ChatInput({ onSend, isLoading = false }: ChatInputProps)
               }}
               disabled={isLoading}
             />
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-none px-3 h-8 border border-transparent hover:border-border" onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
-              <Paperclip className="h-4 w-4 mr-1.5" /> Attach
+            <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" onClick={() => fileInputRef.current?.click()} disabled={isLoading} title="Attach files" aria-label="Attach files">
+              <Paperclip className="h-4 w-4" />
             </Button>
-            <div className="flex items-center ml-2 bg-background border border-border rounded-none p-0.5">
+            <div className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-background p-0.5 mr-2">
               <button
                 type="button"
-                onClick={() => setMode("normal")}
+                onClick={() => dispatch({ type: "setContextDrawer", open: true })}
                 disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
-                  mode === "normal"
-                    ? "bg-accent text-accent-foreground"
+                className="flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
+                title="Manage skills"
+              >
+                Skills
+              </button>
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "setContextDrawer", open: true })}
+                disabled={isLoading}
+                className="flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
+                title="Available tools"
+              >
+                Tools
+              </button>
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "setContextDrawer", open: true })}
+                disabled={isLoading}
+                className="flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
+                title="Project memory"
+              >
+                Memory
+              </button>
+            </div>
+
+            <div className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-background p-0.5">
+              <button
+                type="button"
+                onClick={() => setMode("ask")}
+                disabled={isLoading}
+                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
+                  mode === "ask"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
-                title="Normal - Balanced speed and standard safety checks"
+                title="Ask uses read-only project tools"
               >
-                <Activity className="h-3.5 w-3.5" /> Normal
+                <HelpCircle className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Ask</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("edit")}
+                disabled={isLoading}
+                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
+                  mode === "edit"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                title="Edit works directly with project tools"
+              >
+                <FilePenLine className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Edit</span>
               </button>
               <button
                 type="button"
                 onClick={() => setMode("plan")}
                 disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
+                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
                   mode === "plan"
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
-                title="Plan - Analyzes the request and creates a structured plan first"
+                title="Plan requires approval before editing"
               >
-                <Sparkles className="h-3.5 w-3.5" /> Plan
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("fast")}
-                disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
-                  mode === "fast"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-                title="Fast - Bypasses safety checks for maximum speed"
-              >
-                <Zap className="h-3.5 w-3.5" /> Fast
+                <ListTree className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Plan</span>
               </button>
               <button
                 type="button"
                 onClick={() => setMode("goal")}
                 disabled={isLoading}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-none transition-colors ${
+                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
                   mode === "goal"
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
-                title="Goal - Deep autonomous execution without interruptions"
+                title="Goal works autonomously; risky actions still require approval"
               >
-                <Target className="h-3.5 w-3.5" /> Goal
+                <Target className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Goal</span>
               </button>
             </div>
           </div>
 
-          <Button size="icon" className="h-9 w-9 rounded-none bg-accent hover:bg-accent/90 text-accent-foreground transition-all" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0) || isLoading}>
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "plan" ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4 ml-0.5" />}
+          <Button size="icon" className="h-9 w-9" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0 && referencedPaths.length === 0) || isLoading} title="Send message" aria-label="Send message">
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
       </div>

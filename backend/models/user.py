@@ -33,6 +33,8 @@ class User(Base):
         String(255),
         nullable=True,  # ID from the OAuth provider
     )
+    oauth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    oauth_scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

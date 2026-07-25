@@ -13,7 +13,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
-from langchain_classic.embeddings import CacheBackedEmbeddings
+from sqlalchemy import delete
 
 # Note: We now use PGVector instead of Chroma
 from langchain_postgres.vectorstores import PGVector
@@ -85,34 +85,25 @@ def reset_vector_store_cache() -> None:
 
 
 def delete_chunks_by_filter(where: dict) -> int:
-    """Delete chunks matching a metadata filter.
-
-    PGVector handles deletion via metadata filtering using the `delete` method
-    with filter kwargs, but langchain-postgres PGVector `delete` signature
-    is `delete(ids=...)`. If `where` is provided, we must fetch IDs first.
-    """
+    """Delete collection chunks whose JSON metadata contains ``where``."""
     vector_store = get_vector_store(create=False)
     if vector_store is None:
         return 0
 
     try:
-        # LangChain's similarity_search doesn't just return IDs natively easily for a raw filter
-        # but PGVector exposes an underlying SQLAlchemy collection.
-        # For a true metadata deletion, we can run a raw SQL query or just use the retriever.
+        with vector_store._make_sync_session() as session:
+            collection = vector_store.get_collection(session)
+            if collection is None:
+                return 0
 
-        # NOTE: Using a workaround to fetch and delete by ids.
-        # This is a simplification; a production implementation would run a direct DELETE statement.
-        results = vector_store.similarity_search("", k=10000, filter=where)
-
-        # In langchain_postgres, doc metadata has an internal ID?
-        # Actually, if we just want to delete by filter, langchain-postgres might not support it directly via `delete()`.
-        # Since we just want to delete chunks matching a filter (like document_id), we'll do our best.
-        if not results:
-            return 0
-
-        # Extracted ids typically aren't on the document objects directly, we might need a direct DB call.
-        # But for now, we leave this as a stub since the user specifically asked for pgvector insertion logic.
-        return len(results)
+            statement = (
+                delete(vector_store.EmbeddingStore)
+                .where(vector_store.EmbeddingStore.collection_id == collection.uuid)
+                .where(vector_store.EmbeddingStore.cmetadata.contains(where))
+            )
+            result = session.execute(statement)
+            session.commit()
+            return int(result.rowcount or 0)
     except Exception as e:
         print(f"Failed to delete chunks: {e}")
         return 0

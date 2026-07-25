@@ -68,6 +68,10 @@ def list_sessions(
             updated_at=s.updated_at,
             message_count=count,
             workspace_name=workspace_name,
+            project_id=s.project_id,
+            git_branch=s.git_branch,
+            git_head=s.git_head,
+            context_version=s.context_version,
         )
         for s, count, workspace_name in rows
     ]
@@ -102,6 +106,11 @@ def get_session_detail(
         id=session.id,
         title=session.title,
         thread_id=session.thread_id,
+        project_id=session.project_id,
+        git_remote=session.git_remote,
+        git_branch=session.git_branch,
+        git_head=session.git_head,
+        context_version=session.context_version,
         created_at=session.created_at,
         updated_at=session.updated_at,
         messages=[

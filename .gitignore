@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 .env
+.env.*
+!.env.example
+!.env.*.example
 .vscode/*
 
 # OS/Editor
@@ -20,8 +23,12 @@ wheels/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.pyre/
+.pytype/
 .coverage
+coverage/
 *.log
+*.pid
 
 # App specific
 .antigravitycli/
@@ -29,5 +36,13 @@ wheels/
 .compass/
 .vscode/
 *.db
-roadmap.md
-vscode-extension/
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# JavaScript and TypeScript generated output
+node_modules/
+dist-ssr/
+.vite/
+*.tsbuildinfo

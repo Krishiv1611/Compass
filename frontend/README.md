@@ -1,32 +1,31 @@
-# React + TypeScript + Vite
+# Compass frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19, TypeScript, Vite, Tailwind CSS, Base UI, CodeMirror, and WebContainers power the Compass coding workbench.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The development server proxies `/api` and the chat WebSocket to the backend. Copy `.env.example` to `.env` only when an environment-specific public URL is required; never place secrets in Vite variables.
+
+## Architecture
+
+- `src/pages` owns route-level composition.
+- `src/contexts` owns authentication, run streaming, and shared workbench state.
+- `src/api` contains typed domain clients backed by one HTTP client.
+- `src/components/workbench` contains the agent/editor/review shell.
+- `src/components/settings` contains preferences and status-only advanced surfaces.
+
+IBM Plex Sans and JetBrains Mono are bundled locally through Fontsource. Theme and semantic UI tokens live in `src/index.css`.
+
+## Verification
+
+```bash
+npm run lint
+npm run build
+```
+
+Manual QA must cover desktop and mobile sizes, light and dark themes, keyboard-only navigation, reduced motion, slow/offline states, long content, GitHub capability states, and the browser console. Progress and results are tracked in `../COMPASS_IMPLEMENTATION_STATUS.md`.
