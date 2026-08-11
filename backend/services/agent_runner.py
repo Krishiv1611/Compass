@@ -6,6 +6,7 @@ from langchain_core.messages import BaseMessage
 from langgraph.types import Command
 
 from agent.runtime.events import StreamEvent
+from agent.runtime.protocol import ResumeAction, ResumePayload
 from agent.runtime.runner import build_turn_input, invoke_agent, stream_agent_events
 from agent.telemetry import get_run_config
 from agent.workspace import web_workspace_context
@@ -89,7 +90,8 @@ async def run_agent_stream(
     session_id: str,
     user_id: str,
     mode: str = "edit",
-    resume_action: str | None = None,
+    resume_action: ResumeAction | str | None = None,
+    resume_feedback: str | None = None,
     user_prefs: dict | None = None,
     run_id: str | None = None,
     context_files: list[str] | None = None,
@@ -99,8 +101,8 @@ async def run_agent_stream(
         thread_id, session_id, user_id, user_prefs, run_id=run_id
     )
     input_value = (
-        Command(resume={"action": resume_action})
-        if resume_action
+        build_resume_command(resume_action, resume_feedback)
+        if resume_action is not None
         else build_turn_input(
             user_message,
             mode=mode,
@@ -119,6 +121,16 @@ async def run_agent_stream(
         cancel_event=cancel_event,
     ):
         yield event
+
+
+def build_resume_command(
+    action: ResumeAction | str,
+    feedback: str | None = None,
+) -> Command:
+    """Build a validated LangGraph resume command for every web action."""
+
+    payload = ResumePayload(action=action, feedback=feedback)
+    return Command(resume=payload.model_dump(mode="json"))
 
 
 async def run_agent_sync(

@@ -19,6 +19,7 @@ from langgraph.types import Command
 
 from agent.graph.workflow import get_workflow
 from agent.runtime.events import StreamEvent, StreamEventType, ToolCallData
+from agent.runtime.protocol import InterruptData, InterruptKind
 from agent.workspace import WorkspaceContext
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,36 @@ _NODE_STATUS = {
 }
 
 _OUTPUT_NODES = {"executor", "direct_chat", "skill_manager", "sub_executor"}
+
+
+def events_from_interrupts(interrupts: list[dict]) -> list[StreamEvent]:
+    """Translate one graph interrupt into the canonical waiting event pair."""
+
+    if not interrupts:
+        return []
+    data = InterruptData.model_validate(interrupts[0]["value"])
+    event_type = (
+        StreamEventType.CLARIFICATION_REQUIRED
+        if data.kind == InterruptKind.CLARIFICATION
+        else StreamEventType.APPROVAL_REQUIRED
+    )
+    payload = data.model_dump(mode="json")
+    payload["reason"] = {
+        InterruptKind.TOOL_APPROVAL: "approval_required",
+        InterruptKind.PLAN_APPROVAL: "plan_approval_required",
+        InterruptKind.CLARIFICATION: "clarification_required",
+    }[data.kind]
+    return [
+        StreamEvent(
+            type=event_type,
+            content=data.prompt,
+            data=payload,
+        ),
+        StreamEvent(
+            type=StreamEventType.RUN_WAITING,
+            data={"kind": data.kind.value},
+        ),
+    ]
 
 
 def normalise_mode(mode: str) -> str:
@@ -90,6 +121,9 @@ def build_turn_input(
         "loop_detected": False,
         "loop_count": 0,
         "recovery_guidance": "",
+        "goal_iteration": 0,
+        "goal_iteration_limit": 3,
+        "needs_replan": False,
         "syntax_checked": False,
         "syntax_check_failed": False,
         "token_usage": {},
@@ -254,32 +288,17 @@ async def stream_agent_events(
                                 )
 
         state = await workflow.aget_state(config)
-        for task in state.tasks:
-            for interrupt_value in task.interrupts:
-                value = getattr(interrupt_value, "value", None)
-                if not isinstance(value, dict):
-                    continue
-                reason = value.get("reason")
-                if reason == "approval_required":
-                    yield StreamEvent(
-                        type=StreamEventType.APPROVAL_REQUIRED,
-                        content=value.get("description", "Approval required"),
-                        data={
-                            "reason": reason,
-                            "tool_calls": value.get("tool_calls", []),
-                        },
-                    )
-                    return
-                if reason == "plan_approval_required":
-                    yield StreamEvent(
-                        type=StreamEventType.APPROVAL_REQUIRED,
-                        content="Plan approval required",
-                        data={
-                            "reason": reason,
-                            "plan": value.get("plan", ""),
-                        },
-                    )
-                    return
+        interrupts = [
+            {"value": getattr(interrupt_value, "value", None)}
+            for task in state.tasks
+            for interrupt_value in task.interrupts
+            if isinstance(getattr(interrupt_value, "value", None), dict)
+        ]
+        waiting_events = events_from_interrupts(interrupts)
+        if waiting_events:
+            for event in waiting_events:
+                yield event
+            return
 
         token_usage = state.values.get("token_usage", {}) if state.values else {}
         yield StreamEvent(

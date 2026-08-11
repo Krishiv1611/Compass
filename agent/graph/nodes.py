@@ -14,6 +14,12 @@ from agent.llm import llm
 from agent.config import settings
 from langchain_core.messages import SystemMessage, AIMessage
 from agent.loop_detector import is_looping, get_loop_summary
+from agent.runtime.protocol import (
+    InterruptData,
+    InterruptKind,
+    ResumeAction,
+    ResumePayload,
+)
 from langchain_core.messages import BaseMessage as _BaseMessage
 from langchain_core.runnables import RunnableConfig
 
@@ -169,21 +175,23 @@ async def plan_approval_node(state: AgentState, config: RunnableConfig):
 
     plan = state.get("plan", "")
     
-    # Pause graph execution, yield plan to client
-    user_decision = interrupt({
-        "reason": "plan_approval_required",
-        "plan": plan
-    })
-    
-    action = user_decision.get("action", "execute_plan") if isinstance(user_decision, dict) else "execute_plan"
-    
-    if action == "cancel":
+    user_decision = ResumePayload.model_validate(
+        interrupt(
+            InterruptData(
+                kind=InterruptKind.PLAN_APPROVAL,
+                prompt="Review and approve this plan.",
+                plan=plan,
+            ).model_dump(mode="json")
+        )
+    )
+
+    if user_decision.action == ResumeAction.CANCEL:
         return {
-            "is_done": True, 
+            "is_done": True,
             "messages": [AIMessage(content="Plan execution cancelled by user.")]
         }
-    elif action == "revise_plan":
-        feedback = user_decision.get("feedback", "")
+    elif user_decision.action == ResumeAction.REVISE_PLAN:
+        feedback = user_decision.feedback or ""
         return {
             "messages": [AIMessage(content=f"User rejected plan with feedback: {feedback}")]
         }
@@ -570,21 +578,20 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
     if not risky_calls:
         return {"approval_status": "approved"}
 
-    # We have risky calls, interrupt the graph
-    user_decision = interrupt(
-        {"reason": "approval_required", "tool_calls": risky_calls}
+    user_decision = ResumePayload.model_validate(
+        interrupt(
+            InterruptData(
+                kind=InterruptKind.TOOL_APPROVAL,
+                prompt="Approve the requested tool operation.",
+                tool_calls=risky_calls,
+            ).model_dump(mode="json")
+        )
     )
 
-    # Check if we got a valid dict back from the interrupt
-    if not isinstance(user_decision, dict):
-        action = "deny"
-    else:
-        action = user_decision.get("action", "deny")
-
-    if action in ("approve", "always"):
+    if user_decision.action in (ResumeAction.APPROVE, ResumeAction.ALWAYS):
         # Update cache if requested
         new_approvals = list(approved_ops)
-        if action == "always":
+        if user_decision.action == ResumeAction.ALWAYS:
             for tc in risky_calls:
                 pattern = get_call_pattern(tc["name"], tc.get("args", {}))
                 if pattern not in new_approvals:
@@ -592,20 +599,25 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
 
         return {"approval_status": "approved", "approved_operations": new_approvals}
     else:
-        # Denied
-        # Generate ToolMessages for all pending calls to indicate failure
+        skipped = user_decision.action == ResumeAction.SKIP
+        status = "skipped" if skipped else "denied"
+        message = (
+            "Error: User skipped this tool operation."
+            if skipped
+            else "Error: User denied permission to execute this tool."
+        )
         tool_msgs = []
         for tc in last_message.tool_calls:
             tool_msgs.append(
                 ToolMessage(
-                    content="Error: User denied permission to execute this tool.",
+                    content=message,
                     tool_call_id=tc["id"],
                     name=tc["name"],
                     status="error",
                 )
             )
 
-        return {"approval_status": "denied", "messages": tool_msgs}
+        return {"approval_status": status, "messages": tool_msgs}
 
 
 async def direct_chat_node(state: AgentState, config: RunnableConfig):
@@ -763,15 +775,15 @@ async def clarifier_node(state: AgentState, config: RunnableConfig):
     from langgraph.types import interrupt
     from langchain_core.messages import HumanMessage
     
-    user_response = interrupt({
-        "reason": "clarification_required",
-        "description": "The agent needs clarification before proceeding.",
-    })
-    
-    if isinstance(user_response, dict) and "action" in user_response:
-        msg = user_response["action"]
-    else:
-        msg = str(user_response)
+    user_response = ResumePayload.model_validate(
+        interrupt(
+            InterruptData(
+                kind=InterruptKind.CLARIFICATION,
+                prompt="The agent needs clarification before proceeding.",
+            ).model_dump(mode="json")
+        )
+    )
+    msg = user_response.feedback or ""
         
     return {
         "messages": [HumanMessage(content=f"User clarification: {msg}")],

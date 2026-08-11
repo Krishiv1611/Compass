@@ -291,6 +291,7 @@ async def websocket_chat(
                         session_id=session_id,
                         workspace_id=workspace.id,
                     )
+                    run_waiting = False
                     events_to_persist: list[tuple[str, dict]] = []
                     async for event in agent_runner.run_agent_stream(
                         user_message=client_msg.content or "",
@@ -299,6 +300,7 @@ async def websocket_chat(
                         user_id=user_id,
                         mode=client_msg.mode,
                         resume_action=client_msg.action,
+                        resume_feedback=client_msg.feedback,
                         user_prefs=user_prefs,
                         run_id=run.id,
                         context_files=client_msg.context_files,
@@ -313,6 +315,8 @@ async def websocket_chat(
 
                         if event.type == StreamEventType.TOKEN and event.content:
                             full_content.append(event.content)
+                        elif event.type == StreamEventType.RUN_WAITING:
+                            run_waiting = True
 
                     if events_to_persist:
                         persist_run_events(db_fallback, run.id, events_to_persist)
@@ -328,10 +332,16 @@ async def websocket_chat(
                             final_token_usage = state.values.get("token_usage")
                     except Exception:
                         pass
+                    if get_cancel_signal(run.id).is_set():
+                        run_status = "cancelled"
+                    elif run_waiting:
+                        run_status = "waiting"
+                    else:
+                        run_status = "completed"
                     end_agent_run(
                         db_fallback,
                         run_id=run.id,
-                        status="cancelled" if get_cancel_signal(run.id).is_set() else "completed",
+                        status=run_status,
                         token_usage=final_token_usage,
                     )
                 except Exception as e:
