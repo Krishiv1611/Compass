@@ -10,11 +10,11 @@ import os
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
-from agent.graph.remote_tool_node import RemoteToolNode
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from agent.tools.memory_tool import MEMORY_STORE as memory_store
-from agent.graph.tools_registry import ALL_TOOLS
+from agent.graph.tool_node import CompassToolNode
+from agent.graph.tools_registry import ALL_TOOLS, TOOL_REGISTRY
 
 from agent.graph.state import AgentState
 from agent.graph.nodes import (
@@ -246,7 +246,7 @@ builder.add_node("skill_manager", _skill_manager)
 builder.add_node("executor", call_model)
 builder.add_node("direct_chat", direct_chat_node)
 builder.add_node("check_safety", check_safety_node)
-builder.add_node("tools", RemoteToolNode(ALL_TOOLS))
+builder.add_node("tools", CompassToolNode(TOOL_REGISTRY))
 builder.add_node("loop_recovery", loop_recovery_node)
 builder.add_node("evaluator", evaluator_node)
 builder.add_node("linter_node", linter_node)

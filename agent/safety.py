@@ -5,20 +5,10 @@ Decision engine for tool safety and approval, and path validators.
 import json
 from pathlib import Path
 from agent.config import settings
+from agent.tools.registry import build_builtin_registry
 
-SAFE_TOOLS = {
-    "read_file",
-    "list_dir",
-    "find_files",
-    "grep_search",
-    "codebase_search",
-    "web_search",
-    "memory",
-    "todo",
-}
-
-RISKY_TOOLS = {"shell_execute", "write_to_file", "edit_file"}
 HITL_ACTIONS = ["yes", "no", "always", "skip"]  # ordered for frontend display
+_BUILTIN_REGISTRY = build_builtin_registry()
 
 
 def build_interrupt_payload(
@@ -54,7 +44,12 @@ def requires_approval(
     if safety_mode == "yolo" or settings.get("fast_mode", False):
         return False
 
-    if tool_name in SAFE_TOOLS:
+    try:
+        risk = _BUILTIN_REGISTRY.get(tool_name).policy.risk
+    except KeyError:
+        risk = "approval"
+
+    if risk == "safe":
         return False
 
     # 2. Check Cache
