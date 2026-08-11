@@ -277,7 +277,8 @@ async def websocket_chat(
                 from backend.services.run_manager import (
                     create_agent_run,
                     end_agent_run,
-                    persist_run_event,
+                    persist_run_events,
+                    get_cancel_signal,
                 )
 
                 db_fallback = SessionLocal()
@@ -290,6 +291,7 @@ async def websocket_chat(
                         session_id=session_id,
                         workspace_id=workspace.id,
                     )
+                    events_to_persist: list[tuple[str, dict]] = []
                     async for event in agent_runner.run_agent_stream(
                         user_message=client_msg.content or "",
                         thread_id=thread_id,
@@ -306,16 +308,14 @@ async def websocket_chat(
                         await manager.send_event(websocket, event)
 
                         event_dict = event.model_dump(exclude_none=True)
-                        persist_run_event(
-                            db_fallback,
-                            run_id=run.id,
-                            event_type=event_dict.get("type", "unknown"),
-                            content=event_dict,
-                        )
+                        if event.type != StreamEventType.TOKEN:
+                            events_to_persist.append((event_dict.get("type", "unknown"), event_dict))
 
                         if event.type == StreamEventType.TOKEN and event.content:
                             full_content.append(event.content)
 
+                    if events_to_persist:
+                        persist_run_events(db_fallback, run.id, events_to_persist)
                     # Collect final token usage from run events
                     final_token_usage: dict | None = None
                     try:
@@ -328,7 +328,12 @@ async def websocket_chat(
                             final_token_usage = state.values.get("token_usage")
                     except Exception:
                         pass
-                    end_agent_run(db_fallback, run_id=run.id, status="completed", token_usage=final_token_usage)
+                    end_agent_run(
+                        db_fallback,
+                        run_id=run.id,
+                        status="cancelled" if get_cancel_signal(run.id).is_set() else "completed",
+                        token_usage=final_token_usage,
+                    )
                 except Exception as e:
                     if run:
                         end_agent_run(db_fallback, run_id=run.id, status="error")

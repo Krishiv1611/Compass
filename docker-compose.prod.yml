@@ -29,8 +29,7 @@ services:
       - DB_URI=${DB_URI}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - JWT_SECRET=${JWT_SECRET}
-      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
-      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-compass}
+      - COMPASS_CLOUD_MODE=true
     depends_on:
       postgres:
         condition: service_healthy

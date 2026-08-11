@@ -29,6 +29,10 @@ class SubAgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     turn_count: int
     is_done: bool
+    mode: str
+    approval_status: str | None
+    approved_operations: list[str]
+    pending_tool_calls: list[dict]
 
 
 @dataclass

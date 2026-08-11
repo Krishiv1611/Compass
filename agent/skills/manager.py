@@ -1,5 +1,6 @@
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
+from langchain_core.runnables import RunnableConfig
 from agent.graph.state import AgentState
 from agent.skills.registry import SkillRegistry
 from agent.skills.subagent_factory import SubAgentFactory
@@ -16,7 +17,7 @@ class SkillManagerAgent:
         self._factory = factory
         self._registry = registry
 
-    async def __call__(self, state: AgentState) -> dict:
+    async def __call__(self, state: AgentState, config: RunnableConfig) -> dict:
         active_skill = state.get("active_skill")
 
         # ── No skill requested → pass through to executor ────────────
@@ -39,9 +40,13 @@ class SkillManagerAgent:
             "messages": [HumanMessage(content=arguments)],
             "turn_count": 0,
             "is_done": False,
+            "mode": state.get("mode", "edit"),
+            "approval_status": None,
+            "approved_operations": state.get("approved_operations", []),
+            "pending_tool_calls": [],
         }
 
-        final_state = await sub_graph.ainvoke(initial_state)
+        final_state = await sub_graph.ainvoke(initial_state, config=config)
 
         # ── Extract result ───────────────────────────────────────────
         result_messages = final_state.get("messages", [])

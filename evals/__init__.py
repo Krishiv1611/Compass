@@ -1,3 +1,0 @@
-"""
-Compass Evaluation Suite.
-"""

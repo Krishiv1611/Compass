@@ -1,9 +1,11 @@
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
 from agent.skills.models import SkillDefinition, SubAgentState
 from agent.llm import llm
+from agent.graph.nodes import check_safety_node
 
 
 class SubAgentFactory:
@@ -32,16 +34,17 @@ class SubAgentFactory:
         # 2. Build system prompt
         prompt = skill.system_prompt.replace("$ARGUMENTS", arguments)
 
-        # 3. Get LLM
-        # If model override exists, we could use a custom llm getter, but for now we'll
-        # just use executor. The model override logic can be expanded in get_llm.py later if needed.
-        # Currently get_llm.py only takes roles. We will use the 'executor' role as a base.
-        sub_llm = llm("executor")
-        sub_llm_with_tools = sub_llm.bind_tools(tools) if tools else sub_llm
-
         max_turns = skill.max_turns
 
-        async def sub_executor(state: SubAgentState):
+        async def sub_executor(state: SubAgentState, config: RunnableConfig):
+            configurable = config.get("configurable", {})
+            sub_llm = llm(
+                "executor",
+                api_key=configurable.get("api_key"),
+                provider=configurable.get("provider"),
+                model=skill.model or configurable.get("model"),
+            )
+            sub_llm_with_tools = sub_llm.bind_tools(tools) if tools else sub_llm
             msgs = [SystemMessage(content=prompt)] + list(state["messages"])
             response = await sub_llm_with_tools.ainvoke(msgs)
             turn = state.get("turn_count", 0) + 1
@@ -61,13 +64,20 @@ class SubAgentFactory:
                 return END
             last = state["messages"][-1]
             if hasattr(last, "tool_calls") and last.tool_calls and tools:
-                return "sub_tools"
+                return "sub_safety"
+
+        async def route_after_safety(state: SubAgentState) -> str:
+            if state.get("approval_status") in ("denied", "skipped"):
+                return "sub_executor"
+            return "sub_tools"
             return END
 
         builder = StateGraph(SubAgentState)  # type: ignore
         builder.add_node("sub_executor", sub_executor)
         if tools:
+            builder.add_node("sub_safety", check_safety_node)
             builder.add_node("sub_tools", ToolNode(tools))
+            builder.add_conditional_edges("sub_safety", route_after_safety)
             builder.add_edge("sub_tools", "sub_executor")
 
         builder.add_edge(START, "sub_executor")

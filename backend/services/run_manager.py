@@ -44,7 +44,20 @@ def persist_run_event(db: Session, run_id: str, event_type: str, content: dict |
     return event
 
 
+def persist_run_events(
+    db: Session, run_id: str, events: list[tuple[str, dict]]
+) -> list[RunEvent]:
+    """Persist a batch of meaningful events with one transaction."""
+    models = [
+        RunEvent(run_id=run_id, event_type=event_type, content=content)
+        for event_type, content in events
+    ]
+    db.add_all(models)
+    db.commit()
+    return models
+
 def end_agent_run(db: Session, run_id: str, status: str = "completed", token_usage: dict | None = None):
+
     """Mark an AgentRun as ended with a given status and optional token usage."""
     run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
     if run:

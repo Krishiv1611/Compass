@@ -48,7 +48,7 @@ flowchart TB
   api["FastAPI API\nREST + WebSocket"] --> agent
   api --> db[("PostgreSQL\nusers, sessions, runs, patches")]
   api --> ws["Workspace storage\n~/.compass/workspaces"]
-  agent["LangGraph agent"] --> tools["Tools, RAG, skills, guardrails"]
+  agent["LangGraph agent"] --> tools["Tools, RAG, skills, memory and safety"]
   agent --> checkpoints[("PostgreSQL checkpoints\nwhen DB_URI is configured")]
   agent --> providers["LLM providers"]
   api --> github["GitHub OAuth / PAT\nrepository connection"]
@@ -56,7 +56,7 @@ flowchart TB
 
 ### Agent workflow
 
-The workflow starts with input guardrails, then routes through planning, execution, tool safety checks, tools, recovery, validation, and output guardrails as needed. Plan mode pauses for plan approval. Goal mode may work autonomously, but risky operations still follow the approval policy. The workflow enforces turn and token budgets, detects repeated tool calls, and routes unresolved loops to clarification rather than continuing indefinitely.
+The workflow routes short conversation directly to one chat node. Edit requests use the executor and deterministic tool approval. Plan and Goal modes opt into project context, planning, validation, recovery, and clarification only when needed. Skills run as disposable subgraphs that inherit the parent workspace, model, user, and safety context.
 
 ### Persistent state
 
@@ -66,7 +66,8 @@ The workflow starts with input guardrails, then routes through planning, executi
 | LangGraph checkpoints | PostgreSQL when `DB_URI` is set | Resume agent threads and workflow state |
 | Web workspace files | `~/.compass/workspaces/<user>/<workspace>` | Isolated project contents |
 | TUI configuration | `~/.compass/config.toml` or `<project>/.compass/config.toml` | Local preferences and agent settings |
-| Vector/search data | Local agent RAG storage | Semantic codebase retrieval |
+| Long-term user/project memory | LangGraph PostgresStore | Durable cross-thread recall |
+| Vector/search data | PGVector | Semantic codebase and upload retrieval |
 
 ## Interfaces
 
@@ -226,7 +227,6 @@ Without `DB_URI`, the agent runs without PostgreSQL-backed LangGraph checkpoints
 | `COMPASS_CLOUD_MODE` | Hosted deployments | Removes the shell tool from the agent tool registry. |
 | `TAVILY_API_KEY` | Optional | Enables Tavily-backed web search when configured. |
 | `COMPASS_REDIS_URL` | Optional | Enables the configured LLM response-cache path. |
-| `LANGCHAIN_API_KEY`, `LANGCHAIN_PROJECT` | Optional | LangSmith tracing configuration. |
 | `VITE_API_URL`, `VITE_WS_URL` | Frontend only | Public API and WebSocket bases for separately hosted frontend. Never put secrets here. |
 
 ### Local agent configuration
@@ -237,7 +237,7 @@ The local agent merges built-in defaults, `~/.compass/config.toml`, `<project>/.
 | --- | --- | --- |
 | `model.planner` / `model.executor` | `google/gemma-4-31b-it:free` | Role-specific model selection |
 | `safety.mode` | `auto` | Local TUI approval-policy setting; use the default for normal work |
-| `guardrails.enabled` | `true` | Enable input and output guardrails |
+| `model.evaluator` | `google/gemma-4-31b-it:free` | Goal validation and direct-chat role |
 | `hitl.enabled` | `true` | Enable human-in-the-loop requests |
 | `tools.shell_timeout` | `30` | Shell command timeout in seconds |
 | `rag.auto_index` | `false` | Index the codebase automatically |
@@ -302,7 +302,7 @@ The browser application handles this connection. Direct clients should authentic
 
 ```text
 .
-├── agent/                  # LangGraph workflow, tools, RAG, skills, guardrails, TUI
+├── agent/                  # LangGraph workflow, tools, RAG, skills, memory, safety, TUI
 │   ├── graph/              # State, nodes, routing, and tool registry
 │   ├── tools/              # File, search, shell, web, memory, todo, skill tools
 │   ├── rag/                # Indexing, chunking, retrieval, vector storage
@@ -319,7 +319,7 @@ The browser application handles this connection. Direct clients should authentic
 │   ├── src/contexts/       # Auth, run, and workbench UI state
 │   ├── src/components/     # Workbench, agent, project, review, settings UI
 │   └── src/pages/          # Login, callback, and workbench routes
-├── evals/                  # LangSmith-oriented evaluation data and runners
+├── tests/                  # Fast architecture and routing invariants
 ├── main.py                 # TUI CLI entry point
 ├── requirements.txt        # Python dependencies
 ├── alembic.ini             # Migration configuration
@@ -347,15 +347,11 @@ npm run build
 
 The frontend pass also requires manual checks across desktop and mobile viewports, light/dark/system themes, keyboard navigation, reduced motion, empty/loading/error states, GitHub capability states, and browser-console cleanliness. See [frontend/README.md](frontend/README.md) for frontend-specific notes.
 
-### Evaluations
-
-The `evals/` directory contains the current evaluation harness and golden dataset. It uses LangSmith when configured:
+### Fast architecture tests
 
 ```bash
-python evals/run_evals.py
+python -m unittest discover -s tests -v
 ```
-
-Set `LANGCHAIN_API_KEY` before running evaluations that report to LangSmith.
 
 ## Docker and deployment
 
@@ -397,6 +393,7 @@ For a public deployment, additionally configure `SECURE_COOKIES=true`, `CORS_ORI
 - [DEPLOYMENT.md](DEPLOYMENT.md) - production deployment notes and security checklist
 - [frontend/README.md](frontend/README.md) - frontend architecture and verification commands
 - [roadmap.md](roadmap.md) - future ideas; treat it as planning material, not a statement of shipped features
+- [docs/COMPASS_ARCHITECTURE.md](docs/COMPASS_ARCHITECTURE.md) - complete feature, workflow, router, table, memory, frontend, and extension reference
 
 ## License
 

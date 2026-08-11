@@ -8,6 +8,7 @@ import GitHubConnectionPanel from "@/components/github/GitHubConnectionPanel";
 import McpServerManager from "./McpServerManager";
 import SkillsManager from "./SkillsManager";
 import Modal from "@/components/ui/modal";
+import MemoryManager from "./MemoryManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,6 +37,7 @@ const normalizeTab = (value?: string) => {
   if (value === "defaults" || value === "model") return "model";
   if (value === "appearance") return "appearance";
   if (value === "advanced" || value === "skills" || value === "mcp" || value === "tools") return "advanced";
+  if (value === "memory") return "memory";
   return "account";
 };
 
@@ -44,11 +46,12 @@ export default function SettingsModal({
   onOpenChange,
   user,
   initialTab,
+  projectId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user: AuthUser | null;
-  sessionId?: string | null;
+  projectId?: string | null;
   initialTab?: string;
 }) {
   const { signOut } = useAuth();
@@ -109,12 +112,13 @@ export default function SettingsModal({
         ) : (
           <Tabs key={activeTab} defaultValue={activeTab} className="flex min-h-0 flex-1 flex-col">
             <div className="border-b border-border px-5 py-2">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="account">Account</TabsTrigger>
                 <TabsTrigger value="model">Model</TabsTrigger>
                 <TabsTrigger value="appearance">Appearance</TabsTrigger>
                 <TabsTrigger value="advanced">Advanced</TabsTrigger>
               </TabsList>
+                <TabsTrigger value="memory">Memory</TabsTrigger>
             </div>
             {error && <p role="alert" className="mx-5 mt-4 border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -142,6 +146,9 @@ export default function SettingsModal({
               </TabsContent>
               <TabsContent value="advanced" className="m-0 space-y-8 p-5">
                 <SectionTitle icon={Shield} title="Advanced" description="Author reusable skills and inspect server-managed remote capabilities. Select skills for normal tasks from the context workflow." />
+              <TabsContent value="memory" className="m-0 p-5">
+                <MemoryManager projectId={projectId} />
+              </TabsContent>
                 <SkillsManager />
                 <div className="border-t border-border pt-6"><McpServerManager /></div>
               </TabsContent>

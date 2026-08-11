@@ -77,7 +77,7 @@ export default function AppLayout({ children, headerActions }: AppLayoutProps) {
         open={settingsOpen}
         onOpenChange={(v) => { setSettingsOpen(v); if (!v) setSettingsInitialTab(undefined); }}
         user={user}
-        sessionId={activeSessionId}
+        projectId={state.activeWorkspaceId}
         initialTab={settingsInitialTab}
       />
     </div>

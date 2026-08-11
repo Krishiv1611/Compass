@@ -1,59 +1,61 @@
+"""Process-local, user-scoped task tracking for agent runs."""
+
 import uuid
+
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-# Module-level task list — persists within a single process run.
-_tasks: list[dict] = []
+_tasks: dict[str, list[dict]] = {}
+
+
+def _owner(config: RunnableConfig | None) -> str:
+    return str((config or {}).get("configurable", {}).get("user_id") or "cli")
+
+
+def get_tasks_for_user(user_id: str) -> list[dict]:
+    return list(_tasks.get(str(user_id), []))
 
 
 @tool
-def todo(action: str, text: str = "", task_id: str = "") -> str:
-    """Manage a task list to track multi-step work.
-
-    Use this to plan complex tasks, track progress, and stay organized
-    when working on something that requires multiple steps.
-
-    Args:
-        action: One of 'add', 'complete', 'list', or 'clear'.
-        text: The task description (required for add).
-        task_id: The task ID to mark complete (required for complete).
-    """
+def todo(
+    action: str,
+    text: str = "",
+    task_id: str = "",
+    *,
+    config: RunnableConfig,
+) -> str:
+    """Add, complete, list, or clear tasks for the active user."""
+    tasks = _tasks.setdefault(_owner(config), [])
     action = action.strip().lower()
 
     if action == "add":
-        if not text:
-            return "Error: 'text' is required for the 'add' action."
-        task = {
-            "id": uuid.uuid4().hex[:8],
-            "text": text,
-            "done": False,
-        }
-        _tasks.append(task)
-        return f"Added task {task['id']}: {text}"
+        if not text.strip():
+            return "Error: text is required for add."
+        task = {"id": uuid.uuid4().hex[:8], "text": text.strip(), "done": False}
+        tasks.append(task)
+        return f"Added task {task['id']}: {task['text']}"
 
-    elif action == "complete":
-        if not task_id:
-            return "Error: 'task_id' is required for the 'complete' action."
-        for task in _tasks:
+    if action == "complete":
+        for task in tasks:
             if task["id"] == task_id:
                 task["done"] = True
                 return f"Completed task {task_id}: {task['text']}"
         return f"Error: No task found with ID '{task_id}'"
 
-    elif action == "list":
-        if not _tasks:
+    if action == "list":
+        if not tasks:
             return "No tasks yet."
-        done = sum(1 for t in _tasks if t["done"])
-        lines = []
-        for t in _tasks:
-            mark = "x" if t["done"] else " "
-            lines.append(f"  [{mark}] {t['id']} — {t['text']}")
-        return f"Tasks ({done}/{len(_tasks)} completed):\n" + "\n".join(lines)
+        done = sum(1 for task in tasks if task["done"])
+        lines = [
+            f"  [{'x' if task['done'] else ' '}] {task['id']} - {task['text']}"
+            for task in tasks
+        ]
+        return f"Tasks ({done}/{len(tasks)} completed):\n" + "\n".join(lines)
 
-    elif action == "clear":
-        before = len(_tasks)
-        _tasks[:] = [t for t in _tasks if not t["done"]]
-        removed = before - len(_tasks)
-        return f"Cleared {removed} completed task(s). {len(_tasks)} remaining."
+    if action == "clear":
+        active = [task for task in tasks if not task["done"]]
+        removed = len(tasks) - len(active)
+        _tasks[_owner(config)] = active
+        return f"Cleared {removed} completed task(s). {len(active)} remaining."
 
-    else:
-        return f"Error: Unknown action '{action}'. Use 'add', 'complete', 'list', or 'clear'."
+    return "Error: action must be add, complete, list, or clear."

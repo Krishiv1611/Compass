@@ -17,21 +17,10 @@ DEFAULT_CONFIG = {
     "model.executor": "google/gemma-4-31b-it:free",
     "model.recovery": "google/gemma-4-31b-it:free",
     "model.summarizer": "google/gemma-4-31b-it:free",
-    "model.guardrails": "google/gemma-4-31b-it:free",
     "model.evaluator": "google/gemma-4-31b-it:free",
     # Safety
     "safety.mode": "auto",  # auto | yolo | strict
     "safety.blocked_commands": "",  # extra blocked patterns
-    # Guardrails
-    "guardrails.enabled": True,
-    "guardrails.input_rails": True,
-    "guardrails.output_rails": True,
-    "guardrails.fail_open": True,
-    "guardrails.strictness": "balanced",       # strict | balanced | permissive
-    # LLMOps
-    "llmops.tracing_enabled": True,
-    "llmops.log_token_usage": True,
-    "llmops.project_name": "compass",
     # Human-in-the-loop
     "hitl.enabled": True,
     "hitl.auto_approve_safe": True,

@@ -12,7 +12,6 @@ import os
 from typing import Optional
 
 from dotenv import load_dotenv
-from langchain_openai import OpenAIEmbeddings
 from sqlalchemy import delete
 
 # Note: We now use PGVector instead of Chroma
@@ -23,14 +22,6 @@ load_dotenv()
 WORKSPACE_DIR = os.getcwd()
 COLLECTION_NAME = "compass_workspace"
 
-_raw_embeddings = OpenAIEmbeddings(
-    model="nvidia/llama-nemotron-embed-vl-1b-v2:free",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-    check_embedding_ctx_length=False,
-    chunk_size=16,
-)
-
 _embeddings = None
 
 def _get_embeddings():
@@ -38,7 +29,15 @@ def _get_embeddings():
     if _embeddings is not None:
         return _embeddings
     
-    _embeddings = _raw_embeddings
+    from langchain_openai import OpenAIEmbeddings
+
+    _embeddings = OpenAIEmbeddings(
+        model=os.environ.get("COMPASS_EMBEDDING_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2:free"),
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+        check_embedding_ctx_length=False,
+        chunk_size=16,
+    )
     return _embeddings
 
 _vector_store: Optional[PGVector] = None

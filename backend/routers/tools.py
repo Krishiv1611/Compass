@@ -1,28 +1,46 @@
+"""Tool catalog and compatibility activity endpoints."""
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+
+from agent.tools.memory_tool import list_memories
+from agent.tools.todo_tool import get_tasks_for_user
 from backend.auth.dependencies import get_current_user
 from backend.models.user import User
 
-from agent.tools.todo_tool import _tasks
-from agent.tools.memory_tool import _store, _DEFAULT_NAMESPACE
-
 router = APIRouter(prefix="/tools", tags=["tools"])
+
+
+class ToolInfo(BaseModel):
+    name: str
+    description: str
+    environment: str = "web"
+
+
+@router.get("", response_model=list[ToolInfo])
+def list_tools(current_user: User = Depends(get_current_user)):
+    from agent.graph.tools_registry import ALL_TOOLS
+
+    tui_only = {"shell_execute"}
+    return [
+        ToolInfo(
+            name=tool.name,
+            description=(tool.description or "No description")[:300],
+            environment="tui" if tool.name in tui_only else "web",
+        )
+        for tool in ALL_TOOLS
+        if hasattr(tool, "name")
+    ]
+
 
 @router.get("/tasks")
 def get_tasks(current_user: User = Depends(get_current_user)):
-    """Returns the current list of agent tasks."""
-    return {"tasks": _tasks}
+    """Return the current task list."""
+    return {"tasks": get_tasks_for_user(str(current_user.id))}
+
 
 @router.get("/memory")
 def get_memories(current_user: User = Depends(get_current_user)):
-    """Returns the current long-term memories."""
-    if not _store:
-        return {"memories": [], "enabled": False}
-    try:
-        results = _store.search(_DEFAULT_NAMESPACE, offset=0, limit=100)
-        memories = [
-            {"key": r.key, "value": r.value, "updated_at": str(r.updated_at) if r.updated_at else None}
-            for r in results
-        ]
-        return {"memories": memories, "enabled": True}
-    except Exception as e:
-        return {"memories": [], "enabled": False, "error": str(e)}
+    """Backward-compatible global memory list for the Context Drawer."""
+    memories, enabled, error = list_memories(str(current_user.id))
+    return {"memories": memories, "enabled": enabled, "error": error}

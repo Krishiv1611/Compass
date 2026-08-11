@@ -10,4 +10,5 @@ export * from "./mcp";
 export * from "./preferences";
 export * from "./patches";
 export * from "./uploads";
+export * from "./memory";
 export * from "./tools";

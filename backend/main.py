@@ -10,7 +10,12 @@ Main entry point for the web API. Includes:
 """
 
 import os
+import asyncio
+import sys
 from contextlib import asynccontextmanager
+
+if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +27,6 @@ from backend.config import settings
 from backend.db import engine
 
 import structlog
-import sys
 
 import logging
 
@@ -57,6 +61,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error(f"Database connection failed: {exc}")
         
+    try:
+        from agent.graph.workflow import get_workflow
+
+        await get_workflow()
+        logger.info("LangGraph workflow ready")
+    except Exception as exc:
+        logger.error(f"Workflow warmup failed: {exc}")
     yield
 
     # Shutdown
@@ -132,20 +143,26 @@ from fastapi import APIRouter
 from backend.routers.auth import router as auth_router
 from backend.routers.sessions import router as sessions_router
 from backend.routers.chat import router as chat_router
-from backend.routers.core import router as core_router
+from backend.routers.settings import router as settings_router
+from backend.routers.runs import router as runs_router
+from backend.routers.skills import router as skills_router
 from backend.routers.uploads import router as uploads_router
 from backend.routers.workspaces import router as workspaces_router
 from backend.routers.tools import router as tools_router
 from backend.routers.github import router as github_router
+from backend.routers.memory import router as memory_router
 
 # Mount all routers under /api prefix (matches frontend VITE_API_URL)
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
 api_router.include_router(sessions_router)
 api_router.include_router(chat_router)
-api_router.include_router(core_router)
+api_router.include_router(settings_router)
+api_router.include_router(runs_router)
+api_router.include_router(skills_router)
 api_router.include_router(uploads_router)
 api_router.include_router(workspaces_router)
 api_router.include_router(tools_router)
 api_router.include_router(github_router)
+api_router.include_router(memory_router)
 app.include_router(api_router)

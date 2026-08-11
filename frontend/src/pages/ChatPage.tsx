@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Activity,
@@ -10,7 +10,7 @@ import {
   PanelRight,
 } from "lucide-react";
 import { toast } from "react-toastify";
-import { chatApi, patchesApi, sessionsApi, uploadsApi, workspaceApi } from "@/api";
+import { chatApi, patchesApi, runsApi, sessionsApi, uploadsApi, workspaceApi } from "@/api";
 import { useRunEvents } from "@/contexts/RunContext";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import type { ChatMode } from "@/types/chat";
@@ -18,7 +18,6 @@ import type { RunEvent } from "@/types/run";
 import type { TranscriptMessage } from "@/components/chat/MessageList";
 import AppLayout from "@/components/layout/AppLayout";
 import AgentPanel from "@/components/agent/AgentPanel";
-import CenterWorkbench from "@/components/workbench/CenterWorkbench";
 import WorkbenchComposition from "@/components/workbench/WorkbenchComposition";
 import WorkspaceLanding from "@/components/sandbox/WorkspaceLanding";
 import CommandPalette from "@/components/workbench/CommandPalette";
@@ -26,6 +25,8 @@ import ContextDrawer from "@/components/workbench/ContextDrawer";
 import RunTimeline from "@/components/chat/RunTimeline";
 import GitHubPublishDialog from "@/components/github/GitHubPublishDialog";
 import { Button } from "@/components/ui/button";
+
+const CenterWorkbench = lazy(() => import("@/components/workbench/CenterWorkbench"));
 
 type ApprovalState = {
   content?: string;
@@ -47,6 +48,7 @@ export default function ChatPage() {
     addEvent,
     finishRun,
     isRunActive,
+    markFirstToken,
     setOffline,
     startRun,
   } = useRunEvents();
@@ -61,6 +63,9 @@ export default function ChatPage() {
   const socketRef = useRef<WebSocket | null>(null);
   const assistantMessageId = useRef<string | null>(null);
 
+  const activeRunId = useRef<string | null>(null);
+  const tokenBuffer = useRef("");
+  const tokenFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ensureSession = useCallback(async (title = "New task") => {
     if (sessionId) return sessionId;
     const session = await sessionsApi.createSession(title);
@@ -117,16 +122,29 @@ export default function ChatPage() {
   }, [dispatch, refreshWorkspace, sessionParam]);
 
   useEffect(() => {
-    return () => socketRef.current?.close();
+    return () => {
+      if (tokenFlushTimer.current) clearTimeout(tokenFlushTimer.current);
+      socketRef.current?.close();
+    };
   }, []);
 
-  const appendAssistantText = (content: string) => {
+  const flushAssistantText = useCallback(() => {
+    tokenFlushTimer.current = null;
     const id = assistantMessageId.current;
-    if (!id) return;
+    const content = tokenBuffer.current;
+    tokenBuffer.current = "";
+    if (!id || !content) return;
     setMessages((items) => items.map((item) =>
       item.id === id ? { ...item, content: `${item.content || ""}${content}`, pending: true } : item
     ));
-  };
+  }, []);
+
+  const appendAssistantText = useCallback((content: string) => {
+    tokenBuffer.current += content;
+    if (!tokenFlushTimer.current) {
+      tokenFlushTimer.current = setTimeout(flushAssistantText, 32);
+    }
+  }, [flushAssistantText]);
 
   const handleSend = async (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => {
     if (!content.trim() && files.length === 0) return;
@@ -147,6 +165,8 @@ export default function ChatPage() {
       };
       const assistantId = `assistant-${Date.now()}`;
       assistantMessageId.current = assistantId;
+      activeRunId.current = null;
+      tokenBuffer.current = "";
       setMessages((items) => [...items, userMessage, {
         id: assistantId,
         role: "assistant",
@@ -175,7 +195,9 @@ export default function ChatPage() {
           return;
         }
         const type = String(event.type || "status");
+        if (event.run_id) activeRunId.current = String(event.run_id);
         if (type === "token" || type === "assistant_delta") {
+          markFirstToken();
           appendAssistantText(String(event.content || ""));
           setStreamStatus("Writing response");
           return;
@@ -195,12 +217,13 @@ export default function ChatPage() {
           setStreamStatus("Run failed");
         }
         if (type === "done" || type === "error") {
+          flushAssistantText();
           setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, pending: false } : item));
           setIsLoading(false);
           setActiveSocket(null);
           finishRun();
           dispatch({ type: "sessionsChanged" });
-          void refreshWorkspace(currentSessionId);
+          socket.close();
         }
       };
       socket.onerror = () => {
@@ -228,17 +251,22 @@ export default function ChatPage() {
     setStreamStatus("Resuming");
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "cancel" }));
+    if (activeRunId.current && sessionId) {
+      try { await runsApi.cancelRun(sessionId, activeRunId.current); } catch { /* The socket may already be closing. */ }
+    }
     socket?.close();
+    flushAssistantText();
     finishRun();
     setIsLoading(false);
     setStreamStatus("Stopped");
   };
 
   const centerPanel = state.activeWorkspaceId ? (
-    <CenterWorkbench activeWorkspaceId={state.activeWorkspaceId} />
+    <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-muted-foreground">Opening project workbench…</div>}>
+      <CenterWorkbench activeWorkspaceId={state.activeWorkspaceId} />
+    </Suspense>
   ) : (
     <WorkspaceLanding
       sessionId={sessionId}

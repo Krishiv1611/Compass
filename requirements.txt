@@ -55,8 +55,6 @@ httpx
 # ruff
 
 # LLMOps & Guardrails
-nemoguardrails>=0.17.0
-langsmith>=0.3.0
 
 structlog
 

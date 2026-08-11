@@ -1,23 +1,25 @@
 ﻿import { useCallback, useEffect, useRef, useState } from "react";
-import { WebContainer } from "@webcontainer/api";
+import type { WebContainer as WebContainerInstance } from "@webcontainer/api";
 import { ExternalLink, Globe, Loader2, Play, RefreshCcw, Square, Terminal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type PreviewFiles = Record<string, { file?: { contents: string } }>;
 type PreviewState = "idle" | "booting" | "installing" | "running" | "ready" | "error";
 
-let container: WebContainer | null = null;
-let bootPromise: Promise<WebContainer> | null = null;
+let container: WebContainerInstance | null = null;
+let bootPromise: Promise<WebContainerInstance> | null = null;
 
 async function getContainer() {
   if (container) return container;
-  bootPromise ||= WebContainer.boot().then((instance) => { container = instance; return instance; });
+  bootPromise ||= import("@webcontainer/api").then(({ WebContainer }) =>
+    WebContainer.boot().then((instance) => { container = instance; return instance; })
+  );
   return bootPromise;
 }
 
 export default function WebPreview({ files, visible, onClose }: { files?: PreviewFiles; visible: boolean; onClose: () => void }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const containerRef = useRef<WebContainer | null>(null);
+  const containerRef = useRef<WebContainerInstance | null>(null);
   const [state, setState] = useState<PreviewState>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);

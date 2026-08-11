@@ -13,6 +13,7 @@ interface RunContextValue {
   startRun: (sessionId: string) => void;
   addEvent: (event: LiveRunEvent) => void;
   finishRun: () => void;
+  markFirstToken: () => void;
   setOffline: () => void;
   clearRun: () => void;
 }
@@ -28,6 +29,7 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
   const [firstEventLatencyMs, setFirstEventLatencyMs] = useState<number | null>(null);
   const startedAtMs = useRef<number | null>(null);
   const queue = useRef<LiveRunEvent[]>([]);
+  const firstTokenSeen = useRef(false);
   const frame = useRef<number | null>(null);
 
   const flush = useCallback(() => {
@@ -36,6 +38,7 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
     const batch = queue.current.splice(0);
     setCurrentRunEvents((previous) => [...previous, ...batch]);
   }, []);
+    firstTokenSeen.current = false;
 
   const startRun = useCallback((sessionId: string) => {
     const now = Date.now();
@@ -50,9 +53,6 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
 
   const addEvent = useCallback((event: LiveRunEvent) => {
     if (event.type === "ping" || event.type === "token") return;
-    if (firstEventLatencyMs === null && startedAtMs.current !== null) {
-      setFirstEventLatencyMs(Date.now() - startedAtMs.current);
-    }
     setConnection("streaming");
     queue.current.push({
       ...event,
@@ -60,7 +60,14 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
       created_at: event.created_at || new Date().toISOString(),
     });
     if (frame.current === null) frame.current = window.setTimeout(flush, 50);
-  }, [firstEventLatencyMs, flush]);
+  }, [flush]);
+
+  const markFirstToken = useCallback(() => {
+    if (firstTokenSeen.current || startedAtMs.current === null) return;
+    firstTokenSeen.current = true;
+    setFirstEventLatencyMs(Date.now() - startedAtMs.current);
+    setConnection("streaming");
+  }, []);
 
   const finishRun = useCallback(() => {
     flush();
@@ -85,10 +92,10 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<RunContextValue>(() => ({
     currentRunEvents, currentSessionId, isRunActive, startedAt, connection,
-    firstEventLatencyMs, startRun, addEvent, finishRun, setOffline, clearRun,
+    firstEventLatencyMs, startRun, addEvent, markFirstToken, finishRun, setOffline, clearRun,
   }), [
     addEvent, clearRun, connection, currentRunEvents, currentSessionId,
-    finishRun, firstEventLatencyMs, isRunActive, setOffline, startRun, startedAt,
+    finishRun, firstEventLatencyMs, isRunActive, markFirstToken, setOffline, startRun, startedAt,
   ]);
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

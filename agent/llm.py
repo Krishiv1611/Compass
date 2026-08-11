@@ -31,9 +31,13 @@ def _init_llm_cache():
         return
     _llm_cache_initialized = True
 
-    _redis_url = os.getenv("COMPASS_REDIS_URL", "redis://localhost:6379")
+    _redis_url = os.getenv("COMPASS_REDIS_URL")
+    if not _redis_url:
+        from langchain_core.caches import InMemoryCache
+        set_llm_cache(InMemoryCache())
+        return
+
     try:
-        import asyncio
         import concurrent.futures
         import redis
         from langchain_core.caches import InMemoryCache

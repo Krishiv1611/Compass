@@ -7,7 +7,7 @@ from langgraph.prebuilt import ToolNode
 from langchain_core.runnables.config import RunnableConfig
 
 from backend.ws.hub import manager
-from backend.schemas.chat import StreamEvent
+from agent.runtime.events import StreamEvent
 from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
 from agent.workspace import WorkspaceContext
 
