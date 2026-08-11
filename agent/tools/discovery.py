@@ -1,56 +1,77 @@
+"""Safe discovery and explicit loading of repository custom tools."""
+
+from __future__ import annotations
+
+import hashlib
 import importlib.util
 import inspect
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 from langchain_core.tools import BaseTool
 
 
-def get_custom_tools() -> List[BaseTool]:
-    """Dynamically load and return custom tools from .compass/tools/"""
-    custom_tools = []
+@dataclass(frozen=True)
+class CustomToolCandidate:
+    """A Python file that may contain custom tools, without importing it."""
 
-    # Check both global (~/.compass/tools) and local (./.compass/tools) directories
-    # Local directory is checked second so it can override global tools with the same name.
-    search_dirs = [
-        Path.home() / ".compass" / "tools",
-        Path.cwd() / ".compass" / "tools",
+    source_path: Path
+    scope: str
+
+
+def scan_custom_tool_files(workspace_root: Path) -> list[CustomToolCandidate]:
+    """List custom-tool Python files without executing repository code."""
+
+    search = [
+        (Path.home() / ".compass" / "tools", "global"),
+        (workspace_root / ".compass" / "tools", "workspace"),
+    ]
+    return [
+        CustomToolCandidate(path.resolve(), scope)
+        for directory, scope in search
+        if directory.is_dir()
+        for path in sorted(directory.glob("*.py"))
+        if path.name != "__init__.py"
     ]
 
-    for tools_dir in search_dirs:
-        if not tools_dir.exists() or not tools_dir.is_dir():
+
+def load_approved_custom_tools(
+    candidates: Iterable[CustomToolCandidate],
+    approved_paths: Iterable[str | Path],
+    *,
+    reserved_names: Iterable[str] | None = None,
+) -> list[BaseTool]:
+    """Import tools only from explicitly approved candidate paths.
+
+    Duplicate names are rejected so custom code cannot shadow built-in tools or
+    another approved custom tool.
+    """
+
+    approved = {str(Path(path).expanduser().resolve()) for path in approved_paths}
+    known_names = set(reserved_names or ())
+    loaded: list[BaseTool] = []
+
+    for candidate in candidates:
+        source_path = candidate.source_path.resolve()
+        if str(source_path) not in approved:
             continue
 
-        # Scan for Python files
-        for file_path in tools_dir.glob("*.py"):
-            if file_path.name == "__init__.py":
+        digest = hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()[:16]
+        module_name = f"compass_custom_tools_{digest}"
+        spec = importlib.util.spec_from_file_location(module_name, source_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load custom tool module: {source_path}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        for _, value in inspect.getmembers(module):
+            if not isinstance(value, BaseTool):
                 continue
+            if value.name in known_names:
+                raise ValueError(f"Duplicate tool name: {value.name}")
+            known_names.add(value.name)
+            loaded.append(value)
 
-            module_name = f"compass_custom_tools_{file_path.stem}"
-
-            # Dynamically import the module
-            spec = importlib.util.spec_from_file_location(module_name, str(file_path))
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                try:
-                    spec.loader.exec_module(module)
-
-                    # Inspect the module for LangChain tools
-                    for name, obj in inspect.getmembers(module):
-                        if isinstance(obj, BaseTool):
-                            # Avoid loading duplicates if the same tool name is in both dirs
-                            # local overrides global if they have the same name
-                            existing_names = [t.name for t in custom_tools]
-                            if obj.name not in existing_names:
-                                custom_tools.append(obj)
-                            else:
-                                # Replace existing global tool with local tool of same name
-                                idx = existing_names.index(obj.name)
-                                custom_tools[idx] = obj
-
-                except Exception as e:
-                    print(
-                        f"[tools] Error loading custom tool from {file_path.name}: {e}"
-                    )
-
-    return custom_tools
+    return loaded

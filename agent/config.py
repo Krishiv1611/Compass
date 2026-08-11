@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
     # Tools
     "tools.max_results": 50,
     "tools.shell_timeout": 30,
+    "custom_tools.enabled": False,
+    "custom_tools.approved_paths": [],
     # Context
     "context.summarize_after": 10,  # message count threshold
     "context.loop_max_retries": 3,
