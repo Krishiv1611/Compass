@@ -12,6 +12,8 @@ class StreamEventType(str, Enum):
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     APPROVAL_REQUIRED = "approval_required"
+    CLARIFICATION_REQUIRED = "clarification_required"
+    RUN_WAITING = "run_waiting"
     RPC_CALL = "rpc_call"
     WORKSPACE_PATCH = "workspace_patch"
     PLAN_CREATED = "plan_created"
