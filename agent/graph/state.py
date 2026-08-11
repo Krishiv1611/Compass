@@ -32,6 +32,9 @@ class AgentState(TypedDict):
     token_usage: dict  # Token counts from usage_metadata
     syntax_checked: bool
     syntax_check_failed: bool
+    goal_iteration: int
+    goal_iteration_limit: int
+    needs_replan: bool
 
     # ── Loop Recovery ────────────────────────────────────────────────────────
     loop_detected: bool  # Set by loop detector in call_model

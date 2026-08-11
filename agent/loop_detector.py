@@ -35,7 +35,9 @@ def _hash_tool_call(tool_call: dict) -> str:
 
 
 def _extract_recent_tool_call_hashes(
-    state: "AgentState", lookback: int = 10
+    state: "AgentState",
+    lookback: int = 10,
+    new_response: AIMessage | None = None,
 ) -> list[str]:
     """
     Extract tool call hashes from recent AIMessages.
@@ -43,7 +45,9 @@ def _extract_recent_tool_call_hashes(
     Returns a flat list of hashes in chronological order,
     one hash per tool call (an AIMessage can have multiple tool calls).
     """
-    messages = state.get("messages", [])
+    messages = list(state.get("messages", []))
+    if new_response is not None:
+        messages.append(new_response)
     recent_ai_messages = [
         m
         for m in messages[-lookback:]
@@ -58,7 +62,11 @@ def _extract_recent_tool_call_hashes(
     return hashes
 
 
-def is_looping(state: "AgentState", max_identical_calls: int = 3) -> bool:
+def is_looping(
+    state: "AgentState",
+    max_identical_calls: int = 3,
+    new_response: AIMessage | None = None,
+) -> bool:
     """
     Detect if the agent is calling the same tool(s) with the same arguments repeatedly.
 
@@ -72,7 +80,10 @@ def is_looping(state: "AgentState", max_identical_calls: int = 3) -> bool:
     Returns:
         True if a loop pattern is detected.
     """
-    hashes = _extract_recent_tool_call_hashes(state)
+    hashes = _extract_recent_tool_call_hashes(
+        state,
+        new_response=new_response,
+    )
 
     if len(hashes) < max_identical_calls:
         return False

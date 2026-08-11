@@ -15,6 +15,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from agent.tools.memory_tool import MEMORY_STORE as memory_store
 from agent.graph.tool_node import CompassToolNode
 from agent.graph.tools_registry import ALL_TOOLS, TOOL_REGISTRY
+from agent.graph.routing import route_after_executor
 
 from agent.graph.state import AgentState
 from agent.graph.nodes import (
@@ -28,6 +29,8 @@ from agent.graph.nodes import (
     clarifier_node,
     context_injector_node,
     linter_node,
+    goal_limit_node,
+    loop_limit_node,
 )
 
 # Tools are now managed in agent.graph.tools_registry
@@ -84,42 +87,6 @@ def _executor_scope_expanded(state: AgentState) -> bool:
         and (call.get("args", {}).get("path") or call.get("args", {}).get("file_path"))
     }
     return len(paths) >= 3
-
-async def _route_after_executor(state: AgentState) -> str:
-    """
-    Route after the executor node.
-
-    Priority order:
-      1. Loop detected (and under recovery limit) â†’ loop_recovery
-      2. Has tool calls (normal flow)              â†’ check_safety
-      3. Done + long conversation                  â†’ summary_node
-      4. Done                                      â†’ guardrails_output
-    """
-
-    # ── 1. Loop recovery & Hard Loop Escalation ────────────────────────────────
-    mode = _normalise_mode(state)
-    if mode == "goal" and state.get("loop_detected", False):
-        loop_count = state.get("loop_count", 0)
-        if loop_count >= 2:
-            return "clarifier"
-        return "loop_recovery"
-
-    # ── 2. Normal tool execution ───────────────────────────────────────────────
-    if _executor_scope_expanded(state):
-        return "context_injector"
-
-    last_message = state["messages"][-1]
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        if not state.get("loop_detected", False):
-            return "check_safety"
-
-    # ── 3. Done — route to evaluator before ending ──────────────────────────────
-    if mode == "goal":
-        if _turn_modified_files(state) and not state.get("syntax_checked", False):
-            return "linter_node"
-        return "evaluator"
-    return END
-
 
 async def _route_after_linter(state: AgentState) -> str:
     """Continue Goal validation after deterministic checks."""
@@ -248,6 +215,8 @@ builder.add_node("direct_chat", direct_chat_node)
 builder.add_node("check_safety", check_safety_node)
 builder.add_node("tools", CompassToolNode(TOOL_REGISTRY))
 builder.add_node("loop_recovery", loop_recovery_node)
+builder.add_node("goal_limit", goal_limit_node)
+builder.add_node("loop_limit", loop_limit_node)
 builder.add_node("evaluator", evaluator_node)
 builder.add_node("linter_node", linter_node)
 
@@ -255,13 +224,28 @@ builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
 builder.add_conditional_edges("plan_approval", _route_after_plan_approval)
 builder.add_edge("skill_manager", END)
-builder.add_conditional_edges("executor", _route_after_executor)
+builder.add_conditional_edges(
+    "executor",
+    route_after_executor,
+    {
+        "check_safety": "check_safety",
+        "goal_limit": "goal_limit",
+        "loop_recovery": "loop_recovery",
+        "loop_limit": "loop_limit",
+        "context_injector": "context_injector",
+        "linter_node": "linter_node",
+        "executor": "executor",
+        "end": END,
+    },
+)
 builder.add_conditional_edges("check_safety", _route_after_safety)
 builder.add_edge("tools", "executor")
 builder.add_conditional_edges("linter_node", _route_after_linter)
 builder.add_edge("clarifier", "executor")
 builder.add_edge("context_injector", "planner")
 builder.add_edge("loop_recovery", "executor")
+builder.add_edge("goal_limit", END)
+builder.add_edge("loop_limit", END)
 builder.add_conditional_edges("evaluator", _route_after_evaluator)
 builder.add_edge("direct_chat", END)
 

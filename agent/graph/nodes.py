@@ -133,6 +133,7 @@ async def planner_node(state: AgentState, config: RunnableConfig):
         "current_step": 0,
         "loop_count": 0,
         "loop_detected": False,
+        "needs_replan": False,
         "recovery_guidance": "",
         "messages": [response],
     }
@@ -376,9 +377,11 @@ async def call_model(state: AgentState, config: RunnableConfig):
         new_state["current_step"] = state.get("current_step", 0) + 1
 
     # ── Loop detection ───────────────────────────────────────────────────────
-    # We check AFTER adding the new response to detect patterns
-    # But since messages haven't been committed yet, we check current state
-    loop = is_looping(state, max_identical_calls=3)
+    loop = is_looping(
+        state,
+        max_identical_calls=3,
+        new_response=response,
+    )
     new_state["loop_detected"] = loop
 
     if loop:
@@ -448,6 +451,46 @@ async def loop_recovery_node(state: AgentState, config: RunnableConfig):
         "recovery_guidance": guidance,
         "loop_count": loop_count,
         "loop_detected": False,  # Reset so executor can try again
+    }
+
+
+async def goal_limit_node(state: AgentState) -> dict:
+    """End a Goal run clearly when its bounded retries are exhausted."""
+
+    limit = state.get("goal_iteration_limit", 3)
+    return {
+        "messages": [
+            AIMessage(
+                content=(
+                    "I could not complete and validate this goal within "
+                    f"the configured limit of {limit} attempts. "
+                    "The run has stopped without unresolved tool calls."
+                )
+            )
+        ],
+        "is_done": True,
+        "pending_tool_calls": [],
+        "loop_detected": False,
+        "needs_replan": False,
+    }
+
+
+async def loop_limit_node(state: AgentState) -> dict:
+    """End a non-Goal loop clearly instead of silently cycling."""
+
+    return {
+        "messages": [
+            AIMessage(
+                content=(
+                    "I stopped because the same action was repeating without "
+                    "progress. No tool calls remain unresolved."
+                )
+            )
+        ],
+        "is_done": True,
+        "pending_tool_calls": [],
+        "loop_detected": False,
+        "needs_replan": False,
     }
 
 
@@ -695,16 +738,21 @@ async def evaluator_node(state: AgentState, config: RunnableConfig):
     content = str(response.content).strip()
     
     if content.upper().startswith("SUCCESS"):
-        result = {"is_done": True, "evaluator_feedback": ""}
+        result = {
+            "is_done": True,
+            "evaluator_feedback": "",
+            "needs_replan": False,
+        }
         last_msg = messages[-1]
         if getattr(last_msg, "type", "") == "ai" and not getattr(last_msg, "content", "").strip():
             result["messages"] = [AIMessage(content="I have completed the task successfully.")]
         return result
     
     return {
-        "is_done": False, 
+        "is_done": False,
         "evaluator_feedback": content,
-        "messages": [AIMessage(content=f"Evaluator Feedback: {content}")]
+        "messages": [AIMessage(content=f"Evaluator Feedback: {content}")],
+        "goal_iteration": state.get("goal_iteration", 0) + 1,
     }
 
 
