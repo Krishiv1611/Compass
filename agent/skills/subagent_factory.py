@@ -1,4 +1,4 @@
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
@@ -53,6 +53,20 @@ class SubAgentFactory:
                 and bool(response.tool_calls)
                 and bool(tools)
             )
+            if has_tools and turn >= max_turns:
+                return {
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                "Sub-agent stopped at its maximum turn limit "
+                                "before the requested tool call could be run."
+                            )
+                        )
+                    ],
+                    "turn_count": turn,
+                    "is_done": True,
+                    "pending_tool_calls": [],
+                }
             return {
                 "messages": [response],
                 "turn_count": turn,

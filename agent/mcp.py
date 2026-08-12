@@ -6,7 +6,19 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 WORKSPACE_DIR = os.getcwd()
-MCP_CONFIG_FILE = os.path.join(WORKSPACE_DIR, ".compass", "mcp_servers.json")
+
+
+def runtime_mcp_config_name() -> str:
+    """Return the one MCP configuration filename used by Compass."""
+
+    return "mcp_servers.json"
+
+
+MCP_CONFIG_FILE = os.path.join(
+    WORKSPACE_DIR,
+    ".compass",
+    runtime_mcp_config_name(),
+)
 
 
 def load_mcp_config() -> dict:

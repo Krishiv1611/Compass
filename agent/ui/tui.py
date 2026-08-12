@@ -1630,7 +1630,7 @@ async def _handle_slash_command(
 
     elif cmd == "/mcp":
         try:
-            from agent.mcp import connections, get_all_mcp_tools
+            from agent.mcp import connections, get_mcp_tools
             table = Table(title="[bold bright_cyan]MCP Servers[/]", box=box.SIMPLE_HEAVY, show_edge=False)
             table.add_column("Server", style="bold cyan")
             table.add_column("Status", style="bright_white")
@@ -1641,10 +1641,7 @@ async def _handle_slash_command(
                 table.add_row("none", "no servers configured")
             compass.console.print(table)
 
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(lambda: asyncio.run(get_all_mcp_tools()))
-                tools = future.result(timeout=10)
+            tools = await get_mcp_tools()
             tool_names = [getattr(tool, "name", str(tool)) for tool in tools]
             compass.console.print(Text(f"  Tools available: {len(tool_names)}", style="dim"))
             for name in tool_names[:20]:
@@ -2042,7 +2039,13 @@ def _run_diagnostics() -> list[tuple[str, str, str]]:
     try:
 
         # We can't await here so just check config exists
-        mcp_config = os.path.join(os.getcwd(), ".compass", "mcp.json")
+        from agent.mcp import runtime_mcp_config_name
+
+        mcp_config = os.path.join(
+            os.getcwd(),
+            ".compass",
+            runtime_mcp_config_name(),
+        )
         if os.path.exists(mcp_config):
             checks.append(("MCP config", "ok", f"found at {mcp_config}"))
         else:

@@ -1,4 +1,9 @@
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import (
+    HumanMessage,
+    AIMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from langchain_core.runnables import RunnableConfig
 from agent.graph.state import AgentState
@@ -30,8 +35,24 @@ class SkillManagerAgent:
         # ── Look up skill in registry ────────────────────────────────
         skill = self._registry.get(skill_name)
         if not skill:
-            # Skill was referenced but doesn't exist — clear and pass through
-            return {"active_skill": None}
+            error = f"Requested skill '{skill_name}' is not registered."
+            return {
+                "active_skill": None,
+                "skill_result": {
+                    "skill_name": skill_name,
+                    "status": "error",
+                    "error": error,
+                },
+                "messages": [
+                    SystemMessage(
+                        content=(
+                            f"Skill request error: {error} "
+                            "Continue with the main executor."
+                        )
+                    )
+                ],
+                "is_done": False,
+            }
 
         # ── Build and run sub-agent ──────────────────────────────────
         sub_graph = self._factory.build(skill, arguments)

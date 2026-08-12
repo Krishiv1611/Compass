@@ -371,11 +371,10 @@ async def call_model(state: AgentState, config: RunnableConfig):
     }
 
     for message in reversed(state.get("messages", [])):
-        if getattr(message, "type", "") == "human":
+        if getattr(message, "type", "") != "tool":
             break
         if (
-            getattr(message, "type", "") == "tool"
-            and getattr(message, "name", "") in ("write_to_file", "edit_file")
+            getattr(message, "name", "") in ("write_to_file", "edit_file")
         ):
             new_state["syntax_checked"] = False
             new_state["syntax_check_failed"] = False
@@ -653,9 +652,6 @@ async def direct_chat_node(state: AgentState, config: RunnableConfig):
         "token_usage": token_usage,
     }
 
-
-import subprocess
-
 def _python_syntax_errors(workspace_root):
     import ast
     from pathlib import Path
@@ -672,17 +668,6 @@ def _python_syntax_errors(workspace_root):
             errors.append(f"{path.relative_to(root).as_posix()}: {exc}")
     return errors
 
-
-def _typescript_check(workspace_root):
-    return subprocess.run(
-        ["npx", "tsc", "--noEmit"],
-        cwd=workspace_root,
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
-
-
 async def linter_node(state: AgentState, config: RunnableConfig):
     """Run deterministic syntax checks once at the end of Goal mode."""
     import asyncio
@@ -693,32 +678,50 @@ async def linter_node(state: AgentState, config: RunnableConfig):
     except ValueError:
         return {"syntax_checked": True, "syntax_check_failed": True}
 
-    errors = []
-    if (workspace.root / "tsconfig.json").exists():
-        try:
-            result = await asyncio.to_thread(_typescript_check, workspace.root)
-            if result.returncode != 0:
-                errors.append(f"TypeScript Errors:\n{result.stdout}\n{result.stderr}")
-        except (OSError, subprocess.SubprocessError):
-            pass
-
     python_errors = await asyncio.to_thread(_python_syntax_errors, workspace.root)
     if python_errors:
-        errors.append("Python Syntax Errors:\n" + "\n".join(python_errors))
-
-    if errors:
         return {
             "messages": [
                 SystemMessage(
                     content=(
                         "Syntax validation failed. Fix these errors before continuing:\n\n"
-                        + "\n".join(errors)
+                        + "Python Syntax Errors:\n"
+                        + "\n".join(python_errors)
                     )[:2000]
                 )
             ],
             "syntax_checked": True,
             "syntax_check_failed": True,
         }
+
+    if (
+        (workspace.root / "tsconfig.json").exists()
+        and not state.get("syntax_checked", False)
+    ):
+        import uuid
+
+        tool_call = {
+            "id": f"validation-{uuid.uuid4().hex}",
+            "name": "shell_execute",
+            "args": {
+                "command": "npx tsc --noEmit",
+                "cwd": ".",
+            },
+            "type": "tool_call",
+        }
+        return {
+            "messages": [
+                AIMessage(
+                    content="TypeScript validation requires shell approval.",
+                    tool_calls=[tool_call],
+                )
+            ],
+            "pending_tool_calls": [tool_call],
+            "syntax_checked": True,
+            "syntax_check_failed": False,
+            "is_done": False,
+        }
+
     return {"syntax_checked": True, "syntax_check_failed": False}
 
 

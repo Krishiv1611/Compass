@@ -92,6 +92,8 @@ def _executor_scope_expanded(state: AgentState) -> bool:
 
 async def _route_after_linter(state: AgentState) -> str:
     """Continue Goal validation after deterministic checks."""
+    if state.get("pending_tool_calls"):
+        return "check_safety"
     if state.get("syntax_check_failed", False):
         return "executor"
     return "evaluator"
@@ -140,6 +142,13 @@ async def _route_after_plan_approval(state: AgentState) -> str:
     return "executor"
 
 
+async def _route_after_skill_manager(state: AgentState) -> str:
+    """Invalid skill requests fall back to the main executor."""
+
+    result = state.get("skill_result") or {}
+    return "executor" if result.get("status") == "error" else END
+
+
 def _needs_planning(text: str) -> bool:
     """Conservatively identify edits where planning protects result quality."""
     request = " ".join(text.lower().split())
@@ -182,6 +191,9 @@ def _needs_planning(text: str) -> bool:
 
 def _route_start(state: AgentState) -> str:
     """Route directly to the smallest branch needed for this turn."""
+    if state.get("active_skill"):
+        return "skill_manager"
+
     messages = state.get("messages", [])
 
     # ── Safe: route by mode and intent (merged from _route_start) ────────────
@@ -234,7 +246,7 @@ builder.add_node("summary_node", summary_node)
 builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
 builder.add_conditional_edges("plan_approval", _route_after_plan_approval)
-builder.add_edge("skill_manager", END)
+builder.add_conditional_edges("skill_manager", _route_after_skill_manager)
 builder.add_conditional_edges(
     "executor",
     route_after_executor,

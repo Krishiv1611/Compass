@@ -1,6 +1,6 @@
 import os
+from pathlib import Path
 from langchain_core.tools import tool
-from glob import glob
 from langchain_core.runnables.config import RunnableConfig
 from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
 
@@ -50,22 +50,30 @@ def list_dir(path: str = ".", max_depth: int = 2, config: RunnableConfig = None)
 
 
 @tool
-def find_files(pattern: str, config: RunnableConfig = None) -> str:
+def find_files(
+    pattern: str,
+    path: str = ".",
+    config: RunnableConfig = None,
+) -> dict:
     """Find files matching a glob pattern (e.g. '**/*.py').
 
     Args:
         pattern: Glob pattern to search for.
+        path: Workspace-relative directory to search.
     """
     workspace = get_workspace_for_tool(config)
-    matches = glob(pattern, root_dir=workspace.root, recursive=True)
+    search_root = Path(resolve_workspace_path(workspace, path))
     matches = [
-        f for f in matches if not any(p.startswith(".") for p in Path(f).parts)
-    ]
-
-    if not matches:
-        return "No files found."
-    if len(matches) > 100:
-        return f"Found {len(matches)} files (showing first 100):\n" + "\n".join(
-            matches[:100]
+        candidate.relative_to(search_root).as_posix()
+        for candidate in sorted(search_root.glob(pattern))
+        if candidate.is_file()
+        and not any(
+            part.startswith(".")
+            for part in candidate.relative_to(search_root).parts
         )
-    return f"Found {len(matches)} files:\n" + "\n".join(matches)
+    ]
+    return {
+        "matches": matches[:100],
+        "total": len(matches),
+        "truncated": len(matches) > 100,
+    }
