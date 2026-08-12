@@ -14,6 +14,7 @@ from backend.auth.dependencies import get_current_user
 from backend.db import get_db
 from backend.models.user import User
 from backend.services.workspace import (
+    attach_active_workspace,
     create_workspace_record,
     get_workspace,
     update_workspace_stats,
@@ -345,6 +346,10 @@ class WorkspaceCreateRequest(BaseModel):
     name: str = "New Project"
 
 
+class WorkspaceAttachRequest(BaseModel):
+    session_id: str
+
+
 class PatchFileAction(BaseModel):
     path: str
 
@@ -427,6 +432,22 @@ def create_workspace(
     )
     update_workspace_stats(db, workspace)
     return workspace
+
+
+@router.post("/{workspace_id}/attach")
+def attach_workspace(
+    workspace_id: str,
+    body: WorkspaceAttachRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Select one ready workspace as the session's active project."""
+    return attach_active_workspace(
+        db,
+        body.session_id,
+        workspace_id,
+        current_user.id,
+    )
 
 
 @router.get("/{workspace_id}/patches")

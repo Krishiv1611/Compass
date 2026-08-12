@@ -41,19 +41,30 @@ def list_sessions(
     """List a user's non-deleted sessions, ordered by most recently updated."""
     offset = (page - 1) * page_size
 
+    message_counts = (
+        db.query(
+            Message.session_id.label("session_id"),
+            func.count(Message.id).label("message_count"),
+        )
+        .group_by(Message.session_id)
+        .subquery()
+    )
+
     rows = (
         db.query(
             ChatSession,
-            func.count(Message.id).label("message_count"),
-            func.max(Workspace.name).label("workspace_name")
+            func.coalesce(message_counts.c.message_count, 0).label("message_count"),
+            Workspace.name.label("workspace_name"),
         )
-        .outerjoin(Message, Message.session_id == ChatSession.id)
-        .outerjoin(Workspace, Workspace.session_id == ChatSession.id)
+        .outerjoin(
+            message_counts,
+            message_counts.c.session_id == ChatSession.id,
+        )
+        .outerjoin(Workspace, Workspace.id == ChatSession.active_workspace_id)
         .filter(
             ChatSession.user_id == user_id,
             ChatSession.is_deleted.is_(False),
         )
-        .group_by(ChatSession.id)
         .order_by(ChatSession.updated_at.desc())
         .offset(offset)
         .limit(page_size)
@@ -66,7 +77,8 @@ def list_sessions(
             title=s.title,
             created_at=s.created_at,
             updated_at=s.updated_at,
-            message_count=count,
+            message_count=int(count),
+            active_workspace_id=s.active_workspace_id,
             workspace_name=workspace_name,
             project_id=s.project_id,
             git_branch=s.git_branch,
@@ -106,6 +118,7 @@ def get_session_detail(
         id=session.id,
         title=session.title,
         thread_id=session.thread_id,
+        active_workspace_id=session.active_workspace_id,
         project_id=session.project_id,
         git_remote=session.git_remote,
         git_branch=session.git_branch,

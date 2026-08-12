@@ -56,7 +56,11 @@ class Workspace(Base):
 
     # Relationships
     user = relationship("User", back_populates="workspaces")
-    session = relationship("ChatSession", back_populates="workspaces")
+    session = relationship(
+        "ChatSession",
+        back_populates="workspaces",
+        foreign_keys=[session_id],
+    )
     runs = relationship("AgentRun")
 
     def __repr__(self) -> str:

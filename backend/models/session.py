@@ -33,6 +33,17 @@ class ChatSession(Base):
         default=lambda: uuid.uuid4().hex,
         comment="LangGraph checkpointer thread identifier",
     )
+    active_workspace_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "workspaces.id",
+            ondelete="SET NULL",
+            name="fk_chat_sessions_active_workspace_id_workspaces",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
     project_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
     git_remote: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     git_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -71,6 +82,12 @@ class ChatSession(Base):
         "Workspace",
         back_populates="session",
         cascade="all, delete-orphan",
+        foreign_keys="Workspace.session_id",
+    )
+    active_workspace = relationship(
+        "Workspace",
+        foreign_keys=[active_workspace_id],
+        post_update=True,
     )
     runs = relationship(
         "AgentRun",

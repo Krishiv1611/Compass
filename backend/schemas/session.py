@@ -28,6 +28,7 @@ class SessionSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
+    active_workspace_id: str | None = None
     workspace_name: str | None = None
     project_id: str | None = None
     git_branch: str | None = None
@@ -57,6 +58,7 @@ class SessionDetail(BaseModel):
     id: str
     title: str | None
     thread_id: str
+    active_workspace_id: str | None = None
     project_id: str | None = None
     git_remote: str | None = None
     git_branch: str | None = None
