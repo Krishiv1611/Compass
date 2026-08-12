@@ -6,12 +6,13 @@ them. Durable thread state uses a checkpointer and long-term memory uses a Store
 """
 
 
+import asyncio
 import os
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from agent.persistence import close_postgres_pool, get_checkpointer
 from agent.tools.memory_tool import MEMORY_STORE as memory_store
 from agent.graph.tool_node import CompassToolNode
 from agent.graph.tools_registry import ALL_TOOLS, TOOL_REGISTRY
@@ -253,69 +254,59 @@ builder.add_edge("direct_chat", END)
 # AsyncPostgresSaver requires async initialization, so we expose an async factory
 # function instead of a module-level `workflow` object.
 
-DB_URI = os.environ.get("DB_URI")
-
 _workflow = None  # cached after first call
-_checkpointer_pool = None  # keep pool alive to prevent closure
+_workflow_durable = False
+_workflow_lock = asyncio.Lock()
 
 
-async def get_workflow():
+async def get_workflow(*, require_durable: bool = False):
     """
     Build and return the compiled workflow (cached after first call).
 
-    Uses AsyncPostgresSaver for persistence when DB_URI is configured.
-    Falls back to no checkpointer if DB is unavailable.
+    Local calls may use process memory. Web calls require PostgreSQL durability.
     """
-    global _workflow, _checkpointer_pool
-    if _workflow is not None:
+    global _workflow, _workflow_durable
+    if _workflow is not None and (not require_durable or _workflow_durable):
         return _workflow
 
-    _compile_kwargs = {}
-    if memory_store is not None:
-        _compile_kwargs["store"] = memory_store
+    async with _workflow_lock:
+        if _workflow is not None and (
+            not require_durable or _workflow_durable
+        ):
+            return _workflow
 
-    if DB_URI:
+        db_uri = os.environ.get("DB_URI")
         try:
-            from psycopg_pool import AsyncConnectionPool
-            
-            connection_kwargs = {
-                "autocommit": True,
-                "prepare_threshold": 0,
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 5,
-            }
-            
-            _checkpointer_pool = AsyncConnectionPool(
-                conninfo=DB_URI,
-                min_size=1,
-                max_size=20,
-                kwargs=connection_kwargs,
-                open=False,
-                timeout=3,
-                reconnect_timeout=3,
+            checkpointer = await get_checkpointer(
+                db_uri,
+                require_durable=require_durable,
             )
-            await _checkpointer_pool.open(wait=True, timeout=3)
-            
-            pg_checkpointer = AsyncPostgresSaver(_checkpointer_pool)
-            await pg_checkpointer.setup()
-            
-            _workflow = builder.compile(checkpointer=pg_checkpointer, **_compile_kwargs)
-        except Exception as exc:
-            if _checkpointer_pool is not None:
-                try:
-                    await _checkpointer_pool.close(timeout=1)
-                except Exception:
-                    pass
-                _checkpointer_pool = None
-            # Fall back to no checkpointer if DB is unavailable
-            print(f"[workflow] Warning: Persistence setup failed: {exc}")
-            _workflow = builder.compile(**_compile_kwargs)
-    else:
-        # No DB configured â€” run without persistence
-        _workflow = builder.compile(**_compile_kwargs)
+        except Exception:
+            # A failed durable initialization remains retryable on the next call.
+            if require_durable:
+                raise
+            checkpointer = await get_checkpointer(None)
 
-    return _workflow
+        compile_kwargs = {"checkpointer": checkpointer}
+        if memory_store is not None:
+            compile_kwargs["store"] = memory_store
+        compiled = builder.compile(**compile_kwargs)
+        durable = "postgres" in checkpointer.__class__.__module__
+
+        # Do not cache a fallback caused by a configured-but-unavailable DB.
+        if not db_uri or durable:
+            _workflow = compiled
+            _workflow_durable = durable
+        return compiled
+
+
+async def reset_workflow() -> None:
+    """Clear cached workflow state and release PostgreSQL resources."""
+
+    global _workflow, _workflow_durable
+    async with _workflow_lock:
+        _workflow = None
+        _workflow_durable = False
+        await close_postgres_pool()
 
 

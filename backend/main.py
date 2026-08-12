@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     try:
         from agent.graph.workflow import get_workflow
 
-        await get_workflow()
+        await get_workflow(require_durable=True)
         logger.info("LangGraph workflow ready")
     except Exception as exc:
         logger.error(f"Workflow warmup failed: {exc}")

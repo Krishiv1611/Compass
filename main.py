@@ -17,8 +17,7 @@ Usage:
 
 import os
 import click
-from agent.sessions import SessionManager
-from agent.ui.tui import compass_repl, run_single
+from dotenv import load_dotenv
 
 
 @click.command()
@@ -57,6 +56,10 @@ def cli(message: str | None, resume: bool, workspace: str | None, session_id: st
 
     if workspace:
         os.chdir(workspace)
+
+    load_dotenv()
+    from agent.sessions import SessionManager
+    from agent.ui.tui import compass_repl, run_single
 
     sm = SessionManager()
     resume_thread_id = None
