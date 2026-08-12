@@ -40,9 +40,14 @@ class ConnectionManager:
             else:
                 future.set_result(result)
 
-    async def connect(self, websocket: WebSocket, session_id: str) -> None:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        session_id: str,
+        subprotocol: str | None = None,
+    ) -> None:
         """Accept a WebSocket connection and start heartbeat."""
-        await websocket.accept()
+        await websocket.accept(subprotocol=subprotocol)
         self._connections[session_id].add(websocket)
         self._heartbeat_tasks[websocket] = asyncio.create_task(
             self._heartbeat(websocket)

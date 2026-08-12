@@ -11,7 +11,6 @@ from fastapi import (
     HTTPException,
     WebSocket,
     WebSocketDisconnect,
-    Query,
     status,
 )
 from jose import JWTError
@@ -38,6 +37,69 @@ from backend.ws.hub import manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+WEBSOCKET_PROTOCOL = "compass.v1"
+WEBSOCKET_TOKEN_PREFIX = "compass.jwt."
+
+
+class WebSocketAuthError(ValueError):
+    """Authentication failure that can be returned as a WebSocket close frame."""
+
+    def __init__(self, reason: str, code: int = 4001):
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
+
+
+def extract_websocket_access_token(
+    protocol_header: str | None,
+    query_token: str | None,
+) -> str:
+    """Extract a JWT from the WebSocket subprotocol header."""
+    if query_token is not None:
+        raise WebSocketAuthError("Query string credentials are not accepted")
+    if not protocol_header:
+        raise WebSocketAuthError("Missing credentials")
+
+    protocols = [value.strip() for value in protocol_header.split(",") if value.strip()]
+    token_protocols = [
+        value for value in protocols if value.startswith(WEBSOCKET_TOKEN_PREFIX)
+    ]
+    if (
+        len(protocols) != 2
+        or protocols.count(WEBSOCKET_PROTOCOL) != 1
+        or len(token_protocols) != 1
+    ):
+        raise WebSocketAuthError("Malformed WebSocket credentials")
+
+    token = token_protocols[0][len(WEBSOCKET_TOKEN_PREFIX) :]
+    if not token:
+        raise WebSocketAuthError("Malformed WebSocket credentials")
+    return token
+
+
+def authenticate_websocket_user(
+    protocol_header: str | None,
+    query_token: str | None,
+    db: Session,
+) -> str:
+    """Validate WebSocket credentials and return an active user ID."""
+    token = extract_websocket_access_token(protocol_header, query_token)
+    try:
+        payload = decode_token(token)
+    except JWTError as exc:
+        raise WebSocketAuthError("Invalid or expired token") from exc
+
+    user_id = payload.get("sub")
+    if payload.get("type") != "access" or not isinstance(user_id, str) or not user_id:
+        raise WebSocketAuthError("Invalid access token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise WebSocketAuthError("User not found")
+    if not user.is_active:
+        raise WebSocketAuthError("Inactive user")
+    return user_id
 
 
 def _persist_message(
@@ -187,34 +249,29 @@ async def send_message(
 async def websocket_chat(
     websocket: WebSocket,
     session_id: str,
-    token: str = Query(default=""),
 ):
     """
     WebSocket endpoint for real-time chat streaming.
 
-    Authentication via query param: /chat/ws/{session_id}?token=<jwt>
+    Authentication uses the ``compass.v1`` and ``compass.jwt.<token>``
+    WebSocket subprotocols so credentials never appear in URLs.
 
     Client sends: {"type": "message", "content": "..."}
     Server sends: {"type": "token|tool_call|tool_result|done|error", ...}
     """
-    # -- Authenticate --
-    if not token:
-        await websocket.close(code=4001, reason="Missing token")
-        return
-
-    try:
-        payload = decode_token(token)
-        if payload.get("type") != "access":
-            await websocket.close(code=4001, reason="Invalid token type")
-            return
-        user_id = payload["sub"]
-    except JWTError:
-        await websocket.close(code=4001, reason="Invalid or expired token")
-        return
-
-    # -- Validate session ownership --
     db = SessionLocal()
     try:
+        try:
+            user_id = authenticate_websocket_user(
+                websocket.headers.get("sec-websocket-protocol"),
+                websocket.query_params.get("token"),
+                db,
+            )
+        except WebSocketAuthError as exc:
+            await websocket.close(code=exc.code, reason=exc.reason)
+            return
+
+        # Validate session ownership only after authentication succeeds.
         chat_session = (
             db.query(ChatSession)
             .filter(
@@ -232,7 +289,7 @@ async def websocket_chat(
         db.close()
 
     # -- Connect --
-    await manager.connect(websocket, session_id)
+    await manager.connect(websocket, session_id, subprotocol=WEBSOCKET_PROTOCOL)
 
     try:
         while True:

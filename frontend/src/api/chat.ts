@@ -1,4 +1,4 @@
-﻿import api, { getAccessToken, WS_BASE_URL } from "./client";
+import api, { buildWebSocketProtocols, buildWebSocketUrl } from "./client";
 import type { ChatMode } from "@/types/chat";
 
 export const chatApi = {
@@ -17,9 +17,9 @@ export const chatApi = {
     return response.data;
   },
   createWebSocket: (sessionId: string) => {
-    const token = getAccessToken() || "";
     return new WebSocket(
-      `${WS_BASE_URL}/chat/ws/${sessionId}?token=${encodeURIComponent(token)}`
+      buildWebSocketUrl(sessionId),
+      buildWebSocketProtocols(),
     );
   },
 };

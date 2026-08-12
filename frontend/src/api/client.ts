@@ -1,7 +1,25 @@
 ﻿import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
-export const WS_BASE_URL = import.meta.env.VITE_WS_URL || API_BASE_URL.replace(/^http/, "ws");
+export const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+
+export const buildWebSocketUrl = (
+  sessionId: string,
+  origin = window.location.origin,
+) => {
+  const url = new URL(API_BASE_URL, origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/chat/ws/${encodeURIComponent(sessionId)}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+};
+
+export const buildWebSocketProtocols = (token = getAccessToken() || "") => {
+  if (!token) {
+    throw new Error("An access token is required to open a chat WebSocket");
+  }
+  return ["compass.v1", `compass.jwt.${token}`];
+};
 
 const api = axios.create({
   baseURL: API_BASE_URL,
