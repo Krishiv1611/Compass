@@ -6,21 +6,10 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import get_current_user
 from backend.db import get_db
 from backend.models.run import AgentRun
-from backend.models.session import ChatSession
 from backend.models.user import User
+from backend.services.ownership import owned_session
 
 router = APIRouter(prefix="/sessions/{session_id}/runs", tags=["runs"])
-
-
-def _owned_session(db: Session, session_id: str, user_id: str) -> ChatSession:
-    session = db.query(ChatSession).filter(
-        ChatSession.id == session_id,
-        ChatSession.user_id == user_id,
-        ChatSession.is_deleted.is_(False),
-    ).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return session
 
 
 @router.get("")
@@ -29,7 +18,7 @@ def get_session_runs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _owned_session(db, session_id, str(current_user.id))
+    owned_session(db, session_id, str(current_user.id))
     runs = db.query(AgentRun).filter(
         AgentRun.session_id == session_id
     ).order_by(AgentRun.started_at.desc()).all()
@@ -62,7 +51,7 @@ def cancel_session_run(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _owned_session(db, session_id, str(current_user.id))
+    owned_session(db, session_id, str(current_user.id))
     run = db.query(AgentRun).filter(
         AgentRun.id == run_id,
         AgentRun.session_id == session_id,

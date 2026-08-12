@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
 from backend.db import get_db
-from backend.models.session import ChatSession
 from backend.models.upload import UploadedFile
 from backend.models.user import User
+from backend.services.ownership import owned_session
 from backend.schemas.upload import UploadCapabilityResponse, UploadResponse
 from agent.rag.loaders import supported_extensions
 from agent.rag.uploads import (
@@ -27,23 +27,6 @@ from agent.rag.uploads import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions/{session_id}/uploads", tags=["uploads"])
-
-
-def _get_owned_session(db: Session, user_id: str, session_id: str) -> ChatSession:
-    session = (
-        db.query(ChatSession)
-        .filter(
-            ChatSession.id == session_id,
-            ChatSession.user_id == user_id,
-            ChatSession.is_deleted.is_(False),
-        )
-        .first()
-    )
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
-        )
-    return session
 
 
 @router.get("/capabilities", response_model=UploadCapabilityResponse)
@@ -62,7 +45,7 @@ def list_uploads(
     db: Session = Depends(get_db),
 ):
     """List files uploaded to a session."""
-    _get_owned_session(db, current_user.id, session_id)
+    owned_session(db, session_id, current_user.id)
     return (
         db.query(UploadedFile)
         .filter(
@@ -82,7 +65,7 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     """Upload a document, extract text, and index it for session RAG."""
-    _get_owned_session(db, current_user.id, session_id)
+    owned_session(db, session_id, current_user.id)
 
     upload_id = uuid.uuid4().hex
     filename = sanitize_filename(file.filename or "upload")
@@ -150,7 +133,7 @@ def delete_upload(
     db: Session = Depends(get_db),
 ):
     """Delete an uploaded file and its vector chunks."""
-    _get_owned_session(db, current_user.id, session_id)
+    owned_session(db, session_id, current_user.id)
     record = (
         db.query(UploadedFile)
         .filter(

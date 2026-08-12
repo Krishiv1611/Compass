@@ -6,25 +6,35 @@ from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
 from backend.db import get_db
 from backend.models.user import User
-from backend.models.session import ChatSession
 from backend.services.workspace import (
     create_workspace_record,
     get_workspace,
-    get_workspace_by_session,
     update_workspace_stats,
+)
+from backend.services.ownership import (
+    owned_patch,
+    owned_session,
+    safe_workspace_target,
 )
 from backend.ws.hub import manager
 from backend.schemas.chat import StreamEvent, StreamEventType
 from backend.models.workspace import Workspace
 from backend.models.patch import WorkspacePatch
-from backend.services.patch_manager import apply_patch, reject_patch, accept_all_patches, reject_all_patches, undo_patch, resolve_patch_file
+from backend.services.patch_manager import (
+    accept_all_patches,
+    apply_patch,
+    reject_all_patches,
+    reject_patch,
+    resolve_patch_file,
+    undo_patch,
+)
 
 def _notify_patch_event(db: Session, workspace_id: str, background_tasks: BackgroundTasks):
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
@@ -37,32 +47,6 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 # --- Legacy session-based endpoints (temporary compatibility) ---
 
 
-def _validate_session_ownership(db: Session, user_id: str, session_id: str) -> ChatSession:
-    session = db.query(ChatSession).filter(
-        ChatSession.id == session_id,
-        ChatSession.user_id == user_id,
-        ChatSession.is_deleted.is_(False),
-    ).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return session
-
-
-def _validate_relative_path(path_value: str) -> str:
-    clean_path = os.path.normpath(path_value).replace("\\", "/")
-    parts = Path(clean_path).parts
-    if os.path.isabs(path_value) or ".." in parts:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    return clean_path
-
-
-def _safe_workspace_path(workspace_dir: Path, path_value: str) -> Path:
-    clean_path = _validate_relative_path(path_value)
-    target = (workspace_dir / clean_path).resolve()
-    base = workspace_dir.resolve()
-    if base != target and base not in target.parents:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    return target
 def _get_active_workspace_path(db: Session, user_id: str, workspace_id: str) -> Path:
     """Helper to get a workspace path from DB."""
     workspace = get_workspace(db, workspace_id, user_id)
@@ -76,6 +60,7 @@ async def upload_workspace(
     db: Session = Depends(get_db),
 ):
     """Upload a full directory into the server workspace (Legacy)."""
+    owned_session(db, session_id, current_user.id)
     # Create a new workspace record instead of wiping the old one
     workspace = create_workspace_record(db, current_user.id, session_id, "Uploaded Project")
     workspace_dir = Path(workspace.storage_path)
@@ -86,11 +71,12 @@ async def upload_workspace(
         if not file.filename:
             continue
             
-        clean_path = os.path.normpath(file.filename)
-        if clean_path.startswith("..") or os.path.isabs(clean_path):
+        clean_path = os.path.normpath(file.filename).replace("\\", "/")
+        try:
+            dest_path = safe_workspace_target(workspace_dir, clean_path)
+        except HTTPException:
             continue
-            
-        dest_path = workspace_dir / clean_path
+
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         
         content = await file.read()
@@ -148,7 +134,7 @@ def get_workspace_file(
     """Read a specific file from the workspace."""
     workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
     
-    target_file = _safe_workspace_path(workspace_dir, file_path)
+    target_file = safe_workspace_target(workspace_dir, file_path)
     
     if not target_file.exists() or not target_file.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -251,7 +237,7 @@ def create_workspace_file(
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
     workspace_dir = Path(workspace.storage_path)
-    target_path = _safe_workspace_path(workspace_dir, body.path)
+    target_path = safe_workspace_target(workspace_dir, body.path)
     if target_path.exists():
         raise HTTPException(status_code=400, detail="Path already exists")
         
@@ -273,7 +259,7 @@ def update_workspace_file(
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
     workspace_dir = Path(workspace.storage_path)
-    target_path = _safe_workspace_path(workspace_dir, body.path)
+    target_path = safe_workspace_target(workspace_dir, body.path)
     if not target_path.exists() or not target_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
         
@@ -290,7 +276,7 @@ def delete_workspace_file(
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
     workspace_dir = Path(workspace.storage_path)
-    target_path = _safe_workspace_path(workspace_dir, path)
+    target_path = safe_workspace_target(workspace_dir, path)
     if not target_path.exists():
         raise HTTPException(status_code=404, detail="Path not found")
         
@@ -311,8 +297,8 @@ def rename_workspace_file(
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
     workspace_dir = Path(workspace.storage_path)
-    old_target = _safe_workspace_path(workspace_dir, body.old_path)
-    new_target = _safe_workspace_path(workspace_dir, body.new_path)
+    old_target = safe_workspace_target(workspace_dir, body.old_path)
+    new_target = safe_workspace_target(workspace_dir, body.new_path)
     
     if not old_target.exists():
         raise HTTPException(status_code=404, detail="Old path not found")
@@ -370,9 +356,7 @@ def get_workspace_context(
     db: Session = Depends(get_db),
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
-    session = _validate_session_ownership(
-        db, current_user.id, workspace.session_id
-    )
+    session = owned_session(db, workspace.session_id, current_user.id)
     return {
         "project_id": workspace.project_id,
         "git_remote": workspace.git_remote,
@@ -395,9 +379,7 @@ def refresh_workspace_context(
     db: Session = Depends(get_db),
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
-    session = _validate_session_ownership(
-        db, current_user.id, workspace.session_id
-    )
+    session = owned_session(db, workspace.session_id, current_user.id)
     session.project_id = workspace.project_id
     session.git_remote = workspace.git_remote
     session.git_branch = workspace.git_branch
@@ -439,6 +421,7 @@ def create_workspace(
     db: Session = Depends(get_db),
 ):
     """Create an empty workspace for a session."""
+    owned_session(db, body.session_id, current_user.id)
     workspace = create_workspace_record(
         db, current_user.id, body.session_id, body.name
     )
@@ -472,6 +455,7 @@ def apply_workspace_patch(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    owned_patch(db, workspace_id, patch_id, current_user.id)
     patch = apply_patch(db, patch_id, current_user.id)
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch applied successfully", "patch": patch}
@@ -485,6 +469,7 @@ def reject_workspace_patch(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    owned_patch(db, workspace_id, patch_id, current_user.id)
     patch = reject_patch(db, patch_id, current_user.id)
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch rejected successfully", "patch": patch}
@@ -502,7 +487,7 @@ def resolve_workspace_patch_file(
 ):
     if action not in {"apply", "reject", "undo"}:
         raise HTTPException(status_code=400, detail="Unsupported patch action")
-    _get_active_workspace_path(db, current_user.id, workspace_id)
+    owned_patch(db, workspace_id, patch_id, current_user.id)
     patch = resolve_patch_file(db, patch_id, current_user.id, body.path, action)
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": f"File change {action}ed", "patch": patch}
@@ -546,6 +531,7 @@ def undo_workspace_patch(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    owned_patch(db, workspace_id, patch_id, current_user.id)
     patch = undo_patch(db, patch_id, current_user.id)
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch undone successfully", "patch": patch}

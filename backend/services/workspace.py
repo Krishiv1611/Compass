@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from backend.models.workspace import Workspace
+from backend.services.ownership import owned_workspace
 from agent.workspace import discover_local_workspace
 
 def create_workspace_record(db: Session, user_id: str, session_id: str, name: str) -> Workspace:
@@ -36,17 +37,7 @@ def create_workspace_record(db: Session, user_id: str, session_id: str, name: st
 
 def get_workspace(db: Session, workspace_id: str, user_id: str) -> Workspace:
     """Get a workspace by ID, ensuring the user owns it."""
-    workspace = db.query(Workspace).filter(
-        Workspace.id == workspace_id,
-        Workspace.user_id == user_id
-    ).first()
-    
-    if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workspace not found or unauthorized"
-        )
-    return workspace
+    return owned_workspace(db, workspace_id, user_id)
 
 def get_workspace_by_session(db: Session, session_id: str, user_id: str) -> Workspace:
     """Legacy helper: Get the most recent workspace for a session."""

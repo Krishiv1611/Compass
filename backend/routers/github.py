@@ -5,9 +5,8 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import get_current_user
 from backend.db import get_db
 from backend.models.user import User
-from backend.models.session import ChatSession
 from backend.services import github as github_service
-from backend.services.workspace import get_workspace
+from backend.services.ownership import owned_session, owned_workspace
 from backend.auth.jwt import create_oauth_state, decode_oauth_state
 from backend.auth.oauth import exchange_github_code
 from backend.config import settings
@@ -143,14 +142,7 @@ def branches(owner: str, repo: str, current_user: User = Depends(get_current_use
 
 @router.post("/import")
 def import_repo(body: ImportRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    session = db.query(ChatSession).filter(
-        ChatSession.id == body.session_id,
-        ChatSession.user_id == current_user.id,
-        ChatSession.is_deleted.is_(False),
-    ).first()
-    if not session:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Session not found")
+    owned_session(db, body.session_id, current_user.id)
     return github_service.import_repository(db, current_user, body.session_id, body.owner, body.repo, body.branch)
 
 
@@ -161,6 +153,7 @@ def create_branch(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    owned_workspace(db, body.workspace_id, current_user.id)
     return github_service.create_branch(
         db,
         current_user,
@@ -175,7 +168,7 @@ def create_branch(
 @router.post("/commit")
 @router.post("/publish/commit")
 def commit(body: CommitRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    get_workspace(db, body.workspace_id, current_user.id)
+    owned_workspace(db, body.workspace_id, current_user.id)
     return github_service.commit_workspace(
         db, current_user, body.workspace_id, body.owner, body.repo, body.branch, body.message, body.paths
     )
@@ -188,6 +181,7 @@ def pull_request(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    owned_workspace(db, body.workspace_id, current_user.id)
     return github_service.open_pull_request(
         db,
         current_user,
