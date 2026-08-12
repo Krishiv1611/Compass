@@ -16,7 +16,7 @@ from agent.persistence import close_postgres_pool, get_checkpointer
 from agent.tools.memory_tool import MEMORY_STORE as memory_store
 from agent.graph.tool_node import CompassToolNode
 from agent.graph.tools_registry import ALL_TOOLS, TOOL_REGISTRY
-from agent.graph.routing import route_after_executor
+from agent.graph.routing import needs_compaction, route_after_executor
 
 from agent.graph.state import AgentState
 from agent.graph.nodes import (
@@ -32,6 +32,7 @@ from agent.graph.nodes import (
     linter_node,
     goal_limit_node,
     loop_limit_node,
+    summary_node,
 )
 
 # Tools are now managed in agent.graph.tools_registry
@@ -98,9 +99,17 @@ async def _route_after_linter(state: AgentState) -> str:
 
 async def _route_after_evaluator(state: AgentState) -> str:
     """Route after evaluator node."""
+    if needs_compaction(state):
+        return "summary_node"
     if not state.get("is_done", True):
         return "executor"
     return END
+
+
+async def _route_after_summary(state: AgentState) -> str:
+    """Continue unfinished work after compaction; otherwise finish the turn."""
+
+    return END if state.get("is_done", True) else "executor"
 
 
 async def _route_after_safety(state: AgentState) -> str:
@@ -220,6 +229,7 @@ builder.add_node("goal_limit", goal_limit_node)
 builder.add_node("loop_limit", loop_limit_node)
 builder.add_node("evaluator", evaluator_node)
 builder.add_node("linter_node", linter_node)
+builder.add_node("summary_node", summary_node)
 
 builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
@@ -235,6 +245,7 @@ builder.add_conditional_edges(
         "loop_limit": "loop_limit",
         "context_injector": "context_injector",
         "linter_node": "linter_node",
+        "summary_node": "summary_node",
         "executor": "executor",
         "end": END,
     },
@@ -248,6 +259,7 @@ builder.add_edge("loop_recovery", "executor")
 builder.add_edge("goal_limit", END)
 builder.add_edge("loop_limit", END)
 builder.add_conditional_edges("evaluator", _route_after_evaluator)
+builder.add_conditional_edges("summary_node", _route_after_summary)
 builder.add_edge("direct_chat", END)
 
 # â”€â”€â”€ Async Workflow Factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

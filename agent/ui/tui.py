@@ -1256,7 +1256,7 @@ def _handle_operational_command(
     return None
 
 
-def _handle_slash_command(
+async def _handle_slash_command(
     compass: CompassConsole,
     command: str,
     messages: list,
@@ -1578,46 +1578,25 @@ def _handle_slash_command(
             )
             try:
                 with compass.thinking_spinner():
-                    state = workflow.get_state(config)
-                    msg_count_before = len(state.values.get("messages", []))
+                    from agent.runtime.compaction import compact_thread
 
-                    # Trigger summary by invoking the workflow with a special update
-                    from langchain_core.messages import HumanMessage
-                    from agent.llm import llm
-
-                    summarizer = llm("summarizer")
-                    existing_summary = state.values.get("summary", "")
-                    all_messages = state.values.get("messages", [])
-
-                    if existing_summary:
-                        prompt = (
-                            f"Existing summary:\n{existing_summary}\n\n"
-                            "Extend the summary using the new conversation above."
-                        )
-                    else:
-                        prompt = "Summarise the conversation above."
-
-                    msg_for_summary = list(all_messages) + [
-                        HumanMessage(content=prompt)
-                    ]
-                    response = summarizer.invoke(msg_for_summary)
-
-                    summary_text = (
-                        response.content
-                        if isinstance(response.content, str)
-                        else str(response.content)
+                    result = await compact_thread(
+                        workflow,
+                        config,
+                        force=True,
                     )
 
                 compass.console.print(
                     Text(
-                        f"  ✔ Context compacted: {msg_count_before} messages summarized",
+                        "  ✔ Context compacted: "
+                        f"{result.before_count} → {result.after_count} messages",
                         style="compass.success",
                     )
                 )
                 compass.console.print()
 
                 # Show the summary
-                md = Markdown(summary_text)
+                md = Markdown(result.summary)
                 panel = Panel(
                     md,
                     border_style="bright_magenta",
@@ -2257,7 +2236,7 @@ async def compass_repl(resume_thread_id: str | None = None):
 
                 # Slash commands
                 if user_input.startswith("/"):
-                    result = _handle_slash_command(
+                    result = await _handle_slash_command(
                         compass,
                         user_input,
                         messages,

@@ -20,6 +20,7 @@ from agent.runtime.protocol import (
     ResumeAction,
     ResumePayload,
 )
+from agent.runtime.compaction import build_compaction_update
 from langchain_core.messages import BaseMessage as _BaseMessage
 from langchain_core.runnables import RunnableConfig
 
@@ -509,7 +510,7 @@ async def summary_node(state: AgentState, config: RunnableConfig):
     Uses its own LLM instance to summarize the conversation, then removes
     old messages via RemoveMessage to keep context lean.
     """
-    from langchain_core.messages import HumanMessage, RemoveMessage
+    from langchain_core.messages import HumanMessage
 
     existing_summary = state.get("summary", "")
 
@@ -530,14 +531,12 @@ async def summary_node(state: AgentState, config: RunnableConfig):
 
     response = await summarizer_model.ainvoke(message_for_summary)
 
-    # Keep the last 2 messages, delete everything else to free context
-    messages_to_delete = state["messages"][:-2]
-    return {
-        "summary": response.content,
-        "messages": [
-            RemoveMessage(id=m.id) for m in messages_to_delete if m.id is not None
-        ],
-    }
+    summary = (
+        response.content
+        if isinstance(response.content, str)
+        else str(response.content)
+    )
+    return build_compaction_update(state["messages"], summary, keep_recent=6)
 
 
 async def check_safety_node(state: AgentState, config: RunnableConfig = None):
