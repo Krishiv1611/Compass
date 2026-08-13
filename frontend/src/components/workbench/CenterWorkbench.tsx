@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRef } from "react";
 import { Code2, GitPullRequest, Globe, Loader2, Save } from "lucide-react";
 import { toast } from "react-toastify";
 import { Allotment } from "allotment";
@@ -14,6 +15,7 @@ import DiffReviewPanel from "@/components/sandbox/DiffReviewPanel";
 import WebPreview from "@/components/sandbox/WebPreview";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { beginLoad, editFile, emptyEditorState, invalidateWorkspace, isDirty as entryIsDirty, markSaved, selectEntry, storeLoadedFile } from "./editorState";
 
 const languageFromName = (name: string) => {
   const extension = name.toLowerCase().split(".").pop();
@@ -23,9 +25,10 @@ const languageFromName = (name: string) => {
 export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspaceId: string | null }) {
   const { state, dispatch, openFile, openPreview, refreshWorkspace, notifyPatchesChanged } = useWorkbench();
   const { files, projectName, projectSelected, refreshTree } = useWorkspaceTree(activeWorkspaceId);
-  const [codeByPath, setCodeByPath] = useState<Record<string, string>>({});
-  const [savedByPath, setSavedByPath] = useState<Record<string, string>>({});
+  const [editorState, setEditorState] = useState(emptyEditorState);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
   const [previewFiles, setPreviewFiles] = useState<Record<string, { file?: { contents: string } }> | null>(null);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
 
@@ -38,40 +41,104 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
   }, []);
 
   const activeFile = state.activeFile;
-  const code = activeFile ? codeByPath[activeFile.path] ?? "" : "";
-  const isDirty = Boolean(activeFile && code !== (savedByPath[activeFile.path] ?? ""));
+  const entry = activeFile && activeWorkspaceId ? selectEntry(editorState, activeWorkspaceId, activeFile.path) : undefined;
+  const code = entry?.content ?? "";
+  const isDirty = Boolean(activeFile && activeWorkspaceId && entryIsDirty(editorState, activeWorkspaceId, activeFile.path));
 
   const loadFile = useCallback(async (file: FileNode) => {
     if (file.type !== "file" || !activeWorkspaceId) return;
+    if (activeFile && activeFile.path !== file.path && isDirty && !window.confirm(`Discard unsaved changes in ${activeFile.name}?`)) return;
     openFile({ path: file.path, name: file.name, type: "file" });
-    if (Object.hasOwn(codeByPath, file.path)) return;
+    if (selectEntry(editorState, activeWorkspaceId, file.path)?.invalidated === false) return;
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
+    const generation = ++loadGeneration.current;
+    setEditorState(value => beginLoad(value, activeWorkspaceId, file.path, generation));
     setLoadingPath(file.path);
     try {
-      const response = await workspaceApi.getFile(activeWorkspaceId, file.path);
-      setCodeByPath((items) => ({ ...items, [file.path]: response.content }));
-      setSavedByPath((items) => ({ ...items, [file.path]: response.content }));
+      const response = await workspaceApi.getFile(activeWorkspaceId, file.path, controller.signal);
+      setEditorState(value => storeLoadedFile(value, { workspaceId: activeWorkspaceId, path: file.path, content: response.content, generation }));
     } catch (error) {
+      if (controller.signal.aborted) return;
       toast.error(error instanceof Error ? error.message : "Could not read file");
     } finally {
-      setLoadingPath(null);
+      if (generation === loadGeneration.current) setLoadingPath(null);
     }
-  }, [activeWorkspaceId, codeByPath, openFile]);
+  }, [activeFile, activeWorkspaceId, editorState, isDirty, openFile]);
 
   useEffect(() => {
-    if (!activeFile || !activeWorkspaceId || Object.hasOwn(codeByPath, activeFile.path)) return;
+    if (!activeFile || !activeWorkspaceId || selectEntry(editorState, activeWorkspaceId, activeFile.path)) return;
     void loadFile(activeFile);
-  }, [activeFile, activeWorkspaceId, codeByPath, loadFile]);
+  }, [activeFile, activeWorkspaceId, editorState, loadFile]);
 
   const saveFile = async () => {
     if (!activeFile || !activeWorkspaceId || !isDirty) return;
     try {
       await workspaceApi.updateFile(activeWorkspaceId, activeFile.path, code);
-      setSavedByPath((items) => ({ ...items, [activeFile.path]: code }));
+      setEditorState(value => markSaved(value, activeWorkspaceId, activeFile.path, code));
       refreshWorkspace();
       toast.success("File saved");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save file");
     }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveFile();
+      }
+    };
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("beforeunload", onBeforeUnload); };
+  });
+
+  useEffect(() => {
+    if (activeWorkspaceId) setEditorState(value => invalidateWorkspace(value, activeWorkspaceId));
+  }, [activeWorkspaceId, state.patchesVersion]);
+
+  useEffect(() => {
+    if (activeWorkspaceId) dispatch({ type: "setWorkspaceDirty", workspaceId: activeWorkspaceId, dirty: isDirty });
+  }, [activeWorkspaceId, dispatch, isDirty]);
+
+  const createPath = async (parentPath: string, type: "file" | "folder") => {
+    if (!activeWorkspaceId) return;
+    const name = window.prompt(type === "file" ? "File name" : "Folder name")?.trim();
+    if (!name) return;
+    const path = parentPath ? `${parentPath}/${name}` : name;
+    try {
+      await workspaceApi.createFile(activeWorkspaceId, path, type);
+      await refreshTree(activeWorkspaceId);
+      if (type === "file") void loadFile({ path, name, type: "file" });
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not create path"); }
+  };
+
+  const renamePath = async (path: string) => {
+    if (!activeWorkspaceId) return;
+    const currentName = path.split("/").pop() || path;
+    const name = window.prompt("New name", currentName)?.trim();
+    if (!name || name === currentName) return;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    try {
+      await workspaceApi.renameFile(activeWorkspaceId, path, parent ? `${parent}/${name}` : name);
+      await refreshTree(activeWorkspaceId);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not rename path"); }
+  };
+
+  const deletePath = async (path: string) => {
+    if (!activeWorkspaceId || !window.confirm(`Delete ${path}?`)) return;
+    try {
+      await workspaceApi.deleteFile(activeWorkspaceId, path);
+      await refreshTree(activeWorkspaceId);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete path"); }
   };
 
   const preparePreview = async () => {
@@ -88,7 +155,7 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
   const activeLanguage = useMemo(() => languageFromName(activeFile?.name || ""), [activeFile?.name]);
   if (!projectSelected || !activeWorkspaceId) return <div className="flex h-full items-center justify-center bg-background px-6 text-center text-sm text-muted-foreground">Select or create a project to open the workbench.</div>;
 
-  const explorer = <FileExplorer files={files} onFileSelect={(file) => void loadFile(file)} activePath={activeFile?.path} projectName={projectName} />;
+  const explorer = <FileExplorer files={files} onFileSelect={(file) => void loadFile(file)} activePath={activeFile?.path} projectName={projectName} onCreate={(parent, type) => void createPath(parent, type)} onRename={(path) => void renamePath(path)} onDelete={(path) => void deletePath(path)} />;
   const mainPanel = (
     <Tabs value={state.centerTab} onValueChange={(tab) => dispatch({ type: "setCenterTab", tab: tab as "editor" | "changes" | "preview" })} className="flex h-full flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
@@ -97,11 +164,12 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
           <TabsTrigger value="changes"><GitPullRequest className="h-4 w-4" /> Changes</TabsTrigger>
           <TabsTrigger value="preview"><Globe className="h-4 w-4" /> Preview</TabsTrigger>
         </TabsList>
-        {state.centerTab === "editor" && <Button size="sm" variant="ghost" onClick={() => void saveFile()} disabled={!isDirty || !activeFile}><Save className="h-4 w-4" /> Save</Button>}
+        {state.centerTab === "editor" && <Button size="sm" variant="ghost" onClick={() => void saveFile()} disabled={!isDirty || !activeFile}>{isDirty && <span className="h-2 w-2 rounded-full bg-warning" aria-label="Unsaved changes" />}<Save className="h-4 w-4" /> Save</Button>}
       </div>
       <div className="min-h-0 flex-1">
         <TabsContent value="editor" className="m-0 h-full">
-          {loadingPath === activeFile?.path ? <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Opening {activeFile?.name}</div> : activeFile ? <CodeMirrorEditor key={activeFile.path} language={activeLanguage} code={code} onChange={(value) => setCodeByPath((items) => ({ ...items, [activeFile.path]: value }))} /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">Choose a file from Files.</div>}
+          {entry?.invalidated && isDirty && <div className="border-b border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">This file changed on disk. Save your version or reopen the file to review the newer copy.</div>}
+          {loadingPath === activeFile?.path ? <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Opening {activeFile?.name}</div> : activeFile ? <CodeMirrorEditor key={`${activeWorkspaceId}:${activeFile.path}`} language={activeLanguage} code={code} onChange={(value) => activeWorkspaceId && setEditorState(items => editFile(items, activeWorkspaceId, activeFile.path, value))} /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">Choose a file from Files.</div>}
         </TabsContent>
         <TabsContent value="changes" className="m-0 h-full">
           <DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => { notifyPatchesChanged(); refreshWorkspace(); }} onOpenFile={(path) => { const name = path.split("/").pop() || path; void loadFile({ path, name, type: "file" }); }} />

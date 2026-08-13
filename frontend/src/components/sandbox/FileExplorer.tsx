@@ -110,7 +110,7 @@ export default function FileExplorer(props: FileExplorerProps) {
         <div className="relative mt-2"><Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-8" placeholder="Filter files" aria-label="Filter project files" /></div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        {visibleFiles.length ? <div className="py-2" role="tree" aria-label={`${projectName} files`}>{visibleFiles.map((node) => <FileTreeNode key={node.path} node={node} onSelect={onFileSelect} activePath={activePath} contextPaths={state.selectedContextFiles} filtering={Boolean(query.trim())} onCreate={props.onCreate} onRename={props.onRename} onDelete={props.onDelete} />)}</div> : <div className="px-4 py-8 text-center text-sm text-muted-foreground">{query.trim() ? `No files match “${query}”.` : "This project has no files yet."}</div>}
+        {visibleFiles.length ? <div className="py-2" role="tree" aria-label={`${projectName} files`}>{visibleFiles.map((node) => <FileTreeNode key={node.path} node={node} onSelect={onFileSelect} activePath={activePath} contextPaths={state.selectedContextFiles} filtering={Boolean(query.trim())} onCreate={props.onCreate} onRename={props.onRename} onDelete={props.onDelete} />)}</div> : <div className="px-4 py-8 text-center text-sm text-muted-foreground">{query.trim() ? `No files match “${query}”.` : <><p>This project has no files yet.</p>{props.onCreate && <Button className="mt-3" size="sm" onClick={() => props.onCreate!("", "file")}>Create first file</Button>}</>}</div>}
       </ScrollArea>
     </div>
   );

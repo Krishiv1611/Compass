@@ -9,23 +9,29 @@ export function useWorkspaceTree(activeWorkspaceId: string | null) {
   const [projectName, setProjectName] = useState("No folder open");
   const [projectSelected, setProjectSelected] = useState(false);
 
-  const refreshTree = useCallback(async (wsId: string) => {
+  const refreshTree = useCallback(async (wsId: string, signal?: AbortSignal) => {
     try {
-      const data = await workspaceApi.getTree(wsId);
+      const data = await workspaceApi.getTree(wsId, signal);
+      if (signal?.aborted || wsId !== activeWorkspaceId) return;
       setFiles((data.tree || data.children || []) as FileNode[]);
       setProjectSelected(true);
       setProjectName(state.projectName || "Untitled workspace");
     } catch (error) {
+      if (signal?.aborted) return;
       console.error(error);
       setProjectSelected(false);
       setProjectName("Failed to load workspace");
       setFiles([]);
     }
-  }, [state.projectName]);
+  }, [activeWorkspaceId, state.projectName]);
 
   useEffect(() => {
     if (activeWorkspaceId) {
-      refreshTree(activeWorkspaceId);
+      setFiles([]);
+      setProjectSelected(false);
+      const controller = new AbortController();
+      void refreshTree(activeWorkspaceId, controller.signal);
+      return () => controller.abort();
     } else {
       setFiles([]);
       setProjectSelected(false);

@@ -79,10 +79,12 @@ export default function ChatPage() {
       const workspaces = await workspaceApi.listWorkspaces(currentSessionId);
       const workspace = workspaces[0];
       if (!workspace) {
+        if (state.activeWorkspaceId && state.dirtyWorkspaceIds.includes(state.activeWorkspaceId) && !window.confirm("Discard unsaved project changes?")) return;
         dispatch({ type: "setWorkspace", workspaceId: null });
         dispatch({ type: "setPendingPatchCount", count: 0 });
         return;
       }
+      if (state.activeWorkspaceId && workspace.id !== state.activeWorkspaceId && state.dirtyWorkspaceIds.includes(state.activeWorkspaceId) && !window.confirm("Discard unsaved project changes?")) return;
       dispatch({ type: "setWorkspace", workspaceId: workspace.id, projectName: workspace.name });
       const patches = await patchesApi.getPatches(workspace.id);
       const pending = patches.reduce(
@@ -93,7 +95,7 @@ export default function ChatPage() {
     } catch {
       dispatch({ type: "setPendingPatchCount", count: 0 });
     }
-  }, [dispatch]);
+  }, [dispatch, state.activeWorkspaceId, state.dirtyWorkspaceIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -242,7 +244,10 @@ export default function ChatPage() {
     <WorkspaceLanding
       sessionId={sessionId}
       ensureSession={ensureSession}
-      onWorkspaceReady={(workspaceId, name) => dispatch({ type: "setWorkspace", workspaceId, projectName: name })}
+      onWorkspaceReady={(workspaceId, name) => {
+        if (state.activeWorkspaceId && workspaceId !== state.activeWorkspaceId && state.dirtyWorkspaceIds.includes(state.activeWorkspaceId) && !window.confirm("Discard unsaved project changes?")) return;
+        dispatch({ type: "setWorkspace", workspaceId, projectName: name });
+      }}
     />
   );
 

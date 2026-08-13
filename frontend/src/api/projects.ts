@@ -57,8 +57,8 @@ export const workspaceApi = {
     );
     return response.data;
   },
-  getTree: async (workspaceId: string): Promise<WorkspaceTreeResponse> => {
-    const response = await api.get(`/workspaces/${workspaceId}/tree`);
+  getTree: async (workspaceId: string, signal?: AbortSignal): Promise<WorkspaceTreeResponse> => {
+    const response = await api.get(`/workspaces/${workspaceId}/tree`, { signal });
     return response.data;
   },
   searchFiles: async (workspaceId: string, query: string, limit = 50) => {
@@ -81,9 +81,10 @@ export const workspaceApi = {
     const response = await api.get(`/workspaces/${workspaceId}/export-json`);
     return response.data;
   },
-  getFile: async (workspaceId: string, filePath: string): Promise<WorkspaceFileResponse> => {
+  getFile: async (workspaceId: string, filePath: string, signal?: AbortSignal): Promise<WorkspaceFileResponse> => {
     const response = await api.get(`/workspaces/${workspaceId}/file`, {
       params: { file_path: filePath },
+      signal,
     });
     return response.data;
   },

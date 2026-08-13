@@ -31,6 +31,7 @@ export interface WorkbenchState {
   patchesVersion: number;
   sessionsVersion: number;
   settingsRequest: { version: number; section?: string };
+  dirtyWorkspaceIds: string[];
 }
 
 export type WorkbenchAction =
@@ -48,7 +49,8 @@ export type WorkbenchAction =
   | { type: "refreshWorkspace" }
   | { type: "patchesChanged" }
   | { type: "sessionsChanged" }
-  | { type: "openSettings"; section?: string };
+  | { type: "openSettings"; section?: string }
+  | { type: "setWorkspaceDirty"; workspaceId: string; dirty: boolean };
 
 const initialState: WorkbenchState = {
   activeWorkspaceId: null,
@@ -68,6 +70,7 @@ const initialState: WorkbenchState = {
   patchesVersion: 0,
   sessionsVersion: 0,
   settingsRequest: { version: 0 },
+  dirtyWorkspaceIds: [],
 };
 
 function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState {
@@ -104,6 +107,13 @@ function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState
     case "sessionsChanged": return { ...state, sessionsVersion: state.sessionsVersion + 1 };
     case "openSettings":
       return { ...state, settingsRequest: { version: state.settingsRequest.version + 1, section: action.section } };
+    case "setWorkspaceDirty":
+      return {
+        ...state,
+        dirtyWorkspaceIds: action.dirty
+          ? [...new Set([...state.dirtyWorkspaceIds, action.workspaceId])]
+          : state.dirtyWorkspaceIds.filter(id => id !== action.workspaceId),
+      };
   }
 }
 
