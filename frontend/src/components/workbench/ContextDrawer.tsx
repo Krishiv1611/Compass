@@ -49,7 +49,7 @@ const emptyData: InspectorData = {
 export function ContextInspector({ workspaceId, sessionId, selectedFiles, compact = false }: InspectorProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<InspectorData>(emptyData);
-  const { state, removeContextFile, refreshWorkspace } = useWorkbench();
+  const { state, removeContextFile, refreshBackendContext } = useWorkbench();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,8 +83,7 @@ export function ContextInspector({ workspaceId, sessionId, selectedFiles, compac
     if (!workspaceId) return;
     setLoading(true);
     try {
-      await workspaceApi.refreshContext(workspaceId);
-      refreshWorkspace();
+      await refreshBackendContext(workspaceId);
       await load();
     } finally {
       setLoading(false);

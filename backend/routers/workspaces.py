@@ -20,6 +20,7 @@ from backend.services.workspace import (
     get_workspace,
     update_workspace_stats,
 )
+from backend.services.workspace_changes import FileChange, apply_workspace_metadata_delta
 from backend.services.ownership import (
     owned_patch,
     owned_session,
@@ -288,10 +289,14 @@ def create_workspace_file(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if body.type == "folder":
         target_path.mkdir(parents=True, exist_ok=True)
+        changes = []
     else:
-        target_path.write_text(body.content or "", encoding="utf-8")
-        
-    update_workspace_stats(db, workspace, sync_session=False)
+        content = (body.content or "").encode("utf-8")
+        target_path.write_bytes(content)
+        changes = [FileChange(body.path, 0, len(content), "create")]
+
+    apply_workspace_metadata_delta(workspace, changes)
+    db.commit()
     return {"message": "Created successfully"}
 
 @router.put("/{workspace_id}/file")
@@ -307,8 +312,14 @@ def update_workspace_file(
     if not target_path.exists() or not target_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
         
-    target_path.write_text(body.content, encoding="utf-8")
-    update_workspace_stats(db, workspace, sync_session=False)
+    before_size = target_path.stat().st_size
+    content = body.content.encode("utf-8")
+    target_path.write_bytes(content)
+    apply_workspace_metadata_delta(
+        workspace,
+        [FileChange(body.path, before_size, len(content), "edit")],
+    )
+    db.commit()
     return {"message": "Updated successfully"}
 
 @router.delete("/{workspace_id}/file")
@@ -325,11 +336,18 @@ def delete_workspace_file(
         raise HTTPException(status_code=404, detail="Path not found")
         
     if target_path.is_dir():
+        changes = [
+            FileChange(item.relative_to(workspace_dir).as_posix(), item.stat().st_size, 0, "delete")
+            for item in target_path.rglob("*")
+            if item.is_file()
+        ]
         shutil.rmtree(target_path)
     else:
+        changes = [FileChange(path, target_path.stat().st_size, 0, "delete")]
         target_path.unlink()
-        
-    update_workspace_stats(db, workspace, sync_session=False)
+
+    apply_workspace_metadata_delta(workspace, changes)
+    db.commit()
     return {"message": "Deleted successfully"}
 
 @router.post("/{workspace_id}/rename")
@@ -351,8 +369,12 @@ def rename_workspace_file(
         
     new_target.parent.mkdir(parents=True, exist_ok=True)
     old_target.rename(new_target)
-    
-    update_workspace_stats(db, workspace, sync_session=False)
+
+    apply_workspace_metadata_delta(
+        workspace,
+        [FileChange(f"{body.old_path}->{body.new_path}", 0, 0, "rename")],
+    )
+    db.commit()
     return {"message": "Renamed successfully"}
 
 # --- New Workspace ID based endpoints ---
@@ -433,6 +455,7 @@ def refresh_workspace_context(
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
     session = owned_session(db, workspace.session_id, current_user.id)
+    update_workspace_stats(db, workspace, sync_session=False)
     session.project_id = workspace.project_id
     session.git_remote = workspace.git_remote
     session.git_branch = workspace.git_branch

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ChatMode } from "@/types/chat";
+import { workspaceApi } from "@/api";
 
 export type CenterTab = "editor" | "preview" | "changes";
 export type MobileDestination = "agent" | "files" | "editor" | "changes" | "activity";
@@ -129,6 +130,7 @@ interface WorkbenchContextValue {
   openPreview: () => void;
   openActivity: () => void;
   refreshWorkspace: () => void;
+  refreshBackendContext: (workspaceId: string) => Promise<void>;
   setMode: (mode: ChatMode) => void;
   startNewTask: () => void;
   reviewPatches: () => void;
@@ -156,6 +158,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "setMobileDestination", destination: "activity" });
   }, []);
   const refreshWorkspace = useCallback(() => dispatch({ type: "refreshWorkspace" }), []);
+  const refreshBackendContext = useCallback(async (workspaceId: string) => {
+    await workspaceApi.refreshContext(workspaceId);
+  }, []);
   const setMode = useCallback((mode: ChatMode) => dispatch({ type: "setMode", mode }), []);
   const startNewTask = useCallback(() => dispatch({ type: "sessionsChanged" }), []);
   const reviewPatches = useCallback(() => openChanges(), [openChanges]);
@@ -167,11 +172,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   }, [state.selectedContextFiles]);
 
   const value = useMemo<WorkbenchContextValue>(() => ({
-    state, dispatch, openFile, openChanges, openPreview, openActivity, refreshWorkspace,
+    state, dispatch, openFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
     setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged,
     setContextFiles, removeContextFile,
   }), [
-    state, openFile, openChanges, openPreview, openActivity, refreshWorkspace,
+    state, openFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
     setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged,
     setContextFiles, removeContextFile,
   ]);

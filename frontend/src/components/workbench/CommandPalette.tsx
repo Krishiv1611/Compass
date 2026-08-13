@@ -63,7 +63,7 @@ export default function CommandPalette({
     openChanges,
     openActivity,
     openSettings,
-    refreshWorkspace,
+    refreshBackendContext,
     setMode,
     dispatch,
   } = useWorkbench();
@@ -86,13 +86,13 @@ export default function CommandPalette({
     { id: "review", label: "Review changes", hint: "Open consolidated patch review", icon: GitPullRequest, run: () => openChanges() },
     { id: "mode", label: "Change mode", hint: "Choose Ask, Edit, Plan, or Goal", icon: ListTree, run: () => showView("modes") },
     { id: "model", label: "Change model", hint: "Open model preferences", icon: Bot, run: () => openSettings("model") },
-    { id: "index", label: "Refresh project index", hint: "Update revision and retrieval context", icon: Layers3, run: refreshWorkspace },
+    { id: "index", label: "Refresh project index", hint: "Update revision and retrieval context", icon: Layers3, run: () => { if (workspaceId) void refreshBackendContext(workspaceId); } },
     { id: "context", label: "Inspect context", hint: "Files, uploads, memory, skills, and tools", icon: BrainCircuit, run: onContext },
     { id: "skills", label: "Choose skills", hint: "Inspect skills available to this task", icon: Sparkles, run: onContext },
     { id: "mcp", label: "View connectors", hint: "Inspect approved remote capabilities", icon: Boxes, run: onContext },
     { id: "settings", label: "Open settings", hint: "Account, model, appearance, and advanced", icon: Settings2, run: () => openSettings() },
     { id: "activity", label: "Open run activity", hint: "Inspect stages, duration, tools, and files", icon: Activity, run: openActivity },
-  ], [dispatch, onContext, openActivity, openChanges, openSettings, refreshWorkspace]);
+  ], [dispatch, onContext, openActivity, openChanges, openSettings, refreshBackendContext, workspaceId]);
 
   useEffect(() => {
     if (!open) return;

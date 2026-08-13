@@ -19,6 +19,29 @@ class StagedFile:
     before_bytes: bytes
 
 
+def _metadata_changes(workspace_dir: Path, staged: list[StagedFile]):
+    from backend.services.workspace_changes import FileChange
+
+    changes = []
+    for item in staged:
+        before_size = len(item.before_bytes) if item.before_exists else 0
+        after_size = item.temporary.stat().st_size if item.temporary else 0
+        operation = (
+            "create" if not item.before_exists and item.after_exists
+            else "delete" if item.before_exists and not item.after_exists
+            else "edit"
+        )
+        changes.append(
+            FileChange(
+                item.target.relative_to(workspace_dir).as_posix(),
+                before_size,
+                after_size,
+                operation,
+            )
+        )
+    return changes
+
+
 def _write_staged_file(target: Path, content: bytes) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.compass-{uuid.uuid4().hex}.tmp")
@@ -462,6 +485,7 @@ def apply_patch(
         updated_changes.append(change)
 
     staged = stage_patch_files(workspace_dir, pending)
+    metadata_changes = _metadata_changes(workspace_dir, staged)
     commit_staged_files(staged)
     try:
         patch = _commit_patch_update(
@@ -478,8 +502,9 @@ def apply_patch(
         for item in reversed(staged):
             _restore_staged_file(item)
         raise
-    from backend.services.workspace import update_workspace_stats
-    update_workspace_stats(db, workspace, sync_session=False)
+    from backend.services.workspace_changes import apply_workspace_metadata_delta
+    apply_workspace_metadata_delta(workspace, metadata_changes)
+    db.commit()
     return patch
 
 
@@ -584,6 +609,7 @@ def undo_patch(
         updated_changes.append(change)
 
     staged = stage_patch_files(workspace_dir, applied, use_before=True)
+    metadata_changes = _metadata_changes(workspace_dir, staged)
     commit_staged_files(staged)
     try:
         patch = _commit_patch_update(
@@ -596,8 +622,9 @@ def undo_patch(
         for item in reversed(staged):
             _restore_staged_file(item)
         raise
-    from backend.services.workspace import update_workspace_stats
-    update_workspace_stats(db, workspace, sync_session=False)
+    from backend.services.workspace_changes import apply_workspace_metadata_delta
+    apply_workspace_metadata_delta(workspace, metadata_changes)
+    db.commit()
     return patch
 
 
@@ -661,7 +688,10 @@ def resolve_patch_file(
             [selected_change],
             use_before=action == "undo",
         )
+        metadata_changes = _metadata_changes(workspace_dir, staged)
         commit_staged_files(staged)
+    else:
+        metadata_changes = []
     try:
         patch = _commit_patch_update(
             db,
@@ -674,6 +704,7 @@ def resolve_patch_file(
             _restore_staged_file(item)
         raise
     if action in {"apply", "undo"}:
-        from backend.services.workspace import update_workspace_stats
-        update_workspace_stats(db, workspace, sync_session=False)
+        from backend.services.workspace_changes import apply_workspace_metadata_delta
+        apply_workspace_metadata_delta(workspace, metadata_changes)
+        db.commit()
     return patch
