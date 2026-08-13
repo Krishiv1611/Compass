@@ -36,23 +36,25 @@ export default function GitHubImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<ImportStage>("idle");
   const repositoryGeneration = useRef(0);
+  const cursorRef = useRef<string | null>(null);
   const branchGeneration = useRef(0);
 
   const loadRepositories = useCallback(async (append = false) => {
     if (!status?.connected) return;
     const generation = append ? repositoryGeneration.current : ++repositoryGeneration.current;
     if (append) setLoadingMore(true);
-    else { setLoading(true); setRepositories([]); setCursor(null); }
+    else { setLoading(true); setRepositories([]); setCursor(null); cursorRef.current = null; }
     setError(null);
     try {
       const page = await githubApi.listRepositories({
-        cursor: append ? cursor || undefined : undefined,
+        cursor: append ? cursorRef.current || undefined : undefined,
         owner: owner || undefined,
         query: query || undefined,
       });
       if (generation !== repositoryGeneration.current) return;
       setRepositories((items) => append ? [...items, ...page.repositories.filter((repo) => !items.some((item) => item.id === repo.id))] : page.repositories);
-      setCursor(page.nextCursor || null);
+      cursorRef.current = page.nextCursor || null;
+      setCursor(cursorRef.current);
       if (!append) setOwners(page.owners || []);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load repositories");
@@ -60,7 +62,7 @@ export default function GitHubImportDialog({
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [cursor, owner, query, status?.connected]);
+  }, [owner, query, status?.connected]);
 
   useEffect(() => {
     if (!open || !status?.connected) return;

@@ -850,7 +850,7 @@ async def _stream_runtime_turn(
 ) -> dict | None:
     """Render one shared-runtime turn and return an approval interrupt, if any."""
     from agent.runtime.runner import stream_agent_events
-    from agent.ui.event_renderer import EventRenderer
+    from agent.ui.event_renderer import EventRenderer, artifact_summary_for_event
 
     live_panel = None
     current_text = ""
@@ -865,7 +865,15 @@ async def _stream_runtime_turn(
 
     try:
         async for event in stream_agent_events(input_value, config):
-            event_renderer.add(event)
+            artifact = event_renderer.add(event)
+            if event.type == StreamEventType.USAGE and isinstance(event.data, dict):
+                compass.accumulate_tokens(event.data)
+            artifact_summary = artifact_summary_for_event(event, artifact)
+            if artifact_summary:
+                stop_live()
+                current_text = ""
+                compass.console.print(Text(f"  {artifact_summary}", style="dim"))
+                continue
             if event.type == StreamEventType.TOKEN and event.content:
                 if not live_panel:
                     live_panel = Live(
@@ -959,10 +967,6 @@ async def _stream_runtime_turn(
 
             if event.type == StreamEventType.DONE:
                 stop_live()
-                data = event.data if isinstance(event.data, dict) else {}
-                usage = data.get("token_usage", {})
-                if usage:
-                    compass.accumulate_tokens(usage)
 
         stop_live()
         return None

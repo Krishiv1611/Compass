@@ -27,6 +27,7 @@ import GitHubPublishDialog from "@/components/github/GitHubPublishDialog";
 import { Button } from "@/components/ui/button";
 import { useRunController } from "@/hooks/useRunController";
 import type { RunSocket } from "@/runtime/RunController";
+import { workspaceChangeNeedsConfirmation } from "@/components/workbench/editorState";
 
 const CenterWorkbench = lazy(() => import("@/components/workbench/CenterWorkbench"));
 
@@ -50,6 +51,7 @@ export default function ChatPage() {
   } = useWorkbench();
   const {
     addEvent,
+    clearRun,
     finishRun,
     isRunActive,
     markFirstToken,
@@ -65,62 +67,39 @@ export default function ChatPage() {
   const [activeSocket, setActiveSocket] = useState<WebSocket | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ApprovalState | null>(null);
   const assistantMessageId = useRef<string | null>(null);
+  const loadedSessionParam = useRef<string | null | undefined>(undefined);
   const ensureSession = useCallback(async (title = "New task") => {
     if (sessionId) return sessionId;
     const session = await sessionsApi.createSession(title);
+    loadedSessionParam.current = session.id;
     setSessionId(session.id);
     setSearchParams({ session: session.id });
     dispatch({ type: "sessionsChanged" });
     return session.id as string;
   }, [dispatch, sessionId, setSearchParams]);
 
-  const refreshWorkspace = useCallback(async (currentSessionId: string) => {
+  const refreshWorkspace = useCallback(async (currentSessionId: string, isCurrent: () => boolean = () => true) => {
     try {
       const workspaces = await workspaceApi.listWorkspaces(currentSessionId);
+      if (!isCurrent()) return;
       const workspace = workspaces[0];
       if (!workspace) {
-        if (state.activeWorkspaceId && state.dirtyWorkspaceIds.includes(state.activeWorkspaceId) && !window.confirm("Discard unsaved project changes?")) return;
         dispatch({ type: "setWorkspace", workspaceId: null });
         dispatch({ type: "setPendingPatchCount", count: 0 });
         return;
       }
-      if (state.activeWorkspaceId && workspace.id !== state.activeWorkspaceId && state.dirtyWorkspaceIds.includes(state.activeWorkspaceId) && !window.confirm("Discard unsaved project changes?")) return;
-      dispatch({ type: "setWorkspace", workspaceId: workspace.id, projectName: workspace.name });
       const patches = await patchesApi.getPatches(workspace.id);
+      if (!isCurrent()) return;
       const pending = patches.reduce(
         (count, patch) => count + patch.changes.filter((change) => (change.status || patch.status) === "pending").length,
         0,
       );
+      dispatch({ type: "setWorkspace", workspaceId: workspace.id, projectName: workspace.name });
       dispatch({ type: "setPendingPatchCount", count: pending });
     } catch {
-      dispatch({ type: "setPendingPatchCount", count: 0 });
+      if (isCurrent()) dispatch({ type: "setPendingPatchCount", count: 0 });
     }
-  }, [dispatch, state.activeWorkspaceId, state.dirtyWorkspaceIds]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setSessionId(sessionParam);
-      if (!sessionParam) {
-        setMessages([]);
-        dispatch({ type: "setWorkspace", workspaceId: null });
-        return;
-      }
-      setStreamStatus("Loading task");
-      try {
-        const session = await sessionsApi.getSession(sessionParam);
-        if (cancelled) return;
-        setMessages(session.messages || []);
-        await refreshWorkspace(sessionParam);
-      } catch (error) {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : "Could not load task");
-      } finally {
-        if (!cancelled) setStreamStatus("Ready");
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [dispatch, refreshWorkspace, sessionParam]);
+  }, [dispatch]);
 
   const appendAssistantText = useCallback((content: string) => {
     const id = assistantMessageId.current;
@@ -179,7 +158,50 @@ export default function ChatPage() {
     },
   });
 
-  useEffect(() => () => runController.dispose(), [runController, sessionParam]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (loadedSessionParam.current === sessionParam) return;
+      const changingSession = sessionParam !== sessionId;
+      const needsConfirmation = changingSession && workspaceChangeNeedsConfirmation(
+        state.dirtyWorkspaceIds,
+        state.activeWorkspaceId,
+        null,
+      );
+      if (needsConfirmation && !window.confirm("Discard unsaved project changes?")) {
+        setSearchParams(sessionId ? { session: sessionId } : {});
+        return;
+      }
+
+      loadedSessionParam.current = sessionParam;
+      runController.dispose();
+      assistantMessageId.current = null;
+      setActiveSocket(null);
+      setPendingApproval(null);
+      setIsLoading(false);
+      clearRun();
+      setSessionId(sessionParam);
+      setMessages([]);
+      if (!sessionParam) {
+        dispatch({ type: "setWorkspace", workspaceId: null });
+        setStreamStatus("Ready");
+        return;
+      }
+      setStreamStatus("Loading task");
+      try {
+        const session = await sessionsApi.getSession(sessionParam);
+        if (cancelled) return;
+        setMessages(session.messages || []);
+        await refreshWorkspace(sessionParam, () => !cancelled && loadedSessionParam.current === sessionParam);
+      } catch (error) {
+        if (!cancelled) toast.error(error instanceof Error ? error.message : "Could not load task");
+      } finally {
+        if (!cancelled) setStreamStatus("Ready");
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [clearRun, dispatch, refreshWorkspace, runController, sessionId, sessionParam, setSearchParams, state.activeWorkspaceId, state.dirtyWorkspaceIds]);
 
   const handleSend = async (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => {
     if (!content.trim() && files.length === 0 && contextFiles.length === 0) return;

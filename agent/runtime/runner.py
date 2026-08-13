@@ -53,6 +53,15 @@ class ToolCallAssembler:
             key,
             {"id": "", "name": "", "args_text": "", "args": None, "emitted": False},
         )
+        if call_id and state["emitted"] and state["id"] != call_id:
+            state = {
+                "id": "",
+                "name": "",
+                "args_text": "",
+                "args": None,
+                "emitted": False,
+            }
+            self._calls[key] = state
         if call_id:
             state["id"] = call_id
         if chunk.get("name"):
@@ -88,6 +97,35 @@ class ToolCallAssembler:
                 ),
             )
         ]
+
+
+_MUTATING_FILE_TOOLS = {"write_to_file", "edit_file", "delete_file"}
+
+
+def workspace_patch_for_tool_result(
+    *,
+    tool_call_id: str,
+    tool_name: str,
+    tool_args: dict,
+    status: str,
+    result_content: object,
+) -> StreamEvent | None:
+    """Project a successful file mutation into the shared run artifact."""
+    result_text = str(result_content).lstrip().lower()
+    if (
+        tool_name not in _MUTATING_FILE_TOOLS
+        or status == "error"
+        or not result_text.startswith(("successfully ", "proposed "))
+    ):
+        return None
+    path = tool_args.get("path") or tool_args.get("file_path")
+    if not isinstance(path, str) or not path:
+        return None
+    return StreamEvent(
+        type=StreamEventType.WORKSPACE_PATCH,
+        tool_call_id=tool_call_id,
+        data={"affected_files": [path]},
+    )
 
 
 def events_for_node_artifacts(node_name: str, node_output: dict) -> list[StreamEvent]:
@@ -293,6 +331,7 @@ async def stream_agent_events(
     )
 
     assembler = ToolCallAssembler()
+    tool_calls: dict[str, tuple[str, dict]] = {}
     try:
         async for chunk_type, payload in workflow.astream(
             input_value,
@@ -325,6 +364,11 @@ async def stream_agent_events(
                     for tool_call in getattr(chunk, "tool_call_chunks", []) or []:
                         for event in assembler.add(tool_call):
                             event.node = node_name
+                            if event.tool_call:
+                                tool_calls[event.tool_call.id] = (
+                                    event.tool_call.name,
+                                    event.tool_call.args,
+                                )
                             yield event
 
             elif chunk_type == "updates":
@@ -387,18 +431,29 @@ async def stream_agent_events(
                     elif node_name == "tools":
                         for message in node_output.get("messages", []):
                             if isinstance(message, ToolMessage):
+                                status = getattr(message, "status", "success")
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_RESULT,
                                     tool_call_id=message.tool_call_id,
                                     content=str(message.content)[:500],
                                     data={
                                         "name": getattr(message, "name", "tool"),
-                                        "status": getattr(
-                                            message, "status", "success"
-                                        ),
+                                        "status": status,
                                     },
                                     node=node_name,
                                 )
+                                call = tool_calls.get(message.tool_call_id)
+                                if call:
+                                    patch_event = workspace_patch_for_tool_result(
+                                        tool_call_id=message.tool_call_id,
+                                        tool_name=call[0],
+                                        tool_args=call[1],
+                                        status=status,
+                                        result_content=message.content,
+                                    )
+                                    if patch_event:
+                                        patch_event.node = node_name
+                                        yield patch_event
 
         state = await workflow.aget_state(config)
         interrupts = [
@@ -410,6 +465,8 @@ async def stream_agent_events(
         waiting_events = events_from_interrupts(interrupts)
         if waiting_events:
             token_usage = state.values.get("token_usage", {}) if state.values else {}
+            if token_usage:
+                yield StreamEvent(type=StreamEventType.USAGE, data=token_usage)
             assistant_content = _current_turn_assistant_content(
                 before_ids,
                 state.values.get("messages", []) if state.values else [],
@@ -426,6 +483,8 @@ async def stream_agent_events(
             return
 
         token_usage = state.values.get("token_usage", {}) if state.values else {}
+        if token_usage:
+            yield StreamEvent(type=StreamEventType.USAGE, data=token_usage)
         assistant_content = _current_turn_assistant_content(
             before_ids,
             state.values.get("messages", []) if state.values else [],

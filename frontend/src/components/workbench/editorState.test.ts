@@ -9,6 +9,7 @@ import {
   selectEntry,
   storeLoadedFile,
   workspaceChangeNeedsConfirmation,
+  shouldReloadEntry,
 } from "./editorState";
 
 describe("workspace-scoped editor state", () => {
@@ -51,5 +52,20 @@ describe("workspace-scoped editor state", () => {
     expect(selectEntry(state, "A", "a.ts")?.invalidated).toBe(true);
     expect(workspaceChangeNeedsConfirmation(["A"], "A", "B")).toBe(true);
     expect(workspaceChangeNeedsConfirmation(["A"], "A", "A")).toBe(false);
+  });
+
+  it("reloads an invalidated clean file but preserves an invalidated dirty file", () => {
+    let state = beginLoad(emptyEditorState(), "A", "a.ts", 1);
+    state = storeLoadedFile(state, { workspaceId: "A", path: "a.ts", content: "old", generation: 1 });
+    state = invalidateWorkspace(state, "A");
+    expect(shouldReloadEntry(state, "A", "a.ts")).toBe(true);
+
+    state = editFile(state, "A", "a.ts", "local");
+    expect(shouldReloadEntry(state, "A", "a.ts")).toBe(false);
+  });
+
+  it("does not restart a load that is already in flight", () => {
+    const state = beginLoad(emptyEditorState(), "A", "a.ts", 1);
+    expect(shouldReloadEntry(state, "A", "a.ts")).toBe(false);
   });
 });

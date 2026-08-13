@@ -15,7 +15,7 @@ import DiffReviewPanel from "@/components/sandbox/DiffReviewPanel";
 import WebPreview from "@/components/sandbox/WebPreview";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { beginLoad, editFile, emptyEditorState, invalidateWorkspace, isDirty as entryIsDirty, markSaved, selectEntry, storeLoadedFile } from "./editorState";
+import { beginLoad, editFile, emptyEditorState, invalidateWorkspace, isDirty as entryIsDirty, markSaved, selectEntry, shouldReloadEntry, storeLoadedFile } from "./editorState";
 
 const languageFromName = (name: string) => {
   const extension = name.toLowerCase().split(".").pop();
@@ -68,7 +68,7 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
   }, [activeFile, activeWorkspaceId, editorState, isDirty, openFile]);
 
   useEffect(() => {
-    if (!activeFile || !activeWorkspaceId || selectEntry(editorState, activeWorkspaceId, activeFile.path)) return;
+    if (!activeFile || !activeWorkspaceId || !shouldReloadEntry(editorState, activeWorkspaceId, activeFile.path)) return;
     void loadFile(activeFile);
   }, [activeFile, activeWorkspaceId, editorState, loadFile]);
 

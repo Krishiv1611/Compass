@@ -13,10 +13,11 @@ import {
 } from "lucide-react";
 import { useRunEvents, type LiveRunEvent } from "@/contexts/RunContext";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
-import type { JsonValue, RunStage, RunStageStatus } from "@/types/run";
+import type { JsonValue, RunStage } from "@/types/run";
 import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
 import { eventsFromRunHistory, runsApi } from "@/api/runs";
+import { deriveStageStates, durationForEvent, stageForEvent } from "@/runtime/runTimelineProjection";
 
 const stageLabels: Record<RunStage, string> = {
   context: "Context",
@@ -60,6 +61,7 @@ function ActivityRow({ event }: { event: LiveRunEvent }) {
   const complete = event.type === "done" || event.type === "tool_result";
   const Icon = failed ? XCircle : waiting ? AlertTriangle : complete ? CheckCircle2 : event.affected_files?.length ? FileText : Wrench;
   const details = event.tool_call?.args || event.data;
+  const durationMs = durationForEvent(event);
   return (
     <div className="border-b border-border py-2 last:border-0">
       <div className="flex items-start gap-2">
@@ -67,7 +69,7 @@ function ActivityRow({ event }: { event: LiveRunEvent }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-xs">
             <span className="min-w-0 flex-1 truncate font-medium">{eventLabel(event)}</span>
-            {event.duration_ms != null && <span className="font-mono text-muted-foreground">{Math.round(event.duration_ms)}ms</span>}
+            {durationMs != null && <span className="font-mono text-muted-foreground">{Math.round(durationMs)}ms</span>}
           </div>
           {!!event.affected_files?.length && <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{event.affected_files.join(", ")}</p>}
         </div>
@@ -108,28 +110,14 @@ export default function RunTimeline({
     const stages: RunStage[] = ["context"];
     if (state.mode === "plan" || state.mode === "goal") stages.push("plan");
     if (state.mode !== "ask") stages.push("edit");
-    if (artifact.checks.length || currentRunEvents.some((event) => event.stage === "check" || event.data?.stage === "check")) stages.push("check");
-    if (state.pendingPatchCount || currentRunEvents.some((event) => event.stage === "review" || event.type === "approval_required")) stages.push("review");
+    if (artifact.checks.length || currentRunEvents.some((event) => stageForEvent(event) === "check")) stages.push("check");
+    if (state.pendingPatchCount || currentRunEvents.some((event) => stageForEvent(event) === "review")) stages.push("review");
     stages.push("complete");
     return stages;
   }, [artifact.checks.length, currentRunEvents, state.mode, state.pendingPatchCount]);
 
   const stageState = useMemo(() => {
-    const statuses = new Map<RunStage, RunStageStatus>();
-    visibleStages.forEach((stage) => statuses.set(stage, "pending"));
-    for (const event of currentRunEvents) {
-      const dataStage = typeof event.data?.stage === "string" ? event.data.stage as RunStage : undefined;
-      const stage = event.stage || dataStage;
-      const dataStatus = typeof event.data?.stage_status === "string" ? event.data.stage_status as RunStageStatus : undefined;
-      if (stage && statuses.has(stage)) statuses.set(stage, event.stage_status || dataStatus || "active");
-      if (event.type === "approval_required" && statuses.has("review")) statuses.set("review", "waiting");
-      if (event.type === "done") statuses.set("complete", "complete");
-      if (event.type === "error") statuses.set(stage || "complete", "failed");
-    }
-    if (isRunActive && ![...statuses.values()].some((value) => value === "active" || value === "waiting")) statuses.set("context", "active");
-    const activeIndex = visibleStages.findIndex((stage) => ["active", "waiting", "failed", "complete"].includes(statuses.get(stage) || ""));
-    if (activeIndex >= 0) visibleStages.slice(0, activeIndex).forEach((stage) => statuses.set(stage, "complete"));
-    return statuses;
+    return deriveStageStates(currentRunEvents, visibleStages, isRunActive);
   }, [currentRunEvents, isRunActive, visibleStages]);
 
   if (!currentRunEvents.length && !isRunActive) {

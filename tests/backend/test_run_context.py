@@ -99,6 +99,49 @@ class AgentRunnerSnapshotTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, [])
 
+    async def test_stream_runner_passes_selected_skill_to_turn_input(self):
+        snapshot = RunContextSnapshot(
+            user_id="user-1",
+            session_id="session-1",
+            thread_id="thread-1",
+            workspace_id="workspace-1",
+            workspace_path=str(Path.cwd()),
+            project_id="project-1",
+            context_version="content:new",
+            session_context_version="content:new",
+            preferences={
+                "llm_provider": "openrouter",
+                "model": "test/model",
+                "llm_credentials_encrypted": {
+                    "openrouter": encrypt_credential("test-key"),
+                },
+            },
+            source_type="upload",
+        )
+
+        async def stream(_input, _config, cancel_event=None):
+            yield StreamEvent(type=StreamEventType.DONE)
+
+        with (
+            patch.object(agent_runner, "get_run_config", return_value={"configurable": {}}),
+            patch.object(agent_runner, "build_turn_input", return_value={}) as build,
+            patch.object(agent_runner, "stream_agent_events", side_effect=stream),
+        ):
+            events = [
+                event
+                async for event in agent_runner.run_agent_stream(
+                    user_message="review this",
+                    snapshot=snapshot,
+                    active_skill="code-review",
+                )
+            ]
+
+        self.assertEqual(events[0].type, StreamEventType.DONE)
+        self.assertEqual(
+            build.call_args.kwargs["active_skill"],
+            {"name": "code-review", "arguments": ""},
+        )
+
 
 class _TrackingSession:
     def __init__(self, database, tracker):

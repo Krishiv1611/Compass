@@ -57,7 +57,7 @@ export default function SettingsModal({
   initialTab?: string;
 }) {
   const { signOut } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
   const { state, dispatch } = useWorkbench();
   const [preferences, setPreferences] = useState<SafePreferences>(defaults);
   const [newApiKey, setNewApiKey] = useState("");
@@ -75,7 +75,7 @@ export default function SettingsModal({
     setNewApiKey("");
     setError(null);
     preferencesApi.getSettings()
-      .then((value) => { setPreferences({ ...defaults, ...value, theme: value.theme || theme }); setLoaded(true); })
+      .then((value) => { setPreferences({ ...defaults, ...value, theme: value.theme || "system" }); setLoaded(true); })
       .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Could not load settings"))
       .finally(() => setLoading(false));
   }, [open, user]);

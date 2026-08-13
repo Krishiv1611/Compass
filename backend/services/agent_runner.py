@@ -81,6 +81,7 @@ async def run_agent_stream(
     resume_feedback: str | None = None,
     run_id: str | None = None,
     context_files: list[str] | None = None,
+    active_skill: str | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Stream a web turn using the same runtime as the TUI."""
     config = _web_config(snapshot, run_id=run_id)
@@ -91,6 +92,7 @@ async def run_agent_stream(
             user_message,
             mode=mode,
             context_files=context_files,
+            active_skill={"name": active_skill, "arguments": ""} if active_skill else None,
             config=config,
         )
     )
@@ -129,8 +131,8 @@ async def run_agent_sync(
     input_value = build_turn_input(
         user_message,
         mode=mode,
-            context_files=context_files,
-            active_skill={"name": active_skill, "arguments": ""} if active_skill else None,
+        context_files=context_files,
+        active_skill={"name": active_skill, "arguments": ""} if active_skill else None,
         config=config,
     )
     return await invoke_agent(input_value, config)

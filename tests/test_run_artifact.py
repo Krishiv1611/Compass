@@ -38,6 +38,62 @@ class RunArtifactTests(unittest.TestCase):
         self.assertEqual(emitted[0].tool_call.name, "read_file")
         self.assertEqual(emitted[0].tool_call.args, {"path": "src/app.py"})
 
+    def test_reuses_provider_index_for_a_later_tool_call(self):
+        assembler = ToolCallAssembler()
+
+        first = assembler.add(
+            {"index": 0, "id": "call-one", "name": "read_file", "args": {"path": "a.py"}}
+        )
+        second = assembler.add(
+            {"index": 0, "id": "call-two", "name": "read_file", "args": {"path": "b.py"}}
+        )
+
+        self.assertEqual(
+            [event.tool_call.id for event in first + second],
+            ["call-one", "call-two"],
+        )
+
+    def test_mutating_tool_result_projects_changed_file(self):
+        from agent.runtime.runner import workspace_patch_for_tool_result
+
+        event = workspace_patch_for_tool_result(
+            tool_call_id="edit-1",
+            tool_name="edit_file",
+            tool_args={"path": "src/app.py"},
+            status="success",
+            result_content="Successfully edited src/app.py",
+        )
+
+        self.assertIsNotNone(event)
+        self.assertEqual(event.data, {"affected_files": ["src/app.py"]})
+        self.assertIsNone(
+            workspace_patch_for_tool_result(
+                tool_call_id="read-1",
+                tool_name="read_file",
+                tool_args={"path": "src/app.py"},
+                status="success",
+                result_content="contents",
+            )
+        )
+        self.assertIsNone(
+            workspace_patch_for_tool_result(
+                tool_call_id="edit-2",
+                tool_name="edit_file",
+                tool_args={"path": "src/app.py"},
+                status="success",
+                result_content="Error: old_content not found",
+            )
+        )
+        self.assertIsNone(
+            workspace_patch_for_tool_result(
+                tool_call_id="edit-3",
+                tool_name="edit_file",
+                tool_args={"path": "../secret.py"},
+                status="success",
+                result_content="Access denied: path escapes the workspace directory.",
+            )
+        )
+
     def test_projects_plan_step_and_check_from_node_outputs(self):
         step_events = events_for_node_artifacts("executor", {"current_step": 2})
         check_events = events_for_node_artifacts(

@@ -370,6 +370,7 @@ async def send_message(
             snapshot=snapshot,
             mode=body.mode,
             context_files=body.context_files,
+            active_skill=body.active_skill,
         )
     except Exception as exc:
         error_msg = str(exc)

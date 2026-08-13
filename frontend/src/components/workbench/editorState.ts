@@ -57,3 +57,9 @@ export function invalidateWorkspace(state: EditorState, workspaceId: string): Ed
 export function workspaceChangeNeedsConfirmation(dirtyWorkspaceIds: string[], currentWorkspaceId: string | null, nextWorkspaceId: string | null): boolean {
   return Boolean(currentWorkspaceId && currentWorkspaceId !== nextWorkspaceId && dirtyWorkspaceIds.includes(currentWorkspaceId));
 }
+
+export const shouldReloadEntry = (state: EditorState, workspaceId: string, path: string) => {
+  if (state.activeLoad?.workspaceId === workspaceId && state.activeLoad.path === path) return false;
+  const entry = selectEntry(state, workspaceId, path);
+  return !entry || (entry.invalidated && !isDirty(state, workspaceId, path));
+};
