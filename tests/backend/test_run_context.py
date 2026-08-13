@@ -1,10 +1,11 @@
 import asyncio
 import unittest
+import uuid
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from threading import get_ident
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from agent.runtime.events import StreamEvent, StreamEventType
 from backend.routers import chat, uploads
@@ -153,18 +154,17 @@ class AsyncBoundaryTests(DatabaseTestCase):
                 event
                 async for event in chat._stream_agent_turn(
                     snapshot,
-                    WsClientMessage(type="message", content="hello"),
+                    WsClientMessage(
+                        type="message",
+                        content="hello",
+                        run_id=str(uuid.uuid4()),
+                    ),
                 )
             ]
 
         with (
             patch.object(chat, "SessionLocal", tracker),
             patch.object(chat.agent_runner, "run_agent_stream", slow_runner),
-            patch.object(
-                chat,
-                "_load_final_token_usage",
-                AsyncMock(return_value=None),
-            ),
         ):
             events = asyncio.run(consume_turn())
 

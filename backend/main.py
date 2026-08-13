@@ -24,7 +24,7 @@ from pydantic import ValidationError
 from sqlalchemy import text
 
 from backend.config import settings
-from backend.db import engine
+from backend.db import engine, SessionLocal
 
 import structlog
 
@@ -57,6 +57,15 @@ async def lifespan(app: FastAPI):
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+        from backend.services.run_manager import reconcile_interrupted_runs
+
+        with SessionLocal() as db:
+            interrupted_count = reconcile_interrupted_runs(db)
+        if interrupted_count:
+            logger.info(
+                "Reconciled interrupted agent runs",
+                count=interrupted_count,
+            )
         logger.info("Database connection verified ✓")
     except Exception as exc:
         logger.error(f"Database connection failed: {exc}")

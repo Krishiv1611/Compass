@@ -3,6 +3,7 @@ Chat router -- non-streaming POST endpoint + WebSocket streaming.
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
@@ -35,11 +36,11 @@ from backend.services import agent_runner
 from backend.services import session_manager
 from backend.services.run_context import RunContextSnapshot, load_run_context
 from backend.services.run_manager import (
-    create_agent_run,
+    claim_agent_run,
     end_agent_run,
-    get_cancel_signal,
     persist_run_events,
 )
+from backend.services.run_persistence import RunEventBatcher, terminal_from_events
 from backend.ws.hub import manager
 
 logger = logging.getLogger(__name__)
@@ -153,12 +154,18 @@ def _validate_session_access(db: Session, user_id: str, session_id: str) -> Chat
     return session
 
 
-def _create_run_record(snapshot: RunContextSnapshot) -> str:
+def _claim_run_record(
+    snapshot: RunContextSnapshot,
+    requested_run_id: str,
+    *,
+    resume: bool,
+) -> str:
     with SessionLocal() as db:
-        run = create_agent_run(
+        run = claim_agent_run(
             db,
-            session_id=snapshot.session_id,
-            workspace_id=snapshot.workspace_id,
+            snapshot,
+            requested_run_id,
+            resume=resume,
         )
         return run.id
 
@@ -187,29 +194,22 @@ def _end_run_record(
         )
 
 
-async def _load_final_token_usage(thread_id: str) -> dict | None:
-    """Read final graph usage without retaining any relational DB session."""
-    try:
-        from agent.graph.workflow import get_workflow
-        from agent.telemetry import get_run_config
-
-        workflow = await get_workflow()
-        state = await workflow.aget_state(get_run_config(thread_id=thread_id))
-        if state and state.values:
-            return state.values.get("token_usage")
-    except Exception:
-        pass
-    return None
-
-
 async def _stream_agent_turn(
     snapshot: RunContextSnapshot,
     client_msg: WsClientMessage,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Stream one turn while opening DB sessions only for short writes."""
-    run_id = _create_run_record(snapshot)
-    run_waiting = False
-    events_to_persist: list[tuple[str, dict]] = []
+    is_resume = client_msg.type == "resume"
+    if is_resume and not client_msg.run_id:
+        raise HTTPException(status_code=400, detail="resume requires run_id")
+    requested_run_id = client_msg.run_id or str(uuid.uuid4())
+    run_id = _claim_run_record(
+        snapshot,
+        requested_run_id,
+        resume=is_resume,
+    )
+    batcher = RunEventBatcher(max_size=25)
+    terminal_events: list[StreamEvent] = []
     try:
         async for event in agent_runner.run_agent_stream(
             user_message=client_msg.content or "",
@@ -222,26 +222,22 @@ async def _stream_agent_turn(
         ):
             event.run_id = run_id
             event.session_id = snapshot.session_id
-            event_dict = event.model_dump(exclude_none=True)
-            if event.type != StreamEventType.TOKEN:
-                events_to_persist.append(
-                    (event_dict.get("type", "unknown"), event_dict)
-                )
-            if event.type == StreamEventType.RUN_WAITING:
-                run_waiting = True
+            batch = batcher.add(event)
+            if batch:
+                _persist_run_event_batch(run_id, batch)
+            if event.type in {
+                StreamEventType.RUN_WAITING,
+                StreamEventType.DONE,
+                StreamEventType.ERROR,
+            }:
+                terminal_events.append(event)
             yield event
 
-        _persist_run_event_batch(run_id, events_to_persist)
-        final_token_usage = await _load_final_token_usage(snapshot.thread_id)
-        if get_cancel_signal(run_id).is_set():
-            run_status = "cancelled"
-        elif run_waiting:
-            run_status = "waiting"
-        else:
-            run_status = "completed"
-        _end_run_record(run_id, run_status, final_token_usage)
+        _persist_run_event_batch(run_id, batcher.flush())
+        terminal = terminal_from_events(terminal_events)
+        _end_run_record(run_id, terminal.status, terminal.token_usage)
     except Exception:
-        _end_run_record(run_id, "error")
+        _end_run_record(run_id, "failed")
         raise
 
 
@@ -437,6 +433,7 @@ async def websocket_chat(
 
     # -- Connect --
     await manager.connect(websocket, session_id, subprotocol=WEBSOCKET_PROTOCOL)
+    current_run_id: str | None = None
 
     try:
         while True:
@@ -463,15 +460,23 @@ async def websocket_chat(
                             db, session_id, role="user", content=client_msg.content
                         )
 
+                if client_msg.type == "resume" and not client_msg.run_id:
+                    client_msg.run_id = current_run_id
                 snapshot = load_run_context(session_id, user_id)
-                full_content: list[str] = []
+                assistant_text: str | None = None
                 async for event in _stream_agent_turn(snapshot, client_msg):
+                    if event.run_id:
+                        current_run_id = event.run_id
                     await manager.send_event(websocket, event)
-                    if event.type == StreamEventType.TOKEN and event.content:
-                        full_content.append(event.content)
+                    if event.type in {
+                        StreamEventType.DONE,
+                        StreamEventType.RUN_WAITING,
+                    } and isinstance(event.data, dict):
+                        final_content = event.data.get("assistant_content")
+                        if isinstance(final_content, str) and final_content:
+                            assistant_text = final_content
 
-                if full_content:
-                    assistant_text = "".join(full_content)
+                if assistant_text:
                     _persist_assistant_turn(
                         snapshot,
                         client_msg.content,

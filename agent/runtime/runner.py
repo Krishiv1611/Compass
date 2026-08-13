@@ -145,6 +145,29 @@ def _content_text(content: object) -> str:
     return str(content)
 
 
+def _message_ids(messages: list[BaseMessage]) -> set[str]:
+    return {
+        message.id
+        for message in messages
+        if isinstance(getattr(message, "id", None), str)
+    }
+
+
+def _current_turn_assistant_content(
+    before_ids: set[str],
+    messages: list[BaseMessage],
+) -> str | None:
+    from backend.services.run_persistence import messages_created_this_turn
+
+    new_messages = messages_created_this_turn(before_ids, messages)
+    for message in reversed(new_messages):
+        if isinstance(message, AIMessage):
+            content = _content_text(message.content)
+            if content:
+                return content
+    return None
+
+
 async def stream_agent_events(
     input_value: dict | Command,
     config: dict,
@@ -164,9 +187,17 @@ async def stream_agent_events(
                 "Project changed since this task was created. "
                 "Refresh context before continuing."
             ),
+            data={"status": "failed"},
         )
         return
 
+    before_state = await workflow.aget_state(config)
+    before_messages = (
+        before_state.values.get("messages", [])
+        if before_state and before_state.values
+        else []
+    )
+    before_ids = _message_ids(before_messages)
     stage_started_at = datetime.now(timezone.utc)
     stage_started_clock = time.perf_counter()
     yield StreamEvent(
@@ -296,14 +327,34 @@ async def stream_agent_events(
         ]
         waiting_events = events_from_interrupts(interrupts)
         if waiting_events:
+            token_usage = state.values.get("token_usage", {}) if state.values else {}
+            assistant_content = _current_turn_assistant_content(
+                before_ids,
+                state.values.get("messages", []) if state.values else [],
+            )
             for event in waiting_events:
+                if event.type == StreamEventType.RUN_WAITING:
+                    event.data = {
+                        **(event.data or {}),
+                        "status": "waiting_for_approval",
+                        "token_usage": token_usage,
+                        "assistant_content": assistant_content,
+                    }
                 yield event
             return
 
         token_usage = state.values.get("token_usage", {}) if state.values else {}
+        assistant_content = _current_turn_assistant_content(
+            before_ids,
+            state.values.get("messages", []) if state.values else [],
+        )
         yield StreamEvent(
             type=StreamEventType.DONE,
-            data={"status": "completed", "token_usage": token_usage},
+            data={
+                "status": "completed",
+                "token_usage": token_usage,
+                "assistant_content": assistant_content,
+            },
         )
 
     except Exception as exc:
@@ -315,7 +366,11 @@ async def stream_agent_events(
             or "401" in message
         ):
             message = "Invalid LLM API key. Update the configured API key."
-        yield StreamEvent(type=StreamEventType.ERROR, content=message[:500])
+        yield StreamEvent(
+            type=StreamEventType.ERROR,
+            content=message[:500],
+            data={"status": "failed"},
+        )
 
 
 async def invoke_agent(input_value: dict | Command, config: dict) -> list[BaseMessage]:
@@ -325,9 +380,19 @@ async def invoke_agent(input_value: dict | Command, config: dict) -> list[BaseMe
         raise ValueError(
             "Project changed since this task was created. Refresh context first."
         )
+    before_state = await workflow.aget_state(config)
+    before_messages = (
+        before_state.values.get("messages", [])
+        if before_state and before_state.values
+        else []
+    )
+    before_ids = _message_ids(before_messages)
     result = await workflow.ainvoke(input_value, config=config)
-    return [
+    messages = [
         message
         for message in result.get("messages", [])
         if isinstance(message, (AIMessage, ToolMessage))
     ]
+    from backend.services.run_persistence import messages_created_this_turn
+
+    return messages_created_this_turn(before_ids, messages)
