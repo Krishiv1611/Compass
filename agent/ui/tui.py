@@ -1703,8 +1703,15 @@ async def _handle_slash_command(
         compass.console.print()
 
         try:
+            from agent.workspace import discover_local_workspace
+
+            workspace_context = discover_local_workspace(Path(workspace))
             with compass.thinking_spinner():
-                result = index_workspace(workspace)
+                result = index_workspace(
+                    workspace,
+                    project_id=workspace_context.project_id or "",
+                    context_version=workspace_context.context_version or "",
+                )
 
             # Display results in a styled panel
             stats_text = Text()

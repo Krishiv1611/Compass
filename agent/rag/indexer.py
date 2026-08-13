@@ -14,6 +14,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
@@ -37,7 +38,31 @@ IGNORE_DIRS = {
     ".compass",
     "node_modules",
     ".antigravitycli",
+    "dist",
+    "build",
+    "target",
+    ".next",
+    ".cache",
+    "coverage",
 }
+
+_DENIED_EXACT_NAMES = {
+    ".env",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    "credentials.json",
+    "credentials.yml",
+    "credentials.yaml",
+    "secrets.json",
+    "secrets.yml",
+    "secrets.yaml",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+}
+_DENIED_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore")
 
 
 @dataclass
@@ -117,6 +142,23 @@ def is_text_file(filepath: str) -> bool:
     return ext.lower() in valid_extensions
 
 
+def should_index_path(path: Path) -> bool:
+    """Reject secrets, VCS internals, caches, and generated output."""
+    parts = tuple(part.lower() for part in path.parts)
+    if any(part in IGNORE_DIRS for part in parts[:-1]):
+        return False
+    if len(parts) >= 2 and parts[0] == ".compass" and parts[1] == "checkpoints":
+        return False
+    name = path.name.lower()
+    if name in _DENIED_EXACT_NAMES or name.endswith(_DENIED_SUFFIXES):
+        return False
+    if name.endswith(".env") or name.startswith(".env."):
+        return False
+    if any(term in name for term in ("credential", "secret", "api_key", "token")):
+        return False
+    return is_text_file(str(path))
+
+
 def _delete_chunks_by_source(source_path: str, project_id: str | None) -> int:
     """Delete all chunks for a source path from ChromaDB."""
     where = {"source": source_path}
@@ -127,8 +169,9 @@ def _delete_chunks_by_source(source_path: str, project_id: str | None) -> int:
 
 def index_workspace(
     workspace_path: str = WORKSPACE_DIR,
-    project_id: str | None = None,
-    context_version: str | None = None,
+    *,
+    project_id: str,
+    context_version: str,
 ) -> IndexStats:
     """
     Traverse the workspace, chunk modified files, and index them into ChromaDB.
@@ -137,6 +180,11 @@ def index_workspace(
     """
     start_time = time.time()
     stats = IndexStats()
+
+    if not project_id:
+        raise ValueError("project_id is required for workspace indexing")
+    if not context_version:
+        raise ValueError("context_version is required for workspace indexing")
 
     workspace_path = os.path.abspath(workspace_path)
     state_file = os.path.join(workspace_path, ".compass", "index_state.json")
@@ -169,7 +217,8 @@ def index_workspace(
         for file in files:
             filepath = os.path.join(root, file)
 
-            if not is_text_file(filepath):
+            relative_candidate = Path(filepath).relative_to(workspace_path)
+            if not should_index_path(relative_candidate):
                 continue
 
             stats.files_scanned += 1
@@ -191,8 +240,8 @@ def index_workspace(
                     content,
                     metadata={
                         "source_type": "workspace",
-                        "project_id": project_id or "",
-                        "context_version": context_version or "",
+                        "project_id": project_id,
+                        "context_version": context_version,
                     },
                 )
                 chunks = [c for c in chunks if c.page_content.strip()]
@@ -237,7 +286,14 @@ def index_workspace(
 
 
 if __name__ == "__main__":
-    result = index_workspace("d:\\projects\\compass")
+    from agent.workspace import discover_local_workspace
+
+    identity = discover_local_workspace(Path.cwd())
+    result = index_workspace(
+        str(identity.root),
+        project_id=identity.project_id or "",
+        context_version=identity.context_version or "",
+    )
     print(f"\nIndexing complete in {result.elapsed_seconds:.1f}s")
     print(f"  Scanned: {result.files_scanned} files")
     print(f"  Indexed: {result.files_indexed} files ({result.chunks_added} chunks)")

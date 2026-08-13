@@ -51,6 +51,7 @@ TEXT_EXTENSIONS = {
     ".rs",
     ".rb",
     ".php",
+    ".ipynb",
 }
 TABLE_EXTENSIONS = {".csv", ".tsv"}
 SUPPORTED_EXTENSIONS = (

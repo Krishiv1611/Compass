@@ -78,11 +78,11 @@ class LongTermMemoryTests(unittest.TestCase):
     def test_memory_namespaces_are_isolated(self):
         self.assertEqual(
             memory_tool.memory_namespace("user-a"),
-            ("users", "user-a", "memory", "global"),
+            ("memories", "user-a", "global"),
         )
         self.assertEqual(
             memory_tool.memory_namespace("user-a", scope="project", project_id="project-a"),
-            ("users", "user-a", "memory", "projects", "project-a"),
+            ("memories", "user-a", "project", "project-a"),
         )
         self.assertNotEqual(
             memory_tool.memory_namespace("user-a"),

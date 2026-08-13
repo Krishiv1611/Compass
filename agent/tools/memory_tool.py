@@ -113,15 +113,14 @@ MEMORY_STORE = LazyMemoryStore()
 
 def memory_namespace(
     user_id: str,
-    *,
     scope: str = "global",
     project_id: str | None = None,
     category: str | None = None,
 ) -> tuple[str, ...]:
     """Build an isolated namespace for one user and optional project."""
-    namespace = ("users", str(user_id), "memory")
+    namespace = ("memories", str(user_id))
     if scope == "project" and project_id:
-        namespace += ("projects", str(project_id))
+        namespace += ("project", str(project_id))
     else:
         namespace += ("global",)
     if category:
@@ -153,12 +152,13 @@ def list_memories(
     *,
     scope: str = "global",
     project_id: str | None = None,
+    category: str | None = None,
     limit: int = 100,
 ) -> tuple[list[dict[str, Any]], bool, str | None]:
     store = get_memory_store()
     if store is None:
         return [], False, _store_error
-    namespace = memory_namespace(user_id, scope=scope, project_id=project_id)
+    namespace = memory_namespace(user_id, scope, project_id, category)
     results = store.search(namespace, limit=min(max(limit, 1), 200))
     return [
         {
@@ -187,7 +187,7 @@ def save_memory(
     if not content:
         raise ValueError("Memory content cannot be empty.")
     memory_key = (key or hashlib.sha256(content.encode()).hexdigest()[:12]).strip()
-    namespace = memory_namespace(user_id, scope=scope, project_id=project_id)
+    namespace = memory_namespace(user_id, scope, project_id, category)
     existing = store.get(namespace, memory_key)
     created_at = existing.value.get("created_at") if existing else _now()
     value = {
@@ -209,11 +209,12 @@ def delete_memory(
     *,
     scope: str = "global",
     project_id: str | None = None,
+    category: str | None = None,
 ) -> None:
     store = get_memory_store()
     if store is None:
         raise RuntimeError(_store_error or "Long-term memory database is not configured.")
-    store.delete(memory_namespace(user_id, scope=scope, project_id=project_id), key)
+    store.delete(memory_namespace(user_id, scope, project_id, category), key)
 
 
 
