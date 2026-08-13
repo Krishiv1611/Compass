@@ -44,20 +44,14 @@ def _configure_web_workspace(
 
 def _apply_user_preferences(config: dict, user_prefs: dict | None) -> None:
     if not user_prefs:
-        return
-    configurable = config["configurable"]
-    if user_prefs.get("model"):
-        model = user_prefs["model"]
-        configurable["model"] = model
-        configurable["model_executor"] = model
-        configurable["model_planner"] = model
-    encrypted_key = user_prefs.get("llm_api_key_encrypted")
-    if encrypted_key:
-        from backend.auth.credentials import decrypt_credential
+        raise ValueError("Provider settings are required")
+    from backend.services.provider_credentials import resolve_provider_config
 
-        configurable["api_key"] = decrypt_credential(encrypted_key)
-    if user_prefs.get("llm_provider"):
-        configurable["provider"] = user_prefs["llm_provider"]
+    resolved = resolve_provider_config(user_prefs)
+    configurable = config["configurable"]
+    configurable.update(resolved.to_config())
+    configurable["model_executor"] = resolved.model
+    configurable["model_planner"] = resolved.model
     if user_prefs.get("safe_mode") is not None:
         configurable["safe_mode"] = user_prefs["safe_mode"]
     if user_prefs.get("fast_mode") is not None:

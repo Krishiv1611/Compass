@@ -9,6 +9,7 @@ session uploads.
 from __future__ import annotations
 
 import os
+import hashlib
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -22,33 +23,91 @@ load_dotenv()
 WORKSPACE_DIR = os.getcwd()
 COLLECTION_NAME = "compass_workspace"
 
-_embeddings = None
+_embeddings: dict[tuple[str, str, str], object] = {}
 
-def _get_embeddings():
-    global _embeddings
-    if _embeddings is not None:
-        return _embeddings
-    
-    from langchain_openai import OpenAIEmbeddings
 
-    _embeddings = OpenAIEmbeddings(
-        model=os.environ.get("COMPASS_EMBEDDING_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2:free"),
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-        check_embedding_ctx_length=False,
-        chunk_size=16,
+class EmbeddingCapabilityError(RuntimeError):
+    """Semantic search is unavailable until an explicit credential is selected."""
+
+
+def _embedding_settings(
+    provider_config: dict | None,
+) -> tuple[str, str, str, str]:
+    config = provider_config or {}
+    is_web = config.get("execution_target") == "web"
+    provider = config.get("embedding_provider")
+    model = config.get("embedding_model")
+    api_key = config.get("embedding_api_key")
+    if is_web and not (provider and model and api_key):
+        raise EmbeddingCapabilityError(
+            "Semantic search is disabled. Configure an embedding provider credential."
+        )
+    if not provider:
+        provider = "openrouter"
+        model = os.environ.get(
+            "COMPASS_EMBEDDING_MODEL",
+            "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+        )
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise EmbeddingCapabilityError(
+            "Semantic search is disabled. Configure an embedding provider credential."
+        )
+    collection_suffix = hashlib.sha256(
+        f"{provider}:{model}".encode()
+    ).hexdigest()[:12]
+    collection = (
+        COLLECTION_NAME
+        if not is_web
+        else f"{COLLECTION_NAME}_{collection_suffix}"
     )
-    return _embeddings
-
-_vector_store: Optional[PGVector] = None
+    return str(provider), str(model), str(api_key), collection
 
 
-def get_vector_store(create: bool = False) -> Optional[PGVector]:
+def _get_embeddings(provider_config: dict | None = None):
+    provider, model, api_key, _collection = _embedding_settings(provider_config)
+    cache_key = (provider, model, hashlib.sha256(api_key.encode()).hexdigest())
+    if cache_key in _embeddings:
+        return _embeddings[cache_key]
+
+    if provider in {"openrouter", "openai"}:
+        from langchain_openai import OpenAIEmbeddings
+
+        embeddings = OpenAIEmbeddings(
+            model=model.removeprefix("openai/"),
+            base_url="https://openrouter.ai/api/v1"
+            if provider == "openrouter"
+            else None,
+            api_key=api_key,
+            check_embedding_ctx_length=False,
+            chunk_size=16,
+        )
+    elif provider == "google":
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model=model.removeprefix("google/"),
+            google_api_key=api_key,
+        )
+    else:
+        raise EmbeddingCapabilityError(
+            f"Embedding provider {provider!r} is not supported"
+        )
+    _embeddings[cache_key] = embeddings
+    return embeddings
+
+_vector_stores: dict[tuple[str, str], PGVector] = {}
+
+
+def get_vector_store(
+    create: bool = False,
+    provider_config: dict | None = None,
+) -> Optional[PGVector]:
     """Return the shared PGVector store, lazily initialized."""
-    global _vector_store
-
-    if _vector_store is not None:
-        return _vector_store
+    _provider, _model, api_key, collection = _embedding_settings(provider_config)
+    store_key = (collection, hashlib.sha256(api_key.encode()).hexdigest())
+    if store_key in _vector_stores:
+        return _vector_stores[store_key]
 
     db_uri = os.environ.get("DB_URI")
     if not db_uri:
@@ -62,30 +121,36 @@ def get_vector_store(create: bool = False) -> Optional[PGVector]:
     if sync_uri.startswith("postgresql://"):
         sync_uri = sync_uri.replace("postgresql://", "postgresql+psycopg://")
 
-    _vector_store = PGVector(
-        embeddings=_get_embeddings(),
-        collection_name=COLLECTION_NAME,
+    vector_store = PGVector(
+        embeddings=_get_embeddings(provider_config),
+        collection_name=collection,
         connection=sync_uri,
         use_jsonb=True,
     )
 
     # Initialize the tables if creating
     if create:
-        _vector_store.create_tables_if_not_exists()
-        _vector_store.create_collection()
+        vector_store.create_tables_if_not_exists()
+        vector_store.create_collection()
 
-    return _vector_store
+    _vector_stores[store_key] = vector_store
+    return vector_store
 
 
 def reset_vector_store_cache() -> None:
     """Clear the cached PGVector instance after writes when needed."""
-    global _vector_store
-    _vector_store = None
+    _vector_stores.clear()
 
 
-def delete_chunks_by_filter(where: dict) -> int:
+def delete_chunks_by_filter(
+    where: dict,
+    provider_config: dict | None = None,
+) -> int:
     """Delete collection chunks whose JSON metadata contains ``where``."""
-    vector_store = get_vector_store(create=False)
+    vector_store = get_vector_store(
+        create=False,
+        provider_config=provider_config,
+    )
     if vector_store is None:
         return 0
 

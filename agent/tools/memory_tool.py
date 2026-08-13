@@ -22,8 +22,9 @@ from langgraph.store.postgres import PostgresStore
 load_dotenv()
 
 DB_URI = os.environ.get("DB_URI")
-_store: PostgresStore | None = None
-_store_ctx = None
+_stores: dict[str, PostgresStore] = {}
+_store_contexts: dict[str, object] = {}
+_store_errors: dict[str, str] = {}
 _store_error: str | None = None
 _store_lock = Lock()
 
@@ -32,41 +33,66 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_memory_store() -> PostgresStore | None:
-    """Return the process-wide store, initializing it only when first used."""
-    global _store, _store_ctx, _store_error
-    if _store is not None:
-        return _store
-    if not DB_URI or _store_error:
+def _memory_embedding_index(provider_config: dict | None) -> dict | None:
+    config = provider_config or {}
+    provider = config.get("embedding_provider")
+    model = config.get("embedding_model")
+    api_key = config.get("embedding_api_key")
+    if not (provider and model and api_key):
+        return None
+    if provider in {"openrouter", "openai"}:
+        from langchain_openai import OpenAIEmbeddings
+
+        embeddings = OpenAIEmbeddings(
+            model=str(model).removeprefix("openai/"),
+            base_url="https://openrouter.ai/api/v1"
+            if provider == "openrouter"
+            else None,
+            api_key=api_key,
+            check_embedding_ctx_length=False,
+        )
+    elif provider == "google":
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model=str(model).removeprefix("google/"),
+            google_api_key=api_key,
+        )
+    else:
+        return None
+    return {"dims": 1024, "embed": embeddings, "fields": ["content"]}
+
+
+def get_memory_store(provider_config: dict | None = None) -> PostgresStore | None:
+    """Return a store whose embedding client is isolated by credential."""
+    global _store_error
+    config = provider_config or {}
+    embedding_key = str(config.get("embedding_api_key") or "")
+    store_key = (
+        hashlib.sha256(embedding_key.encode()).hexdigest()
+        if embedding_key
+        else "plain"
+    )
+    if store_key in _stores:
+        return _stores[store_key]
+    if not DB_URI or store_key in _store_errors:
         return None
 
     with _store_lock:
-        if _store is not None:
-            return _store
+        if store_key in _stores:
+            return _stores[store_key]
         try:
-            index = None
-            api_key = os.environ.get("OPENROUTER_API_KEY")
-            if api_key:
-                from langchain_openai import OpenAIEmbeddings
-
-                embeddings = OpenAIEmbeddings(
-                    model=os.environ.get(
-                        "COMPASS_EMBEDDING_MODEL",
-                        "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-                    ),
-                    base_url="https://openrouter.ai/api/v1",
-                    api_key=api_key,
-                    check_embedding_ctx_length=False,
-                )
-                index = {"dims": 1024, "embed": embeddings, "fields": ["content"]}
-
-            _store_ctx = PostgresStore.from_conn_string(DB_URI, index=index)
-            _store = _store_ctx.__enter__()
-            _store.setup()
+            index = _memory_embedding_index(provider_config)
+            store_context = PostgresStore.from_conn_string(DB_URI, index=index)
+            store = store_context.__enter__()
+            store.setup()
+            _store_contexts[store_key] = store_context
+            _stores[store_key] = store
+            return store
         except Exception as exc:
             _store_error = str(exc)
-            _store = None
-        return _store
+            _store_errors[store_key] = _store_error
+            return None
 
 
 class LazyMemoryStore(BaseStore):
@@ -193,10 +219,10 @@ def delete_memory(
 
 def recall_memories(config: RunnableConfig | None, limit: int = 8) -> list[str]:
     """Return enabled global and project memories for an executor turn."""
-    store = get_memory_store()
+    configurable = (config or {}).get("configurable", {})
+    store = get_memory_store(configurable)
     if store is None:
         return []
-    configurable = (config or {}).get("configurable", {})
     user_id = str(configurable.get("user_id") or "cli")
     project_id = configurable.get("project_id")
     namespaces = [memory_namespace(user_id)]
@@ -233,15 +259,25 @@ def memory(
     scope for facts that only apply to the active project. Actions are save,
     search, get, list, and delete.
     """
-    store = get_memory_store()
+    configurable = (config or {}).get("configurable", {})
+    store = get_memory_store(configurable)
     if store is None:
         return f"Memory unavailable: {_store_error or 'database not configured'}."
 
     action = action.strip().lower()
     ns, resolved_scope, project_id = _scope_from_config(config, scope, namespace)
 
+    if (
+        action == "search"
+        and configurable.get("execution_target") == "web"
+        and not configurable.get("embedding_api_key")
+    ):
+        return (
+            "Memory semantic search is disabled. "
+            "Configure an embedding provider credential."
+        )
+
     if action == "save":
-        configurable = (config or {}).get("configurable", {})
         value = save_memory(
             str(configurable.get("user_id") or "cli"),
             content,

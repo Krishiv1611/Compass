@@ -41,6 +41,7 @@ async def _index_uploaded_file_off_loop(
     user_id: str,
     session_id: str,
     content_type: str,
+    provider_config: dict | None = None,
 ):
     """Run blocking document parsing and vector indexing outside the event loop."""
     index_call = partial(
@@ -51,6 +52,7 @@ async def _index_uploaded_file_off_loop(
         user_id=user_id,
         session_id=session_id,
         content_type=content_type,
+        provider_config=provider_config,
     )
     return await anyio.to_thread.run_sync(index_call)
 
@@ -92,6 +94,7 @@ async def upload_file(
 ):
     """Upload a document, extract text, and index it for session RAG."""
     user_id = current_user.id
+    user_preferences = dict(current_user.preferences or {})
     content_type = file.content_type or ""
     owned_session(db, session_id, user_id)
     db.close()
@@ -133,6 +136,10 @@ async def upload_file(
         write_db.refresh(record)
 
     try:
+        from backend.services.provider_credentials import resolve_provider_config
+
+        provider_config = resolve_provider_config(user_preferences).to_config()
+        provider_config["execution_target"] = "web"
         result = await _index_uploaded_file_off_loop(
             storage_path,
             document_id=document_id,
@@ -140,6 +147,7 @@ async def upload_file(
             user_id=user_id,
             session_id=session_id,
             content_type=content_type,
+            provider_config=provider_config,
         )
         final_status = "ready"
         chunk_count = result.chunks_added

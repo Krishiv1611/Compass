@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent.runtime.events import StreamEvent, StreamEventType
+from backend.auth.credentials import encrypt_credential
 from backend.routers import chat, uploads
 from backend.schemas.chat import WsClientMessage
 from backend.services import agent_runner
@@ -64,7 +65,13 @@ class AgentRunnerSnapshotTests(unittest.IsolatedAsyncioTestCase):
             project_id="project-1",
             context_version="content:new",
             session_context_version="content:old",
-            preferences={"model": "test/model"},
+            preferences={
+                "llm_provider": "openrouter",
+                "model": "test/model",
+                "llm_credentials_encrypted": {
+                    "openrouter": encrypt_credential("test-key"),
+                },
+            },
             source_type="upload",
         )
 

@@ -101,6 +101,7 @@ def index_uploaded_file(
     user_id: str,
     session_id: str,
     content_type: str = "",
+    provider_config: dict | None = None,
 ) -> UploadIndexResult:
     """Extract text from a file and index it into the shared vector store."""
     storage_path = Path(path)
@@ -127,11 +128,17 @@ def index_uploaded_file(
     if not chunks:
         raise ValueError("No non-empty chunks were produced from the uploaded file.")
 
-    vector_store = get_vector_store(create=True)
+    vector_store = get_vector_store(
+        create=True,
+        provider_config=provider_config,
+    )
     if vector_store is None:
         raise RuntimeError("Vector store could not be initialized.")
 
-    delete_uploaded_document_chunks(document_id)
+    delete_uploaded_document_chunks(
+        document_id,
+        provider_config=provider_config,
+    )
     vector_store.add_documents(chunks)
 
     return UploadIndexResult(
@@ -143,9 +150,15 @@ def index_uploaded_file(
     )
 
 
-def delete_uploaded_document_chunks(document_id: str) -> int:
+def delete_uploaded_document_chunks(
+    document_id: str,
+    provider_config: dict | None = None,
+) -> int:
     """Delete all vector chunks for an uploaded document."""
-    return delete_chunks_by_filter({"document_id": document_id})
+    return delete_chunks_by_filter(
+        {"document_id": document_id},
+        provider_config=provider_config,
+    )
 
 
 def delete_uploaded_file(path: str | None) -> None:

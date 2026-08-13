@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_core.runnables.config import RunnableConfig
 
-from agent.rag.vector_store import get_vector_store
+from agent.rag.vector_store import EmbeddingCapabilityError, get_vector_store
 from agent.tools.utils import get_workspace_for_tool
 
 load_dotenv()
@@ -87,13 +87,15 @@ def codebase_search(
         query: A natural language description of what you are looking for.
         limit: Max number of chunks to return (default 5).
     """
-    vstore = get_vector_store(create=False)
-    if vstore is None:
-        return "Error: RAG index not found in .compass/chroma. Index the workspace or upload files first."
-
     try:
         workspace = get_workspace_for_tool(config)
         configurable = (config or {}).get("configurable", {})
+        vstore = get_vector_store(
+            create=False,
+            provider_config=configurable,
+        )
+        if vstore is None:
+            return "Error: RAG index is not available. Index the workspace or upload files first."
         scope_token = set_rag_scope(
             user_id=configurable.get("user_id"),
             session_id=configurable.get("session_id"),
@@ -118,6 +120,8 @@ def codebase_search(
 
         return "\n".join(formatted_results)
 
+    except EmbeddingCapabilityError as exc:
+        return f"Error: {exc}"
     except Exception as e:
         return f"Error performing semantic search: {str(e)}"
     finally:

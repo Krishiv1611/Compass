@@ -18,7 +18,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from langchain_openrouter import ChatOpenRouter
 from langchain_core.globals import set_llm_cache
 
 from agent.config import settings
@@ -107,13 +106,16 @@ def llm(role: str = "executor", api_key: str | None = None, provider: str | None
         if not api_key:
             api_key = os.environ.get("OPENAI_API_KEY")
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(api_key=api_key, model=model_name)
+        return ChatOpenAI(api_key=api_key, model=model_name.removeprefix("openai/"))
         
     elif provider == "anthropic":
         if not api_key:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(api_key=api_key, model_name=model_name)
+        return ChatAnthropic(
+            api_key=api_key,
+            model_name=model_name.removeprefix("anthropic/"),
+        )
         
     elif provider == "groq":
         if not api_key:
@@ -121,15 +123,20 @@ def llm(role: str = "executor", api_key: str | None = None, provider: str | None
         from langchain_groq import ChatGroq
         return ChatGroq(api_key=api_key, model_name=model_name)
         
-    elif provider == "gemini":
+    elif provider in {"google", "gemini"}:
         if not api_key:
             api_key = os.environ.get("GOOGLE_API_KEY")
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(google_api_key=api_key, model=model_name)
+        return ChatGoogleGenerativeAI(
+            google_api_key=api_key,
+            model=model_name.removeprefix("google/"),
+        )
         
-    # Default to openrouter
-    if not api_key:
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-    from langchain_openrouter import ChatOpenRouter
-    return ChatOpenRouter(api_key=api_key, model=model_name)
+    if provider == "openrouter":
+        if not api_key:
+            api_key = os.environ.get("OPENROUTER_API_KEY")
+        from langchain_openrouter import ChatOpenRouter
+
+        return ChatOpenRouter(api_key=api_key, model=model_name)
+    raise ValueError(f"Unsupported LLM provider: {provider}")
 

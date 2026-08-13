@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from agent.llm import llm
 from backend.models.session import ChatSession
 from backend.models.message import Message
 from backend.models.workspace import Workspace
@@ -191,36 +190,27 @@ def delete_session(
     return True
 
 
+def deterministic_title(first_user_msg: str) -> str:
+    """Build a stable, private title from at most eight normalized words."""
+    words = " ".join(first_user_msg.split()).split(" ")[:8]
+    return " ".join(words)[:80].strip()
+
+
 def auto_title(
     db: Session,
     session_id: str,
     first_user_msg: str,
     first_ai_msg: str,
 ) -> str | None:
-    """
-    Generate a short session title from the first exchange using the LLM.
-
-    Returns the generated title, or None on failure.
-    """
-
-    try:
-        summarizer = llm("summarizer")
-        prompt = (
-            "Generate a concise chat title (max 6 words) for a conversation that starts with:\n\n"
-            f"User: {first_user_msg[:200]}\n"
-            f"Assistant: {first_ai_msg[:200]}\n\n"
-            "Reply with ONLY the title, no quotes or punctuation."
-        )
-        response = summarizer.invoke(prompt)
-        title = response.content.strip().strip("\"'")[:200]
-
-        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
-        if session and title:
-            session.title = title
-            session.updated_at = datetime.now(timezone.utc)
-            db.commit()
-            return title
-    except Exception:
-        pass  # Non-critical — keep default title
-
+    """Set a deterministic title without a model call or provider data leak."""
+    del first_ai_msg
+    title = deterministic_title(first_user_msg)
+    if not title:
+        return None
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if session:
+        session.title = title
+        session.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        return title
     return None
