@@ -352,6 +352,11 @@ class WorkspaceAttachRequest(BaseModel):
 
 class PatchFileAction(BaseModel):
     path: str
+    expected_version: int
+
+
+class PatchVersionAction(BaseModel):
+    expected_version: int
 
 
 @router.get("/{workspace_id}/context")
@@ -473,11 +478,14 @@ def apply_workspace_patch(
     workspace_id: str,
     patch_id: str,
     background_tasks: BackgroundTasks,
+    body: PatchVersionAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     owned_patch(db, workspace_id, patch_id, current_user.id)
-    patch = apply_patch(db, patch_id, current_user.id)
+    patch = apply_patch(
+        db, patch_id, current_user.id, expected_version=body.expected_version
+    )
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch applied successfully", "patch": patch}
 
@@ -487,11 +495,14 @@ def reject_workspace_patch(
     workspace_id: str,
     patch_id: str,
     background_tasks: BackgroundTasks,
+    body: PatchVersionAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     owned_patch(db, workspace_id, patch_id, current_user.id)
-    patch = reject_patch(db, patch_id, current_user.id)
+    patch = reject_patch(
+        db, patch_id, current_user.id, expected_version=body.expected_version
+    )
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch rejected successfully", "patch": patch}
 
@@ -509,7 +520,14 @@ def resolve_workspace_patch_file(
     if action not in {"apply", "reject", "undo"}:
         raise HTTPException(status_code=400, detail="Unsupported patch action")
     owned_patch(db, workspace_id, patch_id, current_user.id)
-    patch = resolve_patch_file(db, patch_id, current_user.id, body.path, action)
+    patch = resolve_patch_file(
+        db,
+        patch_id,
+        current_user.id,
+        body.path,
+        action,
+        expected_version=body.expected_version,
+    )
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": f"File change {action}ed", "patch": patch}
 
@@ -549,11 +567,14 @@ def undo_workspace_patch(
     workspace_id: str,
     patch_id: str,
     background_tasks: BackgroundTasks,
+    body: PatchVersionAction,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     owned_patch(db, workspace_id, patch_id, current_user.id)
-    patch = undo_patch(db, patch_id, current_user.id)
+    patch = undo_patch(
+        db, patch_id, current_user.id, expected_version=body.expected_version
+    )
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch undone successfully", "patch": patch}
 

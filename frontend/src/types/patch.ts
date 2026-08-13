@@ -14,6 +14,7 @@ export interface PatchChange {
 
 export interface WorkspacePatch {
   id: string;
+  version: number;
   workspace_id?: string;
   status: PatchStatus;
   changes: PatchChange[];

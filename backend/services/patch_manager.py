@@ -1,4 +1,6 @@
 import os
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import HTTPException, status
@@ -6,6 +8,107 @@ from sqlalchemy.orm import Session
 
 from backend.models.patch import WorkspacePatch
 from backend.services.workspace import get_workspace
+
+
+@dataclass(slots=True)
+class StagedFile:
+    target: Path
+    temporary: Path | None
+    after_exists: bool
+    before_exists: bool
+    before_bytes: bytes
+
+
+def _write_staged_file(target: Path, content: bytes) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.compass-{uuid.uuid4().hex}.tmp")
+    with temporary.open("xb") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return temporary
+
+
+def stage_patch_files(
+    workspace_dir: Path,
+    changes: list[dict],
+    *,
+    use_before: bool = False,
+) -> list[StagedFile]:
+    """Validate all targets and fully stage desired bytes before mutation."""
+    staged: list[StagedFile] = []
+    try:
+        for change in changes:
+            _assert_change_matches(
+                workspace_dir,
+                change,
+                use_before=not use_before,
+            )
+            target = _target_for_change(workspace_dir, change.get("path", ""))
+            before_exists = target.is_file()
+            before_bytes = target.read_bytes() if before_exists else b""
+            prefix = "before" if use_before else "after"
+            desired_exists = bool(
+                change.get(
+                    f"{prefix}_exists",
+                    change.get("type") != ("create" if use_before else "delete"),
+                )
+            )
+            content = change.get(prefix)
+            if content is None:
+                content = change.get("content", "")
+            temporary = (
+                _write_staged_file(target, str(content).encode("utf-8"))
+                if desired_exists
+                else None
+            )
+            staged.append(
+                StagedFile(
+                    target=target,
+                    temporary=temporary,
+                    after_exists=desired_exists,
+                    before_exists=before_exists,
+                    before_bytes=before_bytes,
+                )
+            )
+        return staged
+    except Exception:
+        discard_staged_files(staged)
+        raise
+
+
+def discard_staged_files(staged: list[StagedFile]) -> None:
+    for item in staged:
+        if item.temporary and item.temporary.exists():
+            item.temporary.unlink()
+
+
+def _restore_staged_file(item: StagedFile) -> None:
+    if item.before_exists:
+        restore = _write_staged_file(item.target, item.before_bytes)
+        os.replace(restore, item.target)
+    elif item.target.is_file():
+        item.target.unlink()
+
+
+def commit_staged_files(staged: list[StagedFile]) -> None:
+    """Commit staged targets and compensate already-replaced targets on failure."""
+    committed: list[StagedFile] = []
+    try:
+        for item in staged:
+            if item.after_exists:
+                if item.temporary is None:
+                    raise RuntimeError("Staged content is missing")
+                os.replace(item.temporary, item.target)
+            elif item.target.is_file():
+                item.target.unlink()
+            committed.append(item)
+    except Exception:
+        for item in reversed(committed):
+            _restore_staged_file(item)
+        raise
+    finally:
+        discard_staged_files(staged)
 
 
 def _target_for_change(workspace_dir: Path, path: str) -> Path:
@@ -189,6 +292,21 @@ def create_patch(db: Session, workspace_id: str, run_id: str | None, changes: li
     db.add(patch)
     db.commit()
     db.refresh(patch)
+    if run_id:
+        from backend.models.run import RunEvent
+
+        db.add(
+            RunEvent(
+                run_id=run_id,
+                event_type="workspace_patch",
+                content={
+                    "patch_id": patch.id,
+                    "workspace_id": workspace.id,
+                    "session_id": workspace.session_id,
+                },
+            )
+        )
+        db.commit()
     return patch
 
 
@@ -233,6 +351,7 @@ def append_patch_change(
     else:
         updated[existing_index] = enriched
     patch.changes = updated
+    patch.version += 1
     db.commit()
     db.refresh(patch)
     return patch
@@ -278,9 +397,52 @@ def get_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
     return patch
 
 
-def apply_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
+def _assert_patch_version(patch: WorkspacePatch, expected_version: int) -> None:
+    if patch.version != expected_version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Patch changed in another client. Refresh before retrying.",
+        )
+
+
+def _commit_patch_update(
+    db: Session,
+    patch: WorkspacePatch,
+    expected_version: int,
+    values: dict,
+) -> WorkspacePatch:
+    updated = (
+        db.query(WorkspacePatch)
+        .filter(
+            WorkspacePatch.id == patch.id,
+            WorkspacePatch.version == expected_version,
+        )
+        .update(
+            {**values, "version": expected_version + 1},
+            synchronize_session=False,
+        )
+    )
+    if updated != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Patch changed in another client. Refresh before retrying.",
+        )
+    db.commit()
+    db.expire_all()
+    return db.query(WorkspacePatch).filter(WorkspacePatch.id == patch.id).one()
+
+
+def apply_patch(
+    db: Session,
+    patch_id: str,
+    user_id: str,
+    *,
+    expected_version: int,
+) -> WorkspacePatch:
     """Apply a pending patch to the filesystem."""
     patch = get_patch(db, patch_id, user_id)
+    _assert_patch_version(patch, expected_version)
     if patch.status != "pending":
         raise HTTPException(status_code=400, detail=f"Patch is already {patch.status}")
 
@@ -292,43 +454,60 @@ def apply_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
         for change in patch.changes
         if change.get("status", "pending") == "pending"
     ]
-    for change in pending:
-        _assert_change_matches(workspace_dir, change, use_before=True)
-
     updated_changes = []
     for raw_change in patch.changes:
         change = dict(raw_change)
         if change.get("status", "pending") == "pending":
-            _write_change(workspace_dir, change)
             change["status"] = "applied"
         updated_changes.append(change)
 
-    patch.changes = updated_changes
-    patch.status = "applied"
-    patch.applied_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(patch)
+    staged = stage_patch_files(workspace_dir, pending)
+    commit_staged_files(staged)
+    try:
+        patch = _commit_patch_update(
+            db,
+            patch,
+            expected_version,
+            {
+                "changes": updated_changes,
+                "status": "applied",
+                "applied_at": datetime.now(timezone.utc),
+            },
+        )
+    except Exception:
+        for item in reversed(staged):
+            _restore_staged_file(item)
+        raise
     from backend.services.workspace import update_workspace_stats
     update_workspace_stats(db, workspace, sync_session=False)
     return patch
 
 
-def reject_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
+def reject_patch(
+    db: Session,
+    patch_id: str,
+    user_id: str,
+    *,
+    expected_version: int,
+) -> WorkspacePatch:
     """Reject a pending patch."""
     patch = get_patch(db, patch_id, user_id)
+    _assert_patch_version(patch, expected_version)
     if patch.status != "pending":
         raise HTTPException(status_code=400, detail=f"Patch is already {patch.status}")
 
-    patch.changes = [
+    changes = [
         {**change, "status": "rejected"}
         if change.get("status", "pending") == "pending"
         else change
         for change in patch.changes
     ]
-    _update_patch_status(patch)
-    db.commit()
-    db.refresh(patch)
-    return patch
+    return _commit_patch_update(
+        db,
+        patch,
+        expected_version,
+        {"changes": changes, "status": "rejected"},
+    )
 
 
 def accept_all_patches(db: Session, workspace_id: str, user_id: str) -> int:
@@ -345,7 +524,12 @@ def accept_all_patches(db: Session, workspace_id: str, user_id: str) -> int:
     )
     count = 0
     for patch in patches:
-        apply_patch(db, patch.id, user_id)
+        apply_patch(
+            db,
+            patch.id,
+            user_id,
+            expected_version=patch.version,
+        )
         count += 1
     return count
 
@@ -362,13 +546,25 @@ def reject_all_patches(db: Session, workspace_id: str, user_id: str) -> int:
     )
     count = 0
     for patch in patches:
-        reject_patch(db, patch.id, user_id)
+        reject_patch(
+            db,
+            patch.id,
+            user_id,
+            expected_version=patch.version,
+        )
         count += 1
     return count
 
-def undo_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
+def undo_patch(
+    db: Session,
+    patch_id: str,
+    user_id: str,
+    *,
+    expected_version: int,
+) -> WorkspacePatch:
     """Undo an applied patch (revert file changes)."""
     patch = get_patch(db, patch_id, user_id)
+    _assert_patch_version(patch, expected_version)
     if patch.status != "applied":
         raise HTTPException(status_code=400, detail=f"Cannot undo patch with status {patch.status}")
 
@@ -380,21 +576,26 @@ def undo_patch(db: Session, patch_id: str, user_id: str) -> WorkspacePatch:
         for change in patch.changes
         if change.get("status", "applied") == "applied"
     ]
-    for change in applied:
-        _assert_change_matches(workspace_dir, change, use_before=False)
-
     updated_changes = []
     for raw_change in patch.changes:
         change = dict(raw_change)
         if change.get("status", "applied") == "applied":
-            _write_change(workspace_dir, change, use_before=True)
             change["status"] = "reverted"
         updated_changes.append(change)
 
-    patch.changes = updated_changes
-    _update_patch_status(patch)
-    db.commit()
-    db.refresh(patch)
+    staged = stage_patch_files(workspace_dir, applied, use_before=True)
+    commit_staged_files(staged)
+    try:
+        patch = _commit_patch_update(
+            db,
+            patch,
+            expected_version,
+            {"changes": updated_changes, "status": "reverted"},
+        )
+    except Exception:
+        for item in reversed(staged):
+            _restore_staged_file(item)
+        raise
     from backend.services.workspace import update_workspace_stats
     update_workspace_stats(db, workspace, sync_session=False)
     return patch
@@ -406,13 +607,17 @@ def resolve_patch_file(
     user_id: str,
     path: str,
     action: str,
+    *,
+    expected_version: int,
 ) -> WorkspacePatch:
     """Apply, reject, or undo one file in a patch."""
     patch = get_patch(db, patch_id, user_id)
+    _assert_patch_version(patch, expected_version)
     workspace = get_workspace(db, patch.workspace_id, user_id)
     workspace_dir = Path(workspace.storage_path)
     found = False
     updated_changes = []
+    selected_change = None
 
     for raw_change in patch.changes:
         change = dict(raw_change)
@@ -422,15 +627,13 @@ def resolve_patch_file(
         found = True
         current = change.get("status", "pending")
         if action == "apply" and current == "pending":
-            _assert_change_matches(workspace_dir, change, use_before=True)
-            _write_change(workspace_dir, change)
             change["status"] = "applied"
+            selected_change = dict(raw_change)
         elif action == "reject" and current == "pending":
             change["status"] = "rejected"
         elif action == "undo" and current == "applied":
-            _assert_change_matches(workspace_dir, change, use_before=False)
-            _write_change(workspace_dir, change, use_before=True)
             change["status"] = "reverted"
+            selected_change = dict(raw_change)
         else:
             raise HTTPException(status_code=400, detail=f"Cannot {action} a {current} change")
         updated_changes.append(change)
@@ -438,12 +641,38 @@ def resolve_patch_file(
     if not found:
         raise HTTPException(status_code=404, detail="File change not found")
 
-    patch.changes = updated_changes
-    _update_patch_status(patch)
+    statuses = [change.get("status", "pending") for change in updated_changes]
+    if any(value == "pending" for value in statuses):
+        patch_status = "pending"
+    elif any(value == "applied" for value in statuses):
+        patch_status = "applied"
+    elif any(value == "reverted" for value in statuses):
+        patch_status = "reverted"
+    else:
+        patch_status = "rejected"
+    values = {"changes": updated_changes, "status": patch_status}
     if action == "apply":
-        patch.applied_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(patch)
+        values["applied_at"] = datetime.now(timezone.utc)
+
+    staged = []
+    if selected_change is not None:
+        staged = stage_patch_files(
+            workspace_dir,
+            [selected_change],
+            use_before=action == "undo",
+        )
+        commit_staged_files(staged)
+    try:
+        patch = _commit_patch_update(
+            db,
+            patch,
+            expected_version,
+            values,
+        )
+    except Exception:
+        for item in reversed(staged):
+            _restore_staged_file(item)
+        raise
     if action in {"apply", "undo"}:
         from backend.services.workspace import update_workspace_stats
         update_workspace_stats(db, workspace, sync_session=False)

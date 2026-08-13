@@ -6,9 +6,10 @@ export const patchesApi = {
     const response = await api.get(`/workspaces/${workspaceId}/patches`);
     return response.data;
   },
-  applyPatch: async (workspaceId: string, patchId: string) => {
+  applyPatch: async (workspaceId: string, patchId: string, expectedVersion: number) => {
     const response = await api.post(
-      `/workspaces/${workspaceId}/patches/${patchId}/apply`
+      `/workspaces/${workspaceId}/patches/${patchId}/apply`,
+      { expected_version: expectedVersion },
     );
     return response.data;
   },
@@ -17,22 +18,25 @@ export const patchesApi = {
     patchId: string,
     path: string,
     action: "apply" | "reject" | "undo",
+    expectedVersion: number,
   ) => {
     const response = await api.post(
       `/workspaces/${workspaceId}/patches/${patchId}/files/${action}`,
-      { path },
+      { path, expected_version: expectedVersion },
     );
     return response.data;
   },
-  rejectPatch: async (workspaceId: string, patchId: string) => {
+  rejectPatch: async (workspaceId: string, patchId: string, expectedVersion: number) => {
     const response = await api.post(
-      `/workspaces/${workspaceId}/patches/${patchId}/reject`
+      `/workspaces/${workspaceId}/patches/${patchId}/reject`,
+      { expected_version: expectedVersion },
     );
     return response.data;
   },
-  undoPatch: async (workspaceId: string, patchId: string) => {
+  undoPatch: async (workspaceId: string, patchId: string, expectedVersion: number) => {
     const response = await api.post(
-      `/workspaces/${workspaceId}/patches/${patchId}/undo`
+      `/workspaces/${workspaceId}/patches/${patchId}/undo`,
+      { expected_version: expectedVersion },
     );
     return response.data;
   },

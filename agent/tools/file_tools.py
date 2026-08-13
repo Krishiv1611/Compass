@@ -58,7 +58,7 @@ def _append_to_patch(workspace_id: str, run_id: str | None, change: dict):
     
     db = SessionLocal()
     try:
-        append_patch_change(db, workspace_id, run_id, change)
+        return append_patch_change(db, workspace_id, run_id, change)
     finally:
         db.close()
 
@@ -131,7 +131,7 @@ def write_to_file(path: str, content: str, config: RunnableConfig = None):
             return "Error: Safe Mode requires a persisted workspace."
         overlay = _pending_overlay(workspace, path, config)
         exists = overlay[0] if overlay is not None else os.path.exists(path)
-        _append_to_patch(
+        patch = _append_to_patch(
             workspace_id=workspace.workspace_id,
             run_id=(config or {}).get("configurable", {}).get("run_id"),
             change={
@@ -140,7 +140,10 @@ def write_to_file(path: str, content: str, config: RunnableConfig = None):
                 "content": content
             }
         )
-        return f"Proposed write to {path} (pending review in Safe Mode)"
+        return (
+            f"Proposed write to {path} (pending review in Safe Mode, "
+            f"patch {patch.id})"
+        )
 
     try:
         # Create parent directories if they don't exist
@@ -223,7 +226,7 @@ def edit_file(path: str, old_content: str, new_content: str, config: RunnableCon
     if _review_mode(config):
         if not workspace.workspace_id:
             return "Error: Safe Mode requires a persisted workspace."
-        _append_to_patch(
+        patch = _append_to_patch(
             workspace_id=workspace.workspace_id,
             run_id=(config or {}).get("configurable", {}).get("run_id"),
             change={
@@ -232,7 +235,10 @@ def edit_file(path: str, old_content: str, new_content: str, config: RunnableCon
                 "content": updated_content
             }
         )
-        return f"Proposed edit to {path} (pending review in Safe Mode)"
+        return (
+            f"Proposed edit to {path} (pending review in Safe Mode, "
+            f"patch {patch.id})"
+        )
 
     try:
         with open(path, "w", encoding="utf-8") as f:

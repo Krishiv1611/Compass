@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, ForeignKey, JSON
+from sqlalchemy import String, DateTime, ForeignKey, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.db import Base
 
@@ -33,6 +33,7 @@ class WorkspacePatch(Base):
         nullable=False, 
         default="pending" # pending, applied, rejected, reverted
     )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     
     # List of changes: [{ "type": "edit|create|delete", "path": "...", "content": "..." }]
     changes: Mapped[list | None] = mapped_column(

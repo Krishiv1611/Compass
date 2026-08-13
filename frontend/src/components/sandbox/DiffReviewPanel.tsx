@@ -26,6 +26,7 @@ interface PatchReviewProps {
 
 type FileChange = {
   patchId: string;
+  patchVersion: number;
   path: string;
   type: string;
   before: string;
@@ -84,6 +85,7 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
   const changes = useMemo<FileChange[]>(() =>
     patches.flatMap((patch) => (patch.changes || []).map((change) => ({
       patchId: patch.id,
+      patchVersion: patch.version,
       path: change.path,
       type: change.type || "edit",
       before: change.before ?? "",
@@ -110,7 +112,13 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
     const key = `${change.patchId}:${change.path}:${action}`;
     setBusy(key);
     try {
-      await patchesApi.resolvePatchFile(workspaceId, change.patchId, change.path, action);
+      await patchesApi.resolvePatchFile(
+        workspaceId,
+        change.patchId,
+        change.path,
+        action,
+        change.patchVersion,
+      );
       toast.success(action === "apply" ? "File applied" : action === "reject" ? "File rejected" : "File reverted");
       await finish();
     } catch (error) {
