@@ -4,12 +4,16 @@ Session file uploads for RAG.
 
 import logging
 import uuid
+from functools import partial
+from pathlib import Path
+
+import anyio
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
-from backend.db import get_db
+from backend.db import get_db, SessionLocal
 from backend.models.upload import UploadedFile
 from backend.models.user import User
 from backend.services.ownership import owned_session
@@ -27,6 +31,28 @@ from agent.rag.uploads import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions/{session_id}/uploads", tags=["uploads"])
+
+
+async def _index_uploaded_file_off_loop(
+    storage_path: Path,
+    *,
+    document_id: str,
+    filename: str,
+    user_id: str,
+    session_id: str,
+    content_type: str,
+):
+    """Run blocking document parsing and vector indexing outside the event loop."""
+    index_call = partial(
+        index_uploaded_file,
+        storage_path,
+        document_id=document_id,
+        filename=filename,
+        user_id=user_id,
+        session_id=session_id,
+        content_type=content_type,
+    )
+    return await anyio.to_thread.run_sync(index_call)
 
 
 @router.get("/capabilities", response_model=UploadCapabilityResponse)
@@ -65,7 +91,10 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     """Upload a document, extract text, and index it for session RAG."""
-    owned_session(db, session_id, current_user.id)
+    user_id = current_user.id
+    content_type = file.content_type or ""
+    owned_session(db, session_id, user_id)
+    db.close()
 
     upload_id = uuid.uuid4().hex
     filename = sanitize_filename(file.filename or "upload")
@@ -73,7 +102,7 @@ async def upload_file(
     try:
         document_id, storage_path, size_bytes = await save_upload_file(
             file,
-            current_user.id,
+            user_id,
             session_id,
             document_id=upload_id,
             max_bytes=MAX_UPLOAD_BYTES,
@@ -90,37 +119,50 @@ async def upload_file(
 
     record = UploadedFile(
         id=document_id,
-        user_id=current_user.id,
+        user_id=user_id,
         session_id=session_id,
         filename=filename,
-        content_type=file.content_type,
+        content_type=content_type,
         size_bytes=size_bytes,
         storage_path=str(storage_path),
         status="processing",
     )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
+    with SessionLocal() as write_db:
+        write_db.add(record)
+        write_db.commit()
+        write_db.refresh(record)
 
     try:
-        result = index_uploaded_file(
+        result = await _index_uploaded_file_off_loop(
             storage_path,
             document_id=document_id,
             filename=filename,
-            user_id=current_user.id,
+            user_id=user_id,
             session_id=session_id,
-            content_type=file.content_type or "",
+            content_type=content_type,
         )
-        record.status = "ready"
-        record.chunk_count = result.chunks_added
-        record.error = None
+        final_status = "ready"
+        chunk_count = result.chunks_added
+        error = None
     except Exception as exc:
         logger.exception("Failed to index uploaded file")
-        record.status = "failed"
-        record.error = str(exc)[:1000]
-    finally:
-        db.commit()
-        db.refresh(record)
+        final_status = "failed"
+        chunk_count = 0
+        error = str(exc)[:1000]
+
+    with SessionLocal() as write_db:
+        record = (
+            write_db.query(UploadedFile)
+            .filter(UploadedFile.id == document_id)
+            .first()
+        )
+        if record is None:
+            raise HTTPException(status_code=500, detail="Upload record was not found")
+        record.status = final_status
+        record.chunk_count = chunk_count
+        record.error = error
+        write_db.commit()
+        write_db.refresh(record)
 
     return record
 

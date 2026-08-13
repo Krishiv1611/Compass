@@ -1,5 +1,6 @@
 """Web adapter for the shared Compass agent runtime."""
 
+from pathlib import Path
 from typing import AsyncGenerator
 
 from langchain_core.messages import BaseMessage
@@ -9,39 +10,36 @@ from agent.runtime.events import StreamEvent
 from agent.runtime.protocol import ResumeAction, ResumePayload
 from agent.runtime.runner import build_turn_input, invoke_agent, stream_agent_events
 from agent.telemetry import get_run_config
-from agent.workspace import web_workspace_context
+from agent.workspace import WorkspaceContext, canonical_git_remote
+from backend.services.run_context import RunContextSnapshot
 
 
-def _configure_web_workspace(config: dict, session_id: str, user_id: str) -> None:
-    from backend.db import SessionLocal
-    from backend.models.session import ChatSession
-    from backend.services.workspace import get_workspace_by_session
-
-    with SessionLocal() as db:
-        workspace = get_workspace_by_session(db, session_id, user_id)
-        context = web_workspace_context(workspace)
-        session = (
-            db.query(ChatSession)
-            .filter(
-                ChatSession.id == session_id,
-                ChatSession.user_id == user_id,
-                ChatSession.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if not session:
-            raise ValueError("Session not found.")
-        configurable = config["configurable"]
-        configurable["execution_target"] = "web"
-        configurable["workspace_context"] = context.to_config()
-        configurable["workspace_id"] = context.workspace_id
-        configurable["project_id"] = context.project_id
-        configurable["context_version"] = context.context_version
-        configurable["context_mismatch"] = bool(
-            session.context_version
-            and context.context_version
-            and session.context_version != context.context_version
-        )
+def _configure_web_workspace(
+    config: dict,
+    snapshot: RunContextSnapshot,
+) -> None:
+    context = WorkspaceContext(
+        root=Path(snapshot.workspace_path).resolve(),
+        execution_target="web",
+        workspace_id=snapshot.workspace_id,
+        project_id=snapshot.project_id,
+        source_type=snapshot.source_type or "upload",
+        git_remote=canonical_git_remote(snapshot.git_remote),
+        git_branch=snapshot.git_branch,
+        git_head=snapshot.git_head,
+        context_version=snapshot.context_version or snapshot.workspace_id,
+    )
+    configurable = config["configurable"]
+    configurable["execution_target"] = "web"
+    configurable["workspace_context"] = context.to_config()
+    configurable["workspace_id"] = context.workspace_id
+    configurable["project_id"] = context.project_id
+    configurable["context_version"] = context.context_version
+    configurable["context_mismatch"] = bool(
+        snapshot.session_context_version
+        and context.context_version
+        and snapshot.session_context_version != context.context_version
+    )
 
 
 def _apply_user_preferences(config: dict, user_prefs: dict | None) -> None:
@@ -67,39 +65,31 @@ def _apply_user_preferences(config: dict, user_prefs: dict | None) -> None:
 
 
 def _web_config(
-    thread_id: str,
-    session_id: str,
-    user_id: str,
-    user_prefs: dict | None,
+    snapshot: RunContextSnapshot,
     run_id: str | None = None,
 ) -> dict:
-    config = get_run_config(thread_id=thread_id)
+    config = get_run_config(thread_id=snapshot.thread_id)
     configurable = config.setdefault("configurable", {})
-    configurable["session_id"] = session_id
-    configurable["user_id"] = user_id
+    configurable["session_id"] = snapshot.session_id
+    configurable["user_id"] = snapshot.user_id
     if run_id:
         configurable["run_id"] = run_id
-    _configure_web_workspace(config, session_id, user_id)
-    _apply_user_preferences(config, user_prefs)
+    _configure_web_workspace(config, snapshot)
+    _apply_user_preferences(config, snapshot.preferences)
     return config
 
 
 async def run_agent_stream(
     user_message: str,
-    thread_id: str,
-    session_id: str,
-    user_id: str,
+    snapshot: RunContextSnapshot,
     mode: str = "edit",
     resume_action: ResumeAction | str | None = None,
     resume_feedback: str | None = None,
-    user_prefs: dict | None = None,
     run_id: str | None = None,
     context_files: list[str] | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Stream a web turn using the same runtime as the TUI."""
-    config = _web_config(
-        thread_id, session_id, user_id, user_prefs, run_id=run_id
-    )
+    config = _web_config(snapshot, run_id=run_id)
     input_value = (
         build_resume_command(resume_action, resume_feedback)
         if resume_action is not None
@@ -135,15 +125,12 @@ def build_resume_command(
 
 async def run_agent_sync(
     user_message: str,
-    thread_id: str,
-    session_id: str,
-    user_id: str,
+    snapshot: RunContextSnapshot,
     mode: str = "edit",
-    user_prefs: dict | None = None,
     context_files: list[str] | None = None,
 ) -> list[BaseMessage]:
     """Invoke a non-streaming web turn through the shared runtime."""
-    config = _web_config(thread_id, session_id, user_id, user_prefs)
+    config = _web_config(snapshot)
     input_value = build_turn_input(
         user_message,
         mode=mode,

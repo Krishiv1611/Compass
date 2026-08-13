@@ -14,7 +14,7 @@ from backend.models.user import User
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(
+def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:

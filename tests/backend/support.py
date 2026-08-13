@@ -39,8 +39,8 @@ class DatabaseTestCase(unittest.TestCase):
             cursor.close()
 
         Base.metadata.create_all(self.engine)
-        session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
-        self.db = session_factory()
+        self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.db = self.SessionLocal()
 
         self.user = self._user("owner@example.test")
         self.other_user = self._user("other@example.test")

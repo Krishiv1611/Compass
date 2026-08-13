@@ -4,6 +4,7 @@ Chat router -- non-streaming POST endpoint + WebSocket streaming.
 
 import logging
 from datetime import datetime, timezone
+from typing import AsyncGenerator
 
 from fastapi import (
     APIRouter,
@@ -32,6 +33,13 @@ from backend.schemas.chat import (
 )
 from backend.services import agent_runner
 from backend.services import session_manager
+from backend.services.run_context import RunContextSnapshot, load_run_context
+from backend.services.run_manager import (
+    create_agent_run,
+    end_agent_run,
+    get_cancel_signal,
+    persist_run_events,
+)
 from backend.ws.hub import manager
 
 logger = logging.getLogger(__name__)
@@ -145,6 +153,200 @@ def _validate_session_access(db: Session, user_id: str, session_id: str) -> Chat
     return session
 
 
+def _create_run_record(snapshot: RunContextSnapshot) -> str:
+    with SessionLocal() as db:
+        run = create_agent_run(
+            db,
+            session_id=snapshot.session_id,
+            workspace_id=snapshot.workspace_id,
+        )
+        return run.id
+
+
+def _persist_run_event_batch(
+    run_id: str,
+    events: list[tuple[str, dict]],
+) -> None:
+    if not events:
+        return
+    with SessionLocal() as db:
+        persist_run_events(db, run_id, events)
+
+
+def _end_run_record(
+    run_id: str,
+    status_value: str,
+    token_usage: dict | None = None,
+) -> None:
+    with SessionLocal() as db:
+        end_agent_run(
+            db,
+            run_id=run_id,
+            status=status_value,
+            token_usage=token_usage,
+        )
+
+
+async def _load_final_token_usage(thread_id: str) -> dict | None:
+    """Read final graph usage without retaining any relational DB session."""
+    try:
+        from agent.graph.workflow import get_workflow
+        from agent.telemetry import get_run_config
+
+        workflow = await get_workflow()
+        state = await workflow.aget_state(get_run_config(thread_id=thread_id))
+        if state and state.values:
+            return state.values.get("token_usage")
+    except Exception:
+        pass
+    return None
+
+
+async def _stream_agent_turn(
+    snapshot: RunContextSnapshot,
+    client_msg: WsClientMessage,
+) -> AsyncGenerator[StreamEvent, None]:
+    """Stream one turn while opening DB sessions only for short writes."""
+    run_id = _create_run_record(snapshot)
+    run_waiting = False
+    events_to_persist: list[tuple[str, dict]] = []
+    try:
+        async for event in agent_runner.run_agent_stream(
+            user_message=client_msg.content or "",
+            snapshot=snapshot,
+            mode=client_msg.mode,
+            resume_action=client_msg.action,
+            resume_feedback=client_msg.feedback,
+            run_id=run_id,
+            context_files=client_msg.context_files,
+        ):
+            event.run_id = run_id
+            event.session_id = snapshot.session_id
+            event_dict = event.model_dump(exclude_none=True)
+            if event.type != StreamEventType.TOKEN:
+                events_to_persist.append(
+                    (event_dict.get("type", "unknown"), event_dict)
+                )
+            if event.type == StreamEventType.RUN_WAITING:
+                run_waiting = True
+            yield event
+
+        _persist_run_event_batch(run_id, events_to_persist)
+        final_token_usage = await _load_final_token_usage(snapshot.thread_id)
+        if get_cancel_signal(run_id).is_set():
+            run_status = "cancelled"
+        elif run_waiting:
+            run_status = "waiting"
+        else:
+            run_status = "completed"
+        _end_run_record(run_id, run_status, final_token_usage)
+    except Exception:
+        _end_run_record(run_id, "error")
+        raise
+
+
+def _persist_assistant_turn(
+    snapshot: RunContextSnapshot,
+    user_content: str | None,
+    assistant_text: str,
+) -> None:
+    with SessionLocal() as db:
+        _persist_message(
+            db,
+            snapshot.session_id,
+            role="assistant",
+            content=assistant_text,
+        )
+        chat_session = (
+            db.query(ChatSession)
+            .filter(ChatSession.id == snapshot.session_id)
+            .first()
+        )
+        if chat_session and chat_session.title in ("New Chat", None):
+            message_count = (
+                db.query(Message)
+                .filter(Message.session_id == snapshot.session_id)
+                .count()
+            )
+            if message_count <= 3:
+                session_manager.auto_title(
+                    db,
+                    snapshot.session_id,
+                    user_content,
+                    assistant_text,
+                )
+        if chat_session:
+            chat_session.updated_at = datetime.now(timezone.utc)
+            db.commit()
+
+
+def _persist_sync_response(
+    snapshot: RunContextSnapshot,
+    request: ChatRequest,
+    response_messages: list,
+) -> list[MessageResponse]:
+    result_messages: list[MessageResponse] = []
+    first_ai_content = None
+    with SessionLocal() as db:
+        for message in response_messages:
+            role = (
+                "assistant"
+                if hasattr(message, "tool_calls")
+                and not hasattr(message, "tool_call_id")
+                else getattr(message, "type", "assistant")
+            )
+            if role == "ai":
+                role = "assistant"
+            elif role == "tool":
+                role = "tool"
+
+            tool_calls = None
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                tool_calls = [
+                    {"id": call["id"], "name": call["name"], "args": call["args"]}
+                    for call in message.tool_calls
+                ]
+
+            saved = _persist_message(
+                db,
+                snapshot.session_id,
+                role=role,
+                content=getattr(message, "content", None),
+                tool_calls=tool_calls,
+                tool_call_id=getattr(message, "tool_call_id", None),
+                model=getattr(message, "response_metadata", {}).get("model", None)
+                if hasattr(message, "response_metadata")
+                else None,
+            )
+            if role == "assistant" and first_ai_content is None:
+                first_ai_content = getattr(message, "content", "")
+            result_messages.append(
+                MessageResponse(
+                    id=saved.id,
+                    role=saved.role,
+                    content=saved.content,
+                    model=saved.model,
+                    created_at=saved.created_at,
+                )
+            )
+
+        chat_session = _validate_session_access(
+            db,
+            snapshot.user_id,
+            snapshot.session_id,
+        )
+        if first_ai_content and chat_session.title in ("New Chat", None):
+            session_manager.auto_title(
+                db,
+                chat_session.id,
+                request.content,
+                first_ai_content,
+            )
+        chat_session.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    return result_messages
+
+
 @router.post("/send", response_model=ChatResponse)
 async def send_message(
     body: ChatRequest,
@@ -156,20 +358,20 @@ async def send_message(
 
     Persists both user and assistant messages to the database.
     """
-    chat_session = _validate_session_access(db, current_user.id, body.session_id)
+    user_id = current_user.id
+    chat_session = _validate_session_access(db, user_id, body.session_id)
 
     # Persist user message
     _persist_message(db, chat_session.id, role="user", content=body.content)
+    db.close()
+    snapshot = load_run_context(body.session_id, user_id)
 
     # Run agent
     try:
         response_messages = await agent_runner.run_agent_sync(
             user_message=body.content,
-            thread_id=chat_session.thread_id,
-            session_id=chat_session.id,
-            user_id=current_user.id,
+            snapshot=snapshot,
             mode=body.mode,
-            user_prefs=current_user.preferences,
             context_files=body.context_files,
         )
     except Exception as exc:
@@ -186,63 +388,9 @@ async def send_message(
             )
 
         raise HTTPException(status_code=500, detail="Agent execution failed.")
-
-    # Persist and collect response messages
-    result_messages = []
-    first_ai_content = None
-
-    for msg in response_messages:
-        role = (
-            "assistant"
-            if hasattr(msg, "tool_calls") and not hasattr(msg, "tool_call_id")
-            else getattr(msg, "type", "assistant")
-        )
-        if role == "ai":
-            role = "assistant"
-        elif role == "tool":
-            role = "tool"
-
-        tc_data = None
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            tc_data = [
-                {"id": tc["id"], "name": tc["name"], "args": tc["args"]}
-                for tc in msg.tool_calls
-            ]
-
-        saved = _persist_message(
-            db,
-            chat_session.id,
-            role=role,
-            content=getattr(msg, "content", None),
-            tool_calls=tc_data,
-            tool_call_id=getattr(msg, "tool_call_id", None),
-            model=getattr(msg, "response_metadata", {}).get("model", None)
-            if hasattr(msg, "response_metadata")
-            else None,
-        )
-
-        if role == "assistant" and first_ai_content is None:
-            first_ai_content = getattr(msg, "content", "")
-
-        result_messages.append(
-            MessageResponse(
-                id=saved.id,
-                role=saved.role,
-                content=saved.content,
-                model=saved.model,
-                created_at=saved.created_at,
-            )
-        )
-
-    # Auto-title on first exchange
-    if first_ai_content and chat_session.title in ("New Chat", None):
-        session_manager.auto_title(db, chat_session.id, body.content, first_ai_content)
-
-    # Update session timestamp
-    chat_session.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
-    return ChatResponse(messages=result_messages)
+    return ChatResponse(
+        messages=_persist_sync_response(snapshot, body, response_messages)
+    )
 
 
 @router.websocket("/ws/{session_id}")
@@ -284,7 +432,6 @@ async def websocket_chat(
         if not chat_session:
             await websocket.close(code=4004, reason="Session not found")
             return
-        thread_id = chat_session.thread_id
     finally:
         db.close()
 
@@ -311,135 +458,25 @@ async def websocket_chat(
 
             if client_msg.type in ("message", "resume"):
                 if client_msg.type == "message" and client_msg.content:
-                    # Persist user message
-                    db = SessionLocal()
-                    try:
+                    with SessionLocal() as db:
                         _persist_message(
                             db, session_id, role="user", content=client_msg.content
                         )
-                    finally:
-                        db.close()
 
-                # Stream agent response
-                full_content = []
+                snapshot = load_run_context(session_id, user_id)
+                full_content: list[str] = []
+                async for event in _stream_agent_turn(snapshot, client_msg):
+                    await manager.send_event(websocket, event)
+                    if event.type == StreamEventType.TOKEN and event.content:
+                        full_content.append(event.content)
 
-                db_sync = SessionLocal()
-                try:
-                    user = db_sync.query(User).filter(User.id == chat_session.user_id).first()
-                    user_prefs = user.preferences if user else None
-                finally:
-                    db_sync.close()
-
-                # -- Local Execution (No Redis/Celery) --
-                from backend.services.run_manager import (
-                    create_agent_run,
-                    end_agent_run,
-                    persist_run_events,
-                    get_cancel_signal,
-                )
-
-                db_fallback = SessionLocal()
-                run = None
-                try:
-                    from backend.services.workspace import get_workspace_by_session
-                    workspace = get_workspace_by_session(db_fallback, session_id, user_id)
-                    run = create_agent_run(
-                        db_fallback,
-                        session_id=session_id,
-                        workspace_id=workspace.id,
-                    )
-                    run_waiting = False
-                    events_to_persist: list[tuple[str, dict]] = []
-                    async for event in agent_runner.run_agent_stream(
-                        user_message=client_msg.content or "",
-                        thread_id=thread_id,
-                        session_id=session_id,
-                        user_id=user_id,
-                        mode=client_msg.mode,
-                        resume_action=client_msg.action,
-                        resume_feedback=client_msg.feedback,
-                        user_prefs=user_prefs,
-                        run_id=run.id,
-                        context_files=client_msg.context_files,
-                    ):
-                        event.run_id = run.id
-                        event.session_id = session_id
-                        await manager.send_event(websocket, event)
-
-                        event_dict = event.model_dump(exclude_none=True)
-                        if event.type != StreamEventType.TOKEN:
-                            events_to_persist.append((event_dict.get("type", "unknown"), event_dict))
-
-                        if event.type == StreamEventType.TOKEN and event.content:
-                            full_content.append(event.content)
-                        elif event.type == StreamEventType.RUN_WAITING:
-                            run_waiting = True
-
-                    if events_to_persist:
-                        persist_run_events(db_fallback, run.id, events_to_persist)
-                    # Collect final token usage from run events
-                    final_token_usage: dict | None = None
-                    try:
-                        from agent.graph.workflow import get_workflow
-                        from agent.telemetry import get_run_config
-                        wf = await get_workflow()
-                        cfg = get_run_config(thread_id=thread_id)
-                        state = await wf.aget_state(cfg)
-                        if state and state.values:
-                            final_token_usage = state.values.get("token_usage")
-                    except Exception:
-                        pass
-                    if get_cancel_signal(run.id).is_set():
-                        run_status = "cancelled"
-                    elif run_waiting:
-                        run_status = "waiting"
-                    else:
-                        run_status = "completed"
-                    end_agent_run(
-                        db_fallback,
-                        run_id=run.id,
-                        status=run_status,
-                        token_usage=final_token_usage,
-                    )
-                except Exception as e:
-                    if run:
-                        end_agent_run(db_fallback, run_id=run.id, status="error")
-                    raise e
-                finally:
-                    db_fallback.close()
-
-                # Persist assistant response
                 if full_content:
                     assistant_text = "".join(full_content)
-                    db = SessionLocal()
-                    try:
-                        _persist_message(
-                            db, session_id, role="assistant", content=assistant_text
-                        )
-
-                        # Auto-title on first message
-                        cs = (
-                            db.query(ChatSession)
-                            .filter(ChatSession.id == session_id)
-                            .first()
-                        )
-                        if cs and cs.title in ("New Chat", None):
-                            msg_count = (
-                                db.query(Message)
-                                .filter(Message.session_id == session_id)
-                                .count()
-                            )
-                            if msg_count <= 3:
-                                session_manager.auto_title(
-                                    db, session_id, client_msg.content, assistant_text
-                                )
-
-                        # Update session timestamp
-                        if cs:
-                            cs.updated_at = datetime.now(timezone.utc)
-                            db.commit()
-                    finally:
-                        db.close()
+                    _persist_assistant_turn(
+                        snapshot,
+                        client_msg.content,
+                        assistant_text,
+                    )
 
     except WebSocketDisconnect:
         pass
