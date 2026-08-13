@@ -1,13 +1,14 @@
 import os
 import shutil
+import tempfile
 import zipfile
-from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
@@ -28,6 +29,7 @@ from backend.ws.hub import manager
 from backend.schemas.chat import StreamEvent, StreamEventType
 from backend.models.workspace import Workspace
 from backend.models.patch import WorkspacePatch
+from backend.schemas.workspace import WorkspaceResponse
 from backend.services.patch_manager import (
     accept_all_patches,
     apply_patch,
@@ -44,6 +46,36 @@ def _notify_patch_event(db: Session, workspace_id: str, background_tasks: Backgr
         background_tasks.add_task(manager.broadcast, ws.session_id, event)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+MAX_WORKSPACE_FILES = 2_000
+MAX_WORKSPACE_BYTES = 100 * 1024 * 1024
+MAX_WORKSPACE_DEPTH = 50
+
+
+def _bounded_workspace_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    total_bytes = 0
+    root = root.resolve()
+    for current_root, dirs, names in os.walk(root):
+        current = Path(current_root)
+        depth = len(current.relative_to(root).parts)
+        if depth > MAX_WORKSPACE_DEPTH:
+            raise HTTPException(status_code=413, detail="Workspace tree is too deep")
+        dirs[:] = [
+            name for name in dirs
+            if name not in {".git", "node_modules", "__pycache__"}
+        ]
+        for name in names:
+            path = current / name
+            if not path.is_file():
+                continue
+            files.append(path)
+            total_bytes += path.stat().st_size
+            if len(files) > MAX_WORKSPACE_FILES:
+                raise HTTPException(status_code=413, detail="Workspace contains more than 2,000 files")
+            if total_bytes > MAX_WORKSPACE_BYTES:
+                raise HTTPException(status_code=413, detail="Workspace exceeds the 100 MB limit")
+    return files
 
 # --- Legacy session-based endpoints (temporary compatibility) ---
 
@@ -62,29 +94,36 @@ async def upload_workspace(
 ):
     """Upload a full directory into the server workspace (Legacy)."""
     owned_session(db, session_id, current_user.id)
+    if len(files) > MAX_WORKSPACE_FILES:
+        raise HTTPException(status_code=413, detail="Upload contains more than 2,000 files")
     # Create a new workspace record instead of wiping the old one
     workspace = create_workspace_record(db, current_user.id, session_id, "Uploaded Project")
     workspace_dir = Path(workspace.storage_path)
     
     saved_files = []
     
-    for file in files:
-        if not file.filename:
-            continue
+    total_bytes = 0
+    try:
+        for file in files:
+            if not file.filename:
+                continue
             
-        clean_path = os.path.normpath(file.filename).replace("\\", "/")
-        try:
+            clean_path = os.path.normpath(file.filename).replace("\\", "/")
             dest_path = safe_workspace_target(workspace_dir, clean_path)
-        except HTTPException:
-            continue
 
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        content = await file.read()
-        with open(dest_path, "wb") as f:
-            f.write(content)
-            
-        saved_files.append(clean_path)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            with dest_path.open("wb") as destination:
+                while chunk := await file.read(1024 * 1024):
+                    total_bytes += len(chunk)
+                    if total_bytes > MAX_WORKSPACE_BYTES:
+                        raise HTTPException(status_code=413, detail="Upload exceeds the 100 MB limit")
+                    destination.write(chunk)
+            saved_files.append(clean_path)
+    except Exception:
+        shutil.rmtree(workspace_dir, ignore_errors=True)
+        db.delete(workspace)
+        db.commit()
+        raise
         
     update_workspace_stats(db, workspace)
         
@@ -101,6 +140,7 @@ def get_workspace_tree(
 ):
     """Get the file tree of the workspace."""
     workspace_dir = _get_active_workspace_path(db, current_user.id, workspace_id)
+    _bounded_workspace_files(workspace_dir)
     
     def build_tree(dir_path: Path):
         nodes = []
@@ -158,24 +198,26 @@ def download_workspace(
     if not workspace_dir.exists() or not any(workspace_dir.iterdir()):
         raise HTTPException(status_code=404, detail="Workspace is empty")
         
-    memory_file = BytesIO()
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(workspace_dir):
-            for file in files:
-                file_path = Path(root) / file
-                if ".git" in file_path.parts or "node_modules" in file_path.parts:
-                    continue
-                rel_path = file_path.relative_to(workspace_dir)
-                zf.write(file_path, arcname=rel_path)
-                
-    memory_file.seek(0)
-    
-    return StreamingResponse(
-        memory_file,
+    files = _bounded_workspace_files(workspace_dir)
+    temporary = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    temporary_path = Path(temporary.name)
+    temporary.close()
+    try:
+        with zipfile.ZipFile(temporary_path, "w", zipfile.ZIP_DEFLATED) as bundle:
+            for file_path in files:
+                bundle.write(file_path, arcname=file_path.relative_to(workspace_dir))
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+    return FileResponse(
+        temporary_path,
         media_type="application/zip",
+        filename=f"workspace_{workspace_id[:8]}.zip",
         headers={
             "Content-Disposition": f"attachment; filename=workspace_{workspace_id[:8]}.zip"
-        }
+        },
+        background=BackgroundTask(temporary_path.unlink, missing_ok=True),
     )
 
 @router.get("/{workspace_id}/export-json")
@@ -189,6 +231,7 @@ def export_workspace_json(
     
     if not workspace_dir.exists():
         raise HTTPException(status_code=404, detail="Workspace not found")
+    _bounded_workspace_files(workspace_dir)
         
     def build_fs_tree(dir_path: Path) -> dict:
         tree = {}
@@ -424,7 +467,7 @@ def search_workspace_files(
     return {"files": matches}
 
 
-@router.post("/create")
+@router.post("/create", response_model=WorkspaceResponse)
 def create_workspace(
     body: WorkspaceCreateRequest,
     current_user: User = Depends(get_current_user),
@@ -439,7 +482,7 @@ def create_workspace(
     return workspace
 
 
-@router.post("/{workspace_id}/attach")
+@router.post("/{workspace_id}/attach", response_model=WorkspaceResponse)
 def attach_workspace(
     workspace_id: str,
     body: WorkspaceAttachRequest,

@@ -5,6 +5,7 @@ from backend.models.upload import UploadedFile
 from backend.models.workspace import Workspace
 from backend.models.run import AgentRun, RunEvent
 from backend.models.patch import WorkspacePatch
+from backend.models.github_connection import GitHubConnection
 from backend.db import Base
 
-__all__ = ["User", "ChatSession", "Message", "UploadedFile", "Workspace", "AgentRun", "RunEvent", "WorkspacePatch", "Base"]
+__all__ = ["User", "ChatSession", "Message", "UploadedFile", "Workspace", "AgentRun", "RunEvent", "WorkspacePatch", "GitHubConnection", "Base"]

@@ -64,6 +64,7 @@ def create_oauth_state(
     redirect_uri: str = "",
     intent: str = "login",
     return_to: str = "/chat",
+    user_id: str | None = None,
 ) -> str:
     """Create a short-lived signed OAuth state value owned by the backend."""
     expire = datetime.now(timezone.utc) + timedelta(minutes=10)
@@ -76,12 +77,21 @@ def create_oauth_state(
         "nonce": token_urlsafe(24),
         "exp": expire,
     }
+    if user_id:
+        payload["user_id"] = user_id
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def decode_oauth_state(state: str, expected_provider: str) -> dict:
+def decode_oauth_state(
+    state: str,
+    expected_provider: str,
+    *,
+    expected_user_id: str | None = None,
+) -> dict:
     """Validate a signed OAuth state and its intended provider."""
     payload = decode_token(state)
     if payload.get("type") != "oauth_state" or payload.get("provider") != expected_provider:
         raise JWTError("Invalid OAuth state")
+    if expected_user_id is not None and payload.get("user_id") != expected_user_id:
+        raise JWTError("OAuth state belongs to another user")
     return payload

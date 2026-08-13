@@ -64,6 +64,12 @@ class User(Base):
     workspaces = relationship(
         "Workspace", back_populates="user", cascade="all, delete-orphan"
     )
+    github_connection = relationship(
+        "GitHubConnection",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     def __repr__(self) -> str:
         return f"<User id={self.id!r} email={self.email!r}>"

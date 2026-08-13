@@ -4,6 +4,8 @@ import base64
 import io
 import shutil
 import zipfile
+from contextvars import ContextVar
+from functools import wraps
 from pathlib import Path, PurePosixPath
 
 import httpx
@@ -11,32 +13,90 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from backend.auth.credentials import decrypt_credential, encrypt_credential
+from backend.models.github_connection import GitHubConnection
 from backend.models.user import User
 from backend.services.workspace import create_workspace_record, get_workspace, update_workspace_stats
 
 API_ROOT = "https://api.github.com"
 MAX_REPOSITORY_BYTES = 50 * 1024 * 1024
+MAX_EXPANDED_BYTES = 250 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 20_000
+MAX_IMPORTED_FILES = 2_000
+MAX_WORKSPACE_BYTES = 100 * 1024 * 1024
+_operation_client: ContextVar[httpx.Client | None] = ContextVar(
+    "github_operation_client",
+    default=None,
+)
+
+
+def github_operation(function):
+    """Reuse one HTTP client for every request in a GitHub service operation."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        existing = _operation_client.get()
+        if existing is not None:
+            return function(*args, **kwargs)
+        with httpx.Client(
+            base_url=API_ROOT,
+            timeout=30.0,
+            follow_redirects=True,
+        ) as client:
+            token = _operation_client.set(client)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                _operation_client.reset(token)
+
+    return wrapped
+
+
+def validate_repository_archive(bundle: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+    """Reject dangerous or oversized archives before any extraction begins."""
+    members = bundle.infolist()
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise HTTPException(status_code=413, detail="Repository archive has too many members")
+    expanded_bytes = 0
+    imported_files = 0
+    validated = []
+    for member in members:
+        path = PurePosixPath(member.filename)
+        mode = member.external_attr >> 16
+        is_symlink = (mode & 0o170000) == 0o120000
+        if path.is_absolute() or ".." in path.parts or is_symlink:
+            raise HTTPException(status_code=400, detail="Repository archive contains an unsafe path")
+        expanded_bytes += member.file_size
+        if expanded_bytes > MAX_EXPANDED_BYTES:
+            raise HTTPException(status_code=413, detail="Repository archive expands beyond 250 MB")
+        if not member.is_dir():
+            imported_files += 1
+            if imported_files > MAX_IMPORTED_FILES:
+                raise HTTPException(status_code=413, detail="Repository contains more than 2,000 files")
+        validated.append(member)
+    return validated
 
 
 def _token_request(token: str, method: str, path: str, **kwargs) -> httpx.Response:
-    response = httpx.request(
+    client = _operation_client.get()
+    request = client.request if client is not None else httpx.request
+    target = path if client is not None else f"{API_ROOT}{path}"
+    response = request(
         method,
-        f"{API_ROOT}{path}",
+        target,
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         },
-        timeout=60,
-        follow_redirects=True,
+        **({} if client is not None else {"timeout": 30, "follow_redirects": True}),
         **kwargs,
     )
     return response
 
 
 def _token(user: User) -> str:
-    token = decrypt_credential(user.oauth_token_encrypted)
-    if user.oauth_provider != "github" or not token:
+    connection = user.github_connection
+    token = decrypt_credential(connection.token_encrypted) if connection else None
+    if not connection or not token:
         raise HTTPException(status_code=409, detail="Connect GitHub before using repository actions")
     return token
 
@@ -53,12 +113,13 @@ def _request(user: User, method: str, path: str, **kwargs) -> httpx.Response:
 
 
 def connection_status(user: User, validate: bool = False) -> dict:
-    token = decrypt_credential(user.oauth_token_encrypted)
-    connected = user.oauth_provider == "github" and bool(token)
+    connection = user.github_connection
+    token = decrypt_credential(connection.token_encrypted) if connection else None
+    connected = bool(connection and token)
     profile = None
     scopes = {
         scope.strip()
-        for scope in (user.oauth_scopes or "").split(",")
+        for scope in ((connection.scopes if connection else "") or "").split(",")
         if scope.strip()
     }
     if connected and validate and token:
@@ -71,19 +132,19 @@ def connection_status(user: User, validate: bool = False) -> dict:
             if response_scopes:
                 scopes = {scope.strip() for scope in response_scopes.split(",") if scope.strip()}
 
-    method = (user.preferences or {}).get("github_connection_method", "oauth")
+    method = connection.method if connection else None
     write = bool({"repo", "public_repo"} & scopes) or method == "pat"
     return {
         "connected": connected,
         "method": method if connected else None,
         "login": (profile or {}).get("login") or (
-            user.display_name if connected else None
+            connection.login if connection else None
         ),
         "avatarUrl": (profile or {}).get("avatar_url") or (
-            user.avatar_url if connected else None
+            connection.avatar_url if connection else None
         ),
         "repositoryCount": (profile or {}).get("public_repos"),
-        "lastValidatedAt": user.updated_at.isoformat() if connected and user.updated_at else None,
+        "lastValidatedAt": connection.updated_at.isoformat() if connection and connection.updated_at else None,
         "maskedCredential": "••••" + token[-4:] if connected and token else None,
         "capabilities": {
             "listRepositories": connected,
@@ -94,25 +155,28 @@ def connection_status(user: User, validate: bool = False) -> dict:
     }
 
 
+@github_operation
 def connect_pat(db: Session, user: User, token: str) -> dict:
     response = _token_request(token, "GET", "/user")
     if response.status_code >= 400:
         raise HTTPException(status_code=400, detail="GitHub rejected this credential")
     profile = response.json()
     scopes = response.headers.get("x-oauth-scopes", "")
-    preferences = dict(user.preferences or {})
-    preferences["github_connection_method"] = "pat"
-    user.preferences = preferences
-    user.oauth_provider = "github"
-    user.oauth_provider_id = str(profile["id"])
-    user.oauth_token_encrypted = encrypt_credential(token)
-    user.oauth_scopes = scopes
-    user.avatar_url = profile.get("avatar_url") or user.avatar_url
+    connection = user.github_connection or GitHubConnection(user_id=user.id)
+    connection.provider_user_id = str(profile["id"])
+    connection.login = profile.get("login")
+    connection.avatar_url = profile.get("avatar_url")
+    connection.token_encrypted = encrypt_credential(token)
+    connection.scopes = scopes
+    connection.method = "pat"
+    user.github_connection = connection
+    db.add(connection)
     db.commit()
     db.refresh(user)
     return connection_status(user, validate=True)
 
 
+@github_operation
 def connect_oauth_token(
     db: Session,
     user: User,
@@ -122,29 +186,24 @@ def connect_oauth_token(
     avatar_url: str | None,
     scopes: str,
 ) -> dict:
-    preferences = dict(user.preferences or {})
-    preferences["github_connection_method"] = "oauth"
-    user.preferences = preferences
-    user.oauth_provider = "github"
-    user.oauth_provider_id = provider_id
-    user.oauth_token_encrypted = encrypt_credential(token)
-    user.oauth_scopes = scopes
-    user.display_name = user.display_name or login
-    user.avatar_url = avatar_url or user.avatar_url
+    connection = user.github_connection or GitHubConnection(user_id=user.id)
+    connection.provider_user_id = provider_id
+    connection.login = login
+    connection.avatar_url = avatar_url
+    connection.token_encrypted = encrypt_credential(token)
+    connection.scopes = scopes
+    connection.method = "oauth"
+    user.github_connection = connection
+    db.add(connection)
     db.commit()
     db.refresh(user)
     return connection_status(user, validate=True)
 
 
 def disconnect(db: Session, user: User) -> None:
-    preferences = dict(user.preferences or {})
-    preferences.pop("github_connection_method", None)
-    user.preferences = preferences
-    user.oauth_token_encrypted = None
-    user.oauth_scopes = None
-    if user.hashed_password:
-        user.oauth_provider = None
-        user.oauth_provider_id = None
+    connection = user.github_connection
+    if connection:
+        db.delete(connection)
     db.commit()
 
 
@@ -179,6 +238,7 @@ def _assert_remote_head(workspace, branch: str, remote_head: str) -> None:
         )
 
 
+@github_operation
 def list_repositories(
     user: User,
     cursor: str | None = None,
@@ -219,11 +279,13 @@ def list_repositories(
     }
 
 
+@github_operation
 def list_branches(user: User, owner: str, repo: str) -> list[dict]:
     response = _request(user, "GET", f"/repos/{owner}/{repo}/branches", params={"per_page": 100})
     return [{"name": item["name"], "sha": item["commit"]["sha"], "protected": item["protected"]} for item in response.json()]
 
 
+@github_operation
 def import_repository(
     db: Session,
     user: User,
@@ -243,7 +305,11 @@ def import_repository(
 
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-            members = [member for member in bundle.infolist() if not member.is_dir()]
+            members = [
+                member
+                for member in validate_repository_archive(bundle)
+                if not member.is_dir()
+            ]
             prefixes = {PurePosixPath(member.filename).parts[0] for member in members if PurePosixPath(member.filename).parts}
             prefix = next(iter(prefixes)) if len(prefixes) == 1 else None
             for member in members:
@@ -281,6 +347,7 @@ def import_repository(
     return workspace
 
 
+@github_operation
 def create_branch(
     db: Session,
     user: User,
@@ -310,6 +377,7 @@ def create_branch(
     return {"name": name, "sha": head}
 
 
+@github_operation
 def commit_workspace(
     db: Session,
     user: User,
@@ -374,6 +442,7 @@ def commit_workspace(
     return {"sha": commit["sha"], "url": commit.get("html_url")}
 
 
+@github_operation
 def open_pull_request(
     db: Session,
     user: User,

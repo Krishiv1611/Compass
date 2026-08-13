@@ -10,6 +10,7 @@ from backend.services.ownership import owned_session, owned_workspace
 from backend.auth.jwt import create_oauth_state, decode_oauth_state
 from backend.auth.oauth import exchange_github_code
 from backend.config import settings
+from backend.schemas.workspace import WorkspaceResponse
 from urllib.parse import urlencode
 
 router = APIRouter(prefix="/github", tags=["github"])
@@ -70,10 +71,14 @@ def oauth_url(
     return_to: str = "/chat",
     current_user: User = Depends(get_current_user),
 ):
-    del current_user
     if not settings.github_client_id:
         raise HTTPException(status_code=400, detail="GitHub OAuth is not configured")
-    state = create_oauth_state("github", intent=intent, return_to=return_to)
+    state = create_oauth_state(
+        "github",
+        intent=intent,
+        return_to=return_to,
+        user_id=current_user.id,
+    )
     url = "https://github.com/login/oauth/authorize?" + urlencode({
         "client_id": settings.github_client_id,
         "scope": "read:user user:email repo",
@@ -88,7 +93,11 @@ async def oauth_exchange(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    state = decode_oauth_state(body.state, "github")
+    state = decode_oauth_state(
+        body.state,
+        "github",
+        expected_user_id=current_user.id,
+    )
     if state.get("intent") != "connect_github":
         raise HTTPException(status_code=400, detail="OAuth intent does not match repository connection")
     info = await exchange_github_code(body.code)
@@ -140,7 +149,7 @@ def branches(owner: str, repo: str, current_user: User = Depends(get_current_use
     return github_service.list_branches(current_user, owner, repo)
 
 
-@router.post("/import")
+@router.post("/import", response_model=WorkspaceResponse)
 def import_repo(body: ImportRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     owned_session(db, body.session_id, current_user.id)
     return github_service.import_repository(db, current_user, body.session_id, body.owner, body.repo, body.branch)

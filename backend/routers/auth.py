@@ -279,8 +279,6 @@ async def oauth_github(code: str, state: str, response: Response, db: Session = 
         email=info["email"],
         display_name=info.get("name") or info.get("login"),
         avatar_url=info.get("avatar_url"),
-        access_token=info.get("_access_token"),
-        scopes=info.get("_scopes"),
     )
     return _browser_tokens(response, create_token_pair(user.id))
 
