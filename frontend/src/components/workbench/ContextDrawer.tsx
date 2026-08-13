@@ -6,6 +6,7 @@ import {
   Database,
   File,
   FileUp,
+  ScrollText,
   Loader2,
   RefreshCcw,
   Sparkles,
@@ -119,6 +120,7 @@ export function ContextInspector({ workspaceId, sessionId, selectedFiles, compac
             <Row text={`${data.context?.indexed_file_count ?? 0} files · ${data.context?.indexed_chunk_count ?? 0} chunks`} />
             <Row text={data.context?.context_tokens == null ? "Token usage unavailable from backend" : `${data.context.context_tokens.toLocaleString()} indexed tokens`} />
           </Section>
+          <InstructionRows instructions={data.context?.instructions ?? []} />
           <Section icon={CheckSquare} title="Tasks" count={data.tasks.length}>
             {data.tasks.length ? data.tasks.slice(0, 8).map((item) => <Row key={item.id || item.text} text={`${item.done ? "✓" : "○"} ${item.text}`} />) : <Empty text="No active tasks." />}
           </Section>
@@ -174,4 +176,18 @@ function Row({ text, mono = false, action }: { text: string; mono?: boolean; act
 
 function Empty({ text }: { text: string }) {
   return <div className="px-1 py-3 text-xs text-muted-foreground">{text}</div>;
+}
+
+export function InstructionRows({ instructions }: { instructions: NonNullable<WorkspaceContext["instructions"]> }) {
+  return (
+    <Section icon={ScrollText} title="Project instructions" count={instructions.length}>
+      {instructions.length ? instructions.map((item) => (
+        <Row
+          key={`${item.path}-${item.precedence}`}
+          text={`${item.path} · p${item.precedence} · ${item.digest}${item.included ? item.truncated ? " · truncated" : " · included" : " · excluded"}`}
+          mono
+        />
+      )) : <Empty text="No AGENTS.md, CLAUDE.md, GEMINI.md, or COMPASS.md rules loaded." />}
+    </Section>
+  );
 }

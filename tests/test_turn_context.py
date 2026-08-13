@@ -1,5 +1,7 @@
 import unittest
+import tempfile
 from collections import Counter
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from agent.runtime.turn_context import prepare_turn_context
@@ -49,6 +51,29 @@ class TurnContextTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(failing.await_count, 1)
         mcp.reset_mcp_cache()
+
+    async def test_project_instructions_are_prepared_once_per_turn(self):
+        calls = Counter()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "COMPASS.md").write_text("Prefer readable code", encoding="utf-8")
+            config = fake_config()
+            config["configurable"]["workspace_context"] = {
+                "root": str(root),
+                "execution_target": "local",
+            }
+
+            first = await prepare_turn_context(
+                fake_input("fix auth"), config, services=services_for_counter(calls)
+            )
+            (root / "COMPASS.md").write_text("changed later", encoding="utf-8")
+            second = await prepare_turn_context(
+                fake_input("fix auth"), config, services=services_for_counter(calls)
+            )
+
+        self.assertIs(first, second)
+        self.assertIn("Prefer readable code", second.project_instructions)
+        self.assertNotIn("changed later", second.project_instructions)
 
 
 if __name__ == "__main__":

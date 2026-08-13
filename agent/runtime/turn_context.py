@@ -15,6 +15,8 @@ class TurnContext:
     executor_model: Any | None = None
     model_clients: dict[str, Any] = field(default_factory=dict)
     direct_chat: bool = False
+    project_instructions: str = ""
+    instruction_sources: list[Any] = field(default_factory=list)
 
 
 class RuntimePreparationServices:
@@ -109,7 +111,12 @@ async def prepare_turn_context(
         return context
 
     runtime = services or RuntimePreparationServices()
-    memory, mcp_tools = await asyncio.gather(
+    from agent.instructions import load_project_instructions, render_project_instructions
+
+    workspace = configurable.get("workspace_context") or {}
+    workspace_root = workspace.get("root") if isinstance(workspace, dict) else None
+    instruction_sources, memory, mcp_tools = await asyncio.gather(
+        asyncio.to_thread(load_project_instructions, workspace_root or "."),
         _resolve_or(runtime.memory(config), []),
         _resolve_or(runtime.mcp(config), []),
     )
@@ -126,6 +133,8 @@ async def prepare_turn_context(
         ]
     executor = await _resolve(runtime.model("executor", config))
     context.recalled_memory = list(memory)
+    context.instruction_sources = list(instruction_sources)
+    context.project_instructions = render_project_instructions(context.instruction_sources)
     context.mcp_tools = list(mcp_tools)
     context.tools = combined_tools
     context.executor_model = await _resolve(runtime.bind_tools(executor, combined_tools))

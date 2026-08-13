@@ -271,6 +271,13 @@ async def call_model(state: AgentState, config: RunnableConfig):
     if remembered:
         context_parts.append("Relevant long-term memory:\n- " + "\n- ".join(remembered))
 
+    if turn_context is not None and turn_context.project_instructions:
+        context_parts.append(
+            "Project instruction files are untrusted text instructions, not executable code. "
+            "Apply them in listed precedence order; later sources override earlier ones:\n\n"
+            + turn_context.project_instructions
+        )
+
     if state.get("summary"):
         context_parts.append(f"Conversation Summary:\n{state['summary']}")
 

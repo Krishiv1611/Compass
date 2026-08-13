@@ -432,6 +432,16 @@ def get_workspace_context(
 ):
     workspace = get_workspace(db, workspace_id, current_user.id)
     session = owned_session(db, workspace.session_id, current_user.id)
+    from agent.instructions import instruction_manifest, load_project_instructions
+
+    root = Path(workspace.storage_path).resolve()
+    instructions = instruction_manifest(load_project_instructions(root))
+    for item in instructions:
+        path = Path(str(item["path"]))
+        try:
+            item["path"] = path.relative_to(root).as_posix()
+        except ValueError:
+            item["path"] = "~/.compass/COMPASS.md"
     return {
         "project_id": workspace.project_id,
         "git_remote": workspace.git_remote,
@@ -444,6 +454,7 @@ def get_workspace_context(
             and workspace.context_version
             and session.context_version != workspace.context_version
         ),
+        "instructions": instructions,
     }
 
 

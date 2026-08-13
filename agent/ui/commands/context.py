@@ -1,3 +1,12 @@
+from pathlib import Path
+
+import click
+
+from agent.instructions import (
+    append_learned_instruction,
+    initialize_compass_file,
+    proposed_learned_instruction,
+)
 from agent.ui.commands.models import CommandContext, CommandResult, SlashCommand
 
 
@@ -7,4 +16,44 @@ async def model(_argument: str, context: CommandContext) -> CommandResult:
     return CommandResult(True, f"Active provider: {provider}\nActive model: {model_name}")
 
 
-COMMANDS = [SlashCommand("/model", (), "Show active provider and model", model)]
+async def init(argument: str, context: CommandContext) -> CommandResult:
+    force = argument.strip() == "--force"
+    if argument.strip() not in {"", "--force"}:
+        return CommandResult(True, "Usage: /init [--force]")
+    root = Path(context.workspace or ".").resolve()
+    target = root / "COMPASS.md"
+    approved = False
+    if target.exists() and force:
+        approved = click.confirm(
+            f"Replace existing {target}? This requires write approval.", default=False
+        )
+        if not approved:
+            return CommandResult(True, "Initialization cancelled; COMPASS.md was unchanged.")
+    try:
+        initialize_compass_file(root, force=force, approved=approved)
+    except FileExistsError:
+        return CommandResult(
+            True,
+            "COMPASS.md already exists and was not changed. Use /init --force to replace it.",
+        )
+    return CommandResult(True, f"Created {target}")
+
+
+async def learn(argument: str, context: CommandContext) -> CommandResult:
+    try:
+        addition = proposed_learned_instruction(argument)
+    except ValueError:
+        return CommandResult(True, "Usage: /learn <one-line instruction>")
+    if not click.confirm(
+        f"Append this exact line to COMPASS.md?\n\n{addition}", default=False
+    ):
+        return CommandResult(True, "Learn cancelled; COMPASS.md was unchanged.")
+    append_learned_instruction(context.workspace or ".", argument, approved=True)
+    return CommandResult(True, f"Added to COMPASS.md:\n{addition}")
+
+
+COMMANDS = [
+    SlashCommand("/model", (), "Show active provider and model", model),
+    SlashCommand("/init", (), "Create COMPASS.md without overwriting", init),
+    SlashCommand("/learn", (), "Approve and append one project instruction", learn),
+]

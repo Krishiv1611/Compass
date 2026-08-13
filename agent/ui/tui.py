@@ -1588,50 +1588,6 @@ async def _handle_slash_command(
         )
         compass.console.print()
 
-    # ── /learn ─────────────────────────────────────────────────────────────
-    elif cmd == "/learn":
-        compass.console.print(
-            Text(
-                "  🎓 Rule extracted and appended to COMPASS.md.",
-                style="bold bright_magenta",
-            )
-        )
-        compass.console.print()
-
-    # ── /init — Generate project context file ────────────────────────────────
-    elif cmd == "/init":
-        workspace = os.getcwd()
-        compass.console.print(
-            Text(
-                f"  🧭 Generating project context for: {workspace}",
-                style="compass.info",
-            )
-        )
-        compass.console.print()
-
-        try:
-            with compass.thinking_spinner():
-                # Scan project structure
-                project_info = _scan_project(workspace)
-
-            # Write COMPASS.md
-            compass_md_path = os.path.join(workspace, "COMPASS.md")
-            with open(compass_md_path, "w", encoding="utf-8") as f:
-                f.write(project_info)
-
-            compass.console.print(
-                Text(f"  ✔ Created {compass_md_path}", style="compass.success")
-            )
-            compass.console.print(
-                Text(
-                    f"  📄 {len(project_info)} characters of project context generated.",
-                    style="dim",
-                )
-            )
-        except Exception as e:
-            compass.print_error(f"Failed to generate project context: {e}")
-        compass.console.print()
-
     # ── /compact — Manual context compaction ─────────────────────────────────
     elif cmd == "/compact":
         if workflow is None or config is None:

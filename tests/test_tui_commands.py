@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -52,6 +54,37 @@ class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
         result = await build_registry().execute("/doctor", self.context(settings={"has_llm_api_key": True}))
         self.assertIn("agent imports: ok", result.message)
         self.assertIn("provider credential: configured", result.message)
+
+    async def test_init_is_non_destructive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "COMPASS.md"
+            target.write_text("keep", encoding="utf-8")
+            result = await build_registry().execute(
+                "/init", self.context(workspace=folder)
+            )
+            self.assertIn("not changed", result.message)
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
+    async def test_learn_displays_exact_addition_and_requires_confirmation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            context = self.context(workspace=folder)
+            with patch("agent.ui.commands.context.click.confirm", return_value=False) as confirm:
+                result = await build_registry().execute(
+                    "/learn Prefer small functions", context
+                )
+            self.assertIn("unchanged", result.message)
+            self.assertIn("- Prefer small functions", confirm.call_args.args[0])
+            self.assertFalse((Path(folder) / "COMPASS.md").exists())
+
+            with patch("agent.ui.commands.context.click.confirm", return_value=True):
+                result = await build_registry().execute(
+                    "/learn Prefer small functions", context
+                )
+            self.assertIn("- Prefer small functions", result.message)
+            self.assertIn(
+                "- Prefer small functions",
+                (Path(folder) / "COMPASS.md").read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

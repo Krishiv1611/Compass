@@ -20,6 +20,13 @@ export interface WorkspaceContext {
   context_tokens?: number | null;
   selected_tokens?: number | null;
   metadata?: Record<string, unknown>;
+  instructions?: Array<{
+    path: string;
+    precedence: number;
+    digest: string;
+    included: boolean;
+    truncated: boolean;
+  }>;
 }
 
 export interface WorkspaceTreeResponse {
