@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -14,6 +14,9 @@ import {
 import { useRunEvents, type LiveRunEvent } from "@/contexts/RunContext";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import type { JsonValue, RunStage, RunStageStatus } from "@/types/run";
+import PlanChecklist from "./PlanChecklist";
+import ToolCallCard from "./ToolCallCard";
+import { eventsFromRunHistory, runsApi } from "@/api/runs";
 
 const stageLabels: Record<RunStage, string> = {
   context: "Context",
@@ -80,25 +83,36 @@ function ActivityRow({ event }: { event: LiveRunEvent }) {
 }
 
 export default function RunTimeline({
-  sessionId: _sessionId,
+  sessionId,
   showEmpty = false,
 }: {
   sessionId: string | null;
   showEmpty?: boolean;
 }) {
-  const { currentRunEvents, isRunActive, firstEventLatencyMs } = useRunEvents();
+  const { currentRunEvents, artifact, isRunActive, firstEventLatencyMs, hydrateRun } = useRunEvents();
   const { state } = useWorkbench();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sessionId || isRunActive) return;
+    let current = true;
+    runsApi.getSessionRuns(sessionId)
+      .then(history => {
+        if (current) hydrateRun(sessionId, eventsFromRunHistory(history));
+      })
+      .catch(() => { /* Transcript loading remains usable without activity history. */ });
+    return () => { current = false; };
+  }, [hydrateRun, isRunActive, sessionId]);
 
   const visibleStages = useMemo<RunStage[]>(() => {
     const stages: RunStage[] = ["context"];
     if (state.mode === "plan" || state.mode === "goal") stages.push("plan");
     if (state.mode !== "ask") stages.push("edit");
-    if (currentRunEvents.some((event) => event.stage === "check" || event.data?.stage === "check")) stages.push("check");
+    if (artifact.checks.length || currentRunEvents.some((event) => event.stage === "check" || event.data?.stage === "check")) stages.push("check");
     if (state.pendingPatchCount || currentRunEvents.some((event) => event.stage === "review" || event.type === "approval_required")) stages.push("review");
     stages.push("complete");
     return stages;
-  }, [currentRunEvents, state.mode, state.pendingPatchCount]);
+  }, [artifact.checks.length, currentRunEvents, state.mode, state.pendingPatchCount]);
 
   const stageState = useMemo(() => {
     const statuses = new Map<RunStage, RunStageStatus>();
@@ -161,6 +175,10 @@ export default function RunTimeline({
       {drawerOpen && (
         <div className="max-h-[36vh] overflow-y-auto border-t border-border px-3">
           {firstEventLatencyMs != null && <div className="border-b border-border py-2 text-xs text-muted-foreground">First event in <span className="font-mono">{firstEventLatencyMs}ms</span></div>}
+          {artifact.plan && <PlanChecklist plan={artifact.plan} completedSteps={artifact.steps.flatMap((step, index) => step.status === "completed" ? [index + 1] : [])} />}
+          {artifact.tools.map(tool => <ToolCallCard key={tool.id} toolName={tool.name} args={tool.args} result={tool.result} status={tool.status} />)}
+          {!!artifact.changed_files.length && <div className="border-b border-border py-2 text-xs"><span className="font-medium">Changed files</span><p className="mt-1 font-mono text-muted-foreground">{artifact.changed_files.join(", ")}</p></div>}
+          {artifact.checks.map(check => <div key={check.id} className="border-b border-border py-2 text-xs"><span className="font-medium">{check.name}</span><span className={`ml-2 ${check.status === "passed" ? "text-success" : "text-destructive"}`}>{check.status}</span>{check.duration_ms != null && <span className="ml-2 font-mono text-muted-foreground">{Math.round(check.duration_ms)}ms</span>}</div>)}
           {currentRunEvents.map((event, index) => <ActivityRow key={event.id || `${event.type}-${index}`} event={event} />)}
         </div>
       )}

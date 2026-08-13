@@ -15,6 +15,7 @@ export interface RunEvent {
   content?: JsonValue;
   data?: Record<string, JsonValue>;
   tool_call?: {
+    id?: string;
     name?: string;
     args?: Record<string, JsonValue>;
     result?: JsonValue;
@@ -22,6 +23,8 @@ export interface RunEvent {
   tool_call_id?: string;
   run_id?: string;
   session_id?: string;
+  node?: string;
+  seq?: number;
   stage?: RunStage;
   stage_status?: RunStageStatus;
   duration_ms?: number;

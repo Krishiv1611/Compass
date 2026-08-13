@@ -18,6 +18,8 @@ class StreamEventType(str, Enum):
     WORKSPACE_PATCH = "workspace_patch"
     PLAN_CREATED = "plan_created"
     PLAN_STEP = "plan_step"
+    CHECK_RESULT = "check_result"
+    USAGE = "usage"
     LOOP_DETECTED = "loop_detected"
     STATUS = "status"
     DONE = "done"

@@ -13,6 +13,18 @@ from backend.services.ownership import owned_session
 router = APIRouter(prefix="/sessions/{session_id}/runs", tags=["runs"])
 
 
+def serialize_run_event(event) -> dict:
+    """Restore the canonical StreamEvent shape stored by RunEventBatcher."""
+    if isinstance(event.content, dict):
+        payload = dict(event.content)
+    else:
+        payload = {"content": event.content} if event.content is not None else {}
+    payload["id"] = event.id
+    payload.setdefault("type", event.event_type)
+    payload["created_at"] = event.created_at
+    return payload
+
+
 @router.get("")
 def get_session_runs(
     session_id: str,
@@ -61,15 +73,7 @@ def get_session_runs(
             "ended_at": run.ended_at,
             "token_usage": run.token_usage,
             "event_count": len(run.events),
-            "events": [
-                {
-                    "id": event.id,
-                    "type": event.event_type,
-                    "content": event.content,
-                    "created_at": event.created_at,
-                }
-                for event in run.events
-            ],
+            "events": [serialize_run_event(event) for event in run.events],
         }
         for run in runs
     ]

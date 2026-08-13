@@ -1,10 +1,13 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { RunEvent } from "@/types/run";
+import type { RunArtifact } from "@/types/artifact";
+import { emptyRunArtifact, projectRunEvent } from "@/runtime/projectRunEvent";
 
 export type LiveRunEvent = RunEvent;
 
 interface RunContextValue {
   currentRunEvents: LiveRunEvent[];
+  artifact: RunArtifact;
   currentSessionId: string | null;
   isRunActive: boolean;
   startedAt: string | null;
@@ -12,6 +15,7 @@ interface RunContextValue {
   firstEventLatencyMs: number | null;
   startRun: (sessionId: string) => void;
   addEvent: (event: LiveRunEvent) => void;
+  hydrateRun: (sessionId: string, events: LiveRunEvent[]) => void;
   finishRun: () => void;
   markFirstToken: () => void;
   setOffline: () => void;
@@ -22,6 +26,7 @@ const RunContext = createContext<RunContextValue | null>(null);
 
 export function RunProvider({ children }: { children: React.ReactNode }) {
   const [currentRunEvents, setCurrentRunEvents] = useState<LiveRunEvent[]>([]);
+  const [artifact, setArtifact] = useState<RunArtifact>(emptyRunArtifact);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isRunActive, setIsRunActive] = useState(false);
   const [startedAt, setStartedAt] = useState<string | null>(null);
@@ -30,6 +35,7 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
   const startedAtMs = useRef<number | null>(null);
   const queue = useRef<LiveRunEvent[]>([]);
   const firstTokenSeen = useRef(false);
+  const activeRef = useRef(false);
   const frame = useRef<number | null>(null);
 
   const flush = useCallback(() => {
@@ -37,14 +43,20 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
     if (!queue.current.length) return;
     const batch = queue.current.splice(0);
     setCurrentRunEvents((previous) => [...previous, ...batch]);
+    setArtifact(previous => batch.reduce(projectRunEvent, previous));
   }, []);
-    firstTokenSeen.current = false;
 
   const startRun = useCallback((sessionId: string) => {
     const now = Date.now();
     startedAtMs.current = now;
+    firstTokenSeen.current = false;
+    activeRef.current = true;
+    queue.current = [];
+    if (frame.current !== null) window.clearTimeout(frame.current);
+    frame.current = null;
     setCurrentSessionId(sessionId);
     setCurrentRunEvents([]);
+    setArtifact(emptyRunArtifact());
     setStartedAt(new Date(now).toISOString());
     setFirstEventLatencyMs(null);
     setConnection("connecting");
@@ -56,8 +68,7 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
     setConnection("streaming");
     queue.current.push({
       ...event,
-      id: event.id || `${event.type}-${Date.now()}-${queue.current.length}`,
-      created_at: event.created_at || new Date().toISOString(),
+      id: event.id || (event.seq != null ? `${event.type}-${event.seq}` : undefined),
     });
     if (frame.current === null) frame.current = window.setTimeout(flush, 50);
   }, [flush]);
@@ -71,31 +82,45 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
 
   const finishRun = useCallback(() => {
     flush();
+    activeRef.current = false;
     setIsRunActive(false);
     setConnection("ready");
   }, [flush]);
   const setOffline = useCallback(() => {
+    activeRef.current = false;
     setIsRunActive(false);
     setConnection("offline");
   }, []);
   const clearRun = useCallback(() => {
+    activeRef.current = false;
     queue.current = [];
     if (frame.current !== null) window.clearTimeout(frame.current);
     frame.current = null;
     setCurrentRunEvents([]);
+    setArtifact(emptyRunArtifact());
     setCurrentSessionId(null);
     setStartedAt(null);
     setFirstEventLatencyMs(null);
     setConnection("ready");
     setIsRunActive(false);
   }, []);
+  const hydrateRun = useCallback((sessionId: string, events: LiveRunEvent[]) => {
+    if (activeRef.current) return;
+    queue.current = [];
+    if (frame.current !== null) window.clearTimeout(frame.current);
+    frame.current = null;
+    setCurrentSessionId(sessionId);
+    setCurrentRunEvents(events);
+    setArtifact(events.reduce(projectRunEvent, emptyRunArtifact()));
+    setIsRunActive(false);
+  }, []);
 
   const value = useMemo<RunContextValue>(() => ({
-    currentRunEvents, currentSessionId, isRunActive, startedAt, connection,
-    firstEventLatencyMs, startRun, addEvent, markFirstToken, finishRun, setOffline, clearRun,
+    currentRunEvents, artifact, currentSessionId, isRunActive, startedAt, connection,
+    firstEventLatencyMs, startRun, addEvent, hydrateRun, markFirstToken, finishRun, setOffline, clearRun,
   }), [
-    addEvent, clearRun, connection, currentRunEvents, currentSessionId,
-    finishRun, firstEventLatencyMs, isRunActive, markFirstToken, setOffline, startRun, startedAt,
+    addEvent, artifact, clearRun, connection, currentRunEvents, currentSessionId,
+    finishRun, firstEventLatencyMs, hydrateRun, isRunActive, markFirstToken, setOffline, startRun, startedAt,
   ]);
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

@@ -850,9 +850,11 @@ async def _stream_runtime_turn(
 ) -> dict | None:
     """Render one shared-runtime turn and return an approval interrupt, if any."""
     from agent.runtime.runner import stream_agent_events
+    from agent.ui.event_renderer import EventRenderer
 
     live_panel = None
     current_text = ""
+    event_renderer = EventRenderer()
     tool_names: dict[str, str] = {}
 
     def stop_live() -> None:
@@ -863,6 +865,7 @@ async def _stream_runtime_turn(
 
     try:
         async for event in stream_agent_events(input_value, config):
+            event_renderer.add(event)
             if event.type == StreamEventType.TOKEN and event.content:
                 if not live_panel:
                     live_panel = Live(

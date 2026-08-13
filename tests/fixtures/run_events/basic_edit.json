@@ -1,0 +1,38 @@
+{
+  "tool_call_chunks": [
+    {"index": 0, "id": "call-read", "name": "read_file", "args": "{\"path\":"},
+    {"index": 0, "args": "\"src/app.py\"}"}
+  ],
+  "events": [
+    {"type": "status", "content": "Understanding request", "node": "input", "seq": 1},
+    {"type": "plan_created", "content": "1. Inspect the file\n2. Update the file", "node": "planner", "seq": 2},
+    {"type": "plan_step", "data": {"step": 1, "status": "completed"}, "seq": 3},
+    {"type": "tool_call", "tool_call": {"id": "call-read", "name": "read_file", "args": {"path": "src/app.py"}}, "node": "executor", "seq": 4},
+    {"type": "tool_result", "tool_call_id": "call-read", "content": "old content", "data": {"name": "read_file", "status": "success"}, "seq": 5},
+    {"type": "tool_call", "tool_call": {"id": "call-edit", "name": "edit_file", "args": {"path": "src/app.py", "content": "new content"}}, "node": "executor", "seq": 6},
+    {"type": "tool_result", "tool_call_id": "call-edit", "content": "updated", "data": {"name": "edit_file", "status": "success"}, "seq": 7},
+    {"type": "workspace_patch", "data": {"affected_files": ["src/app.py"]}, "seq": 8},
+    {"type": "plan_step", "data": {"step": 2, "status": "completed"}, "seq": 9},
+    {"type": "check_result", "content": "Python syntax", "node": "linter_node", "data": {"status": "passed", "duration_ms": 18}, "seq": 10},
+    {"type": "usage", "data": {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28}, "seq": 11},
+    {"type": "done", "content": "Updated src/app.py", "data": {"status": "completed"}, "seq": 12}
+  ],
+  "expected": {
+    "plan": "1. Inspect the file\n2. Update the file",
+    "steps": [
+      {"id": "step-1", "text": "Inspect the file", "status": "completed"},
+      {"id": "step-2", "text": "Update the file", "status": "completed"}
+    ],
+    "tools": [
+      {"id": "call-read", "name": "read_file", "args": {"path": "src/app.py"}, "result": "old content", "status": "completed"},
+      {"id": "call-edit", "name": "edit_file", "args": {"path": "src/app.py", "content": "new content"}, "result": "updated", "status": "completed"}
+    ],
+    "changed_files": ["src/app.py"],
+    "checks": [
+      {"id": "check-10", "name": "Python syntax", "status": "passed", "duration_ms": 18, "details": null}
+    ],
+    "usage": {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28},
+    "terminal_status": "completed",
+    "final_summary": "Updated src/app.py"
+  }
+}

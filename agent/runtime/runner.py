@@ -37,6 +37,91 @@ _NODE_STATUS = {
 _OUTPUT_NODES = {"executor", "direct_chat", "skill_manager", "sub_executor"}
 
 
+class ToolCallAssembler:
+    """Assemble provider tool-call chunks without discarding partial JSON."""
+
+    def __init__(self):
+        self._calls: dict[str, dict] = {}
+
+    def add(self, chunk: dict) -> list[StreamEvent]:
+        index = chunk.get("index")
+        call_id = chunk.get("id")
+        if index is None and not call_id:
+            return []
+        key = f"index:{index}" if index is not None else f"id:{call_id}"
+        state = self._calls.setdefault(
+            key,
+            {"id": "", "name": "", "args_text": "", "args": None, "emitted": False},
+        )
+        if call_id:
+            state["id"] = call_id
+        if chunk.get("name"):
+            state["name"] = chunk["name"]
+
+        args = chunk.get("args")
+        if isinstance(args, dict):
+            state["args"] = args
+        elif isinstance(args, str):
+            state["args_text"] += args
+            try:
+                parsed = json.loads(state["args_text"])
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                state["args"] = parsed
+
+        if (
+            state["emitted"]
+            or not state["id"]
+            or not state["name"]
+            or not isinstance(state["args"], dict)
+        ):
+            return []
+        state["emitted"] = True
+        return [
+            StreamEvent(
+                type=StreamEventType.TOOL_CALL,
+                tool_call=ToolCallData(
+                    id=state["id"],
+                    name=state["name"],
+                    args=state["args"],
+                ),
+            )
+        ]
+
+
+def events_for_node_artifacts(node_name: str, node_output: dict) -> list[StreamEvent]:
+    """Translate deterministic graph outcomes into surface artifact events."""
+    events: list[StreamEvent] = []
+    current_step = node_output.get("current_step")
+    if (
+        node_name in {"executor", "sub_executor"}
+        and isinstance(current_step, int)
+        and current_step > 0
+    ):
+        events.append(
+            StreamEvent(
+                type=StreamEventType.PLAN_STEP,
+                node=node_name,
+                data={"step": current_step, "status": "completed"},
+            )
+        )
+    if node_name == "linter_node":
+        failed = bool(node_output.get("syntax_check_failed", False))
+        events.append(
+            StreamEvent(
+                type=StreamEventType.CHECK_RESULT,
+                content="Syntax checks",
+                node=node_name,
+                data={
+                    "status": "failed" if failed else "passed",
+                    "details": node_output.get("recovery_guidance"),
+                },
+            )
+        )
+    return events
+
+
 def events_from_interrupts(interrupts: list[dict]) -> list[StreamEvent]:
     """Translate one graph interrupt into the canonical waiting event pair."""
 
@@ -207,6 +292,7 @@ async def stream_agent_events(
         data={"started_at": stage_started_at.isoformat()},
     )
 
+    assembler = ToolCallAssembler()
     try:
         async for chunk_type, payload in workflow.astream(
             input_value,
@@ -237,23 +323,9 @@ async def stream_agent_events(
                             node=node_name,
                         )
                     for tool_call in getattr(chunk, "tool_call_chunks", []) or []:
-                        if not tool_call.get("name"):
-                            continue
-                        args = tool_call.get("args", {})
-                        if isinstance(args, str):
-                            try:
-                                args = json.loads(args) if args else {}
-                            except json.JSONDecodeError:
-                                args = {}
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL,
-                            node=node_name,
-                            tool_call=ToolCallData(
-                                id=tool_call.get("id", ""),
-                                name=tool_call["name"],
-                                args=args,
-                            ),
-                        )
+                        for event in assembler.add(tool_call):
+                            event.node = node_name
+                            yield event
 
             elif chunk_type == "updates":
                 for node_name, node_output in payload.items():
@@ -283,6 +355,16 @@ async def stream_agent_events(
                         )
                     stage_started_at = finished_at
                     stage_started_clock = time.perf_counter()
+
+                    for artifact_event in events_for_node_artifacts(
+                        node_name,
+                        node_output,
+                    ):
+                        artifact_event.data = {
+                            **(artifact_event.data or {}),
+                            "duration_ms": duration_ms,
+                        }
+                        yield artifact_event
 
                     if node_name == "planner":
                         plan = node_output.get("plan", "")
