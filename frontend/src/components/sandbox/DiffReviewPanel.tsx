@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import {
   Check,
@@ -65,21 +65,27 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
   const { resolvedTheme } = useTheme();
   const { state, notifyPatchesChanged, refreshWorkspace } = useWorkbench();
 
   const fetchPatches = useCallback(async () => {
+    const generation = ++requestGeneration.current;
+    setPatches([]);
+    setLoading(true);
     try {
-      setPatches(await patchesApi.getPatches(workspaceId));
+      const next = await patchesApi.getPatches(workspaceId);
+      if (generation === requestGeneration.current) setPatches(next);
     } catch {
       toast.error("Failed to load project changes", { toastId: "patch-load-error" });
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchPatches();
+    void fetchPatches();
+    return () => { requestGeneration.current += 1; };
   }, [fetchPatches, state.patchesVersion]);
 
   const changes = useMemo<FileChange[]>(() =>

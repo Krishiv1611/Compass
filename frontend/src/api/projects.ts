@@ -40,6 +40,10 @@ export const workspaceApi = {
     });
     return response.data;
   },
+  attachWorkspace: async (sessionId: string, workspaceId: string) => {
+    const response = await api.post(`/workspaces/${workspaceId}/attach`, { session_id: sessionId });
+    return response.data;
+  },
   uploadFolder: async (sessionId: string, files: FileList | File[]) => {
     const form = new FormData();
     for (let i = 0; i < files.length; i++) {

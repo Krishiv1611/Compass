@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, CalendarClock, GitFork, Loader2, Lock, Search } from "lucide-react";
 import { githubApi } from "@/api";
 import { useGitHubConnection } from "@/hooks/useGitHubConnection";
@@ -35,11 +35,14 @@ export default function GitHubImportDialog({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<ImportStage>("idle");
+  const repositoryGeneration = useRef(0);
+  const branchGeneration = useRef(0);
 
   const loadRepositories = useCallback(async (append = false) => {
     if (!status?.connected) return;
+    const generation = append ? repositoryGeneration.current : ++repositoryGeneration.current;
     if (append) setLoadingMore(true);
-    else setLoading(true);
+    else { setLoading(true); setRepositories([]); setCursor(null); }
     setError(null);
     try {
       const page = await githubApi.listRepositories({
@@ -47,6 +50,7 @@ export default function GitHubImportDialog({
         owner: owner || undefined,
         query: query || undefined,
       });
+      if (generation !== repositoryGeneration.current) return;
       setRepositories((items) => append ? [...items, ...page.repositories.filter((repo) => !items.some((item) => item.id === repo.id))] : page.repositories);
       setCursor(page.nextCursor || null);
       if (!append) setOwners(page.owners || []);
@@ -65,12 +69,16 @@ export default function GitHubImportDialog({
   }, [loadRepositories, open, query, owner, status?.connected]);
 
   const chooseRepository = async (repository: GitHubRepository) => {
+    const generation = ++branchGeneration.current;
     setSelected(repository);
+    setBranches([]);
+    setBranch("");
     setLoading(true);
     setError(null);
     try {
       const [repoOwner, name] = repository.full_name.split("/");
       const items = await githubApi.listBranches(repoOwner, name);
+      if (generation !== branchGeneration.current) return;
       setBranches(items);
       setBranch(repository.default_branch || items[0]?.name || "");
     } catch (requestError) {

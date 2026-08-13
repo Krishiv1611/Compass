@@ -1,17 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ExternalLink, GitBranch, GitCommitHorizontal, GitPullRequest, Loader2 } from "lucide-react";
 import { githubApi, patchesApi, workspaceApi } from "@/api";
 import type { WorkspaceContext } from "@/types/project";
 import type { WorkspacePatch } from "@/types/patch";
 import { useGitHubConnection } from "@/hooks/useGitHubConnection";
+import { parseGitHubRemote, resetPublishState, workspacePaths } from "./publishState";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-const parseRemote = (remote?: string | null) => {
-  const match = remote?.match(/github\.com[/:]([^/]+)\/([^/.]+)(?:\.git)?$/i);
-  return match ? { owner: match[1], repo: match[2] } : null;
-};
 
 const statsFor = (patches: WorkspacePatch[]) => {
   const byPath = new Map<string, { additions: number; deletions: number }>();
@@ -47,22 +43,29 @@ export default function GitHubPublishDialog({ open, onClose, workspaceId }: { op
   const [commitSha, setCommitSha] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const repository = useMemo(() => parseRemote(context?.git_remote), [context?.git_remote]);
+  const loadGeneration = useRef(0);
+  const repository = useMemo(() => parseGitHubRemote(context?.git_remote), [context?.git_remote]);
   const fileStats = useMemo(() => statsFor(patches), [patches]);
-  const paths = useMemo(() => [...fileStats.keys()], [fileStats]);
+  const [allPaths, setAllPaths] = useState<string[]>([]);
+  const paths = useMemo(() => allPaths, [allPaths]);
   const totals = useMemo(() => selectedPaths.reduce((result, path) => {
     const stats = fileStats.get(path);
     return { additions: result.additions + (stats?.additions || 0), deletions: result.deletions + (stats?.deletions || 0) };
   }, { additions: 0, deletions: 0 }), [fileStats, selectedPaths]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    const reset = resetPublishState();
+    setContext(null); setPatches([]); setSelectedPaths(reset.selectedPaths); setBranch(reset.branch); setNewBranch(reset.newBranch); setCommitSha(reset.commitSha); setPullUrl(reset.pullUrl); setStep(reset.step); setAllPaths([]);
     setError(null);
     try {
-      const [meta, nextPatches] = await Promise.all([workspaceApi.getContext(workspaceId), patchesApi.getPatches(workspaceId)]);
+      const [meta, nextPatches, tree] = await Promise.all([workspaceApi.getContext(workspaceId), patchesApi.getPatches(workspaceId), workspaceApi.getTree(workspaceId)]);
+      if (generation !== loadGeneration.current) return;
       setContext(meta);
       setPatches(nextPatches);
       const nextStats = statsFor(nextPatches);
       setSelectedPaths([...nextStats.keys()]);
+      setAllPaths(workspacePaths((tree.tree || tree.children || []) as Parameters<typeof workspacePaths>[0]));
       setBranch(meta.git_branch || "");
       setBase(meta.git_branch || "main");
     } catch (requestError) {
@@ -92,7 +95,6 @@ export default function GitHubPublishDialog({ open, onClose, workspaceId }: { op
       const result = await githubApi.commit({ workspace_id: workspaceId, ...repository, branch, message, paths: selectedPaths });
       setCommitSha(result.sha);
       setStep("pr");
-      await load();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not commit changes");
     } finally { setBusy(null); }

@@ -74,6 +74,16 @@ export default function WorkspaceLanding({
     }
   };
 
+  const selectRecent = async (workspace: Workspace) => {
+    try {
+      const sid = sessionId || await ensureSession(workspace.name);
+      await workspaceApi.attachWorkspace(sid, workspace.id);
+      onWorkspaceReady(workspace.id, workspace.name);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not attach project to this task");
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-background px-5 py-8 sm:px-8">
       <div className="mx-auto max-w-2xl">
@@ -115,7 +125,7 @@ export default function WorkspaceLanding({
           ) : recent.length ? (
             <div className="divide-y divide-border border-y border-border">
               {recent.map((workspace) => (
-                <button key={workspace.id} type="button" onClick={() => onWorkspaceReady(workspace.id, workspace.name)} className="flex w-full items-center justify-between gap-3 px-1 py-3 text-left hover:bg-muted/50">
+                <button key={workspace.id} type="button" onClick={() => void selectRecent(workspace)} className="flex w-full items-center justify-between gap-3 px-1 py-3 text-left hover:bg-muted/50">
                   <span className="min-w-0"><span className="block truncate text-sm font-medium">{workspace.name}</span><span className="block font-mono text-xs text-muted-foreground">{workspace.source_type || "workspace"}{workspace.git_branch ? ` · ${workspace.git_branch}` : ""}</span></span>
                   <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                 </button>
