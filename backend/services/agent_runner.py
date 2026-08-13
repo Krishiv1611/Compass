@@ -9,6 +9,7 @@ from langgraph.types import Command
 from agent.runtime.events import StreamEvent
 from agent.runtime.protocol import ResumeAction, ResumePayload
 from agent.runtime.runner import build_turn_input, invoke_agent, stream_agent_events
+from agent.runtime.metrics import RunMetrics
 from agent.telemetry import get_run_config
 from agent.workspace import WorkspaceContext, canonical_git_remote
 from backend.services.run_context import RunContextSnapshot
@@ -82,6 +83,7 @@ async def run_agent_stream(
     run_id: str | None = None,
     context_files: list[str] | None = None,
     active_skill: str | None = None,
+    metrics: RunMetrics | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Stream a web turn using the same runtime as the TUI."""
     config = _web_config(snapshot, run_id=run_id)
@@ -105,6 +107,7 @@ async def run_agent_stream(
         input_value,
         config,
         cancel_event=cancel_event,
+        metrics=metrics,
     ):
         yield event
 

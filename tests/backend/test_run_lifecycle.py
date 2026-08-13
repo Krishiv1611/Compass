@@ -1,5 +1,6 @@
 import unittest
 import uuid
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage
@@ -7,6 +8,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from agent.runtime.events import StreamEvent, StreamEventType
 from backend.models.run import AgentRun
 from backend.routers.runs import get_session_runs
+from backend.routers import chat
+from backend.schemas.chat import WsClientMessage
 from backend.services.run_context import RunContextSnapshot
 from backend.services.run_manager import claim_agent_run, reconcile_interrupted_runs
 from backend.services.run_persistence import (
@@ -224,6 +227,60 @@ class RunPaginationTests(DatabaseTestCase):
         )
         self.assertEqual(len(second_page["items"]), 1)
         self.assertIsNone(second_page["next_cursor"])
+
+    def test_capabilities_use_redacted_embedding_configuration(self):
+        self.user.preferences = {
+            "embedding_provider": "openai",
+            "embedding_model": "text-embedding-3-small",
+            "llm_credentials_encrypted": {"openai": "encrypted-not-returned"},
+        }
+        self.db.commit()
+
+        response = get_session_runs(
+            self.session.id, cursor=None, limit=2, current_user=self.user, db=self.db
+        )
+
+        self.assertTrue(response["capabilities"]["capabilities"]["embeddings"]["available"])
+        self.assertNotIn("encrypted-not-returned", str(response))
+
+
+class RunPersistenceMetricsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_final_snapshot_includes_terminal_batch_and_run_completion(self):
+        persisted: list[tuple[str, dict]] = []
+
+        class DbContext:
+            def __enter__(self):
+                return object()
+
+            def __exit__(self, *_args):
+                return False
+
+        async def fake_runner(**_kwargs):
+            yield StreamEvent(type=StreamEventType.DONE, data={"status": "completed"})
+
+        snapshot = RunContextSnapshot(
+            user_id="u", session_id="s", thread_id="t", workspace_id="w",
+            workspace_path=".", project_id="p", context_version="v",
+            session_context_version="v", preferences={},
+        )
+        with (
+            patch.object(chat, "_claim_run_record", return_value="run"),
+            patch.object(chat.agent_runner, "run_agent_stream", fake_runner),
+            patch.object(chat, "SessionLocal", return_value=DbContext()),
+            patch.object(chat, "persist_run_events", side_effect=lambda _db, _run, events: persisted.extend(events)),
+            patch.object(chat, "end_agent_run"),
+        ):
+            events = [
+                event async for event in chat._stream_agent_turn(
+                    snapshot, WsClientMessage(type="message", content="hello")
+                )
+            ]
+
+        self.assertEqual(events[-1].type, StreamEventType.DONE)
+        final_usage = [payload for kind, payload in persisted if kind == "usage"][-1]
+        spans = final_usage["data"]["spans"]
+        self.assertEqual(spans["persistence.events"]["calls"], 1)
+        self.assertEqual(spans["persistence.run"]["calls"], 1)
 
 
 if __name__ == "__main__":

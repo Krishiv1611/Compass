@@ -96,4 +96,30 @@ describe("WebPreview lifecycle", () => {
     await waitFor(() => expect(runtime.serverProcess.kill).toHaveBeenCalled());
     expect(runtime.unsubscribe).toHaveBeenCalledTimes(2);
   });
+
+  it("tears down a container that finishes booting after stop", async () => {
+    let finishBoot!: (value: typeof runtime.container) => void;
+    runtime.boot.mockReturnValueOnce(new Promise((resolve) => { finishBoot = resolve; }));
+    render(<WebPreview visible files={validFiles} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /start preview/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop preview/i }));
+
+    finishBoot(runtime.container);
+    await waitFor(() => expect(runtime.container.teardown).toHaveBeenCalled());
+    expect(runtime.container.mount).not.toHaveBeenCalled();
+  });
+
+  it("waits for teardown before a new boot", async () => {
+    let finishTeardown!: () => void;
+    runtime.container.teardown.mockReturnValueOnce(new Promise<void>((resolve) => { finishTeardown = resolve; }));
+    render(<WebPreview visible files={validFiles} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /start preview/i }));
+    await waitFor(() => expect(runtime.boot).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: /stop preview/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /start preview/i }));
+    expect(runtime.boot).toHaveBeenCalledTimes(1);
+
+    finishTeardown();
+    await waitFor(() => expect(runtime.boot).toHaveBeenCalledTimes(2));
+  });
 });

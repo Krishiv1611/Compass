@@ -297,6 +297,7 @@ async def stream_agent_events(
     input_value: dict | Command,
     config: dict,
     cancel_event: asyncio.Event | None = None,
+    metrics: "RunMetrics | None" = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Run one graph turn and emit the canonical Compass event protocol."""
     if cancel_event and cancel_event.is_set():
@@ -335,7 +336,7 @@ async def stream_agent_events(
 
     assembler = ToolCallAssembler()
     tool_calls: dict[str, tuple[str, dict]] = {}
-    metrics, metrics_token = begin_run_metrics()
+    metrics, metrics_token = begin_run_metrics(metrics)
     for tag in ("provider", "model", "mode", "execution_target"):
         value = configurable.get(tag)
         if value is not None:
@@ -528,10 +529,21 @@ async def stream_agent_events(
             or "401" in message
         ):
             message = "Invalid LLM API key. Update the configured API key."
+        metrics_snapshot = metrics.snapshot().model_dump(mode="json")
+        token_usage = {
+            "prompt_tokens": metrics_snapshot["total_input_tokens"],
+            "completion_tokens": metrics_snapshot["total_output_tokens"],
+            "total_tokens": metrics_snapshot["total_tokens"],
+            "per_node_breakdown": metrics_snapshot["usage_by_node"],
+        }
         yield StreamEvent(
             type=StreamEventType.ERROR,
             content=message[:500],
-            data={"status": "failed"},
+            data={
+                "status": "failed",
+                "token_usage": token_usage,
+                "metrics": metrics_snapshot,
+            },
         )
     finally:
         end_run_metrics(metrics_token)

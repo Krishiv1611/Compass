@@ -94,7 +94,11 @@ def get_session_runs(
         }
         for run in runs
     ]
-    preferences = public_preferences(current_user.preferences or {}).model_dump()
+    raw_preferences = current_user.preferences or {}
+    preferences = public_preferences(raw_preferences).model_dump()
+    embedding_provider = raw_preferences.get("embedding_provider")
+    embedding_model = raw_preferences.get("embedding_model")
+    credential_slots = raw_preferences.get("llm_credentials_encrypted") or {}
     capabilities = capability_report({
         **preferences,
         "execution_target": "web",
@@ -102,6 +106,11 @@ def get_session_runs(
         "mcp_enabled": False,
         "custom_tools.enabled": False,
         "shell_enabled": False,
+        "embedding_provider": embedding_provider,
+        "embedding_model": embedding_model,
+        "embedding_credential_configured": bool(
+            embedding_provider and credential_slots.get(embedding_provider)
+        ),
     })
     return {
         "items": items,

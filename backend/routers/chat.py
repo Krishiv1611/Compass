@@ -192,13 +192,14 @@ def _end_run_record(
     status_value: str,
     token_usage: dict | None = None,
 ) -> None:
-    with SessionLocal() as db:
-        end_agent_run(
-            db,
-            run_id=run_id,
-            status=status_value,
-            token_usage=token_usage,
-        )
+    metrics = current_run_metrics()
+    if metrics is None:
+        with SessionLocal() as db:
+            end_agent_run(db, run_id=run_id, status=status_value, token_usage=token_usage)
+        return
+    with metrics.span("persistence.run"):
+        with SessionLocal() as db:
+            end_agent_run(db, run_id=run_id, status=status_value, token_usage=token_usage)
 
 
 async def _stream_agent_turn(
@@ -215,6 +216,9 @@ async def _stream_agent_turn(
         requested_run_id,
         resume=is_resume,
     )
+    from agent.runtime.metrics import begin_run_metrics, end_run_metrics
+
+    metrics, metrics_token = begin_run_metrics()
     batcher = RunEventBatcher(max_size=25)
     terminal_events: list[StreamEvent] = []
     try:
@@ -227,6 +231,7 @@ async def _stream_agent_turn(
             run_id=run_id,
             context_files=client_msg.context_files,
             active_skill=client_msg.active_skill,
+            metrics=metrics,
         ):
             event.run_id = run_id
             event.session_id = snapshot.session_id
@@ -244,9 +249,20 @@ async def _stream_agent_turn(
         _persist_run_event_batch(run_id, batcher.flush())
         terminal = terminal_from_events(terminal_events)
         _end_run_record(run_id, terminal.status, terminal.token_usage)
+        final_metrics = metrics.snapshot().model_dump(mode="json")
+        # Persist one final snapshot after the terminal batch and run row are measured.
+        # Do not time this diagnostic write into itself.
+        with SessionLocal() as db:
+            persist_run_events(
+                db,
+                run_id,
+                [("usage", StreamEvent(type=StreamEventType.USAGE, data=final_metrics).model_dump(mode="json", exclude_none=True))],
+            )
     except Exception:
         _end_run_record(run_id, "failed")
         raise
+    finally:
+        end_run_metrics(metrics_token)
 
 
 def _persist_assistant_turn(

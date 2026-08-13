@@ -8,13 +8,31 @@ type PreviewState = "idle" | "booting" | "installing" | "running" | "ready" | "e
 
 let container: WebContainerInstance | null = null;
 let bootPromise: Promise<WebContainerInstance> | null = null;
+let teardownPromise: Promise<void> = Promise.resolve();
 
 async function getContainer() {
+  await teardownPromise;
   if (container) return container;
-  bootPromise ||= import("@webcontainer/api").then(({ WebContainer }) =>
-    WebContainer.boot().then((instance) => { container = instance; return instance; })
-  );
+  if (!bootPromise) {
+    const pending = import("@webcontainer/api").then(({ WebContainer }) => WebContainer.boot());
+    bootPromise = pending;
+    void pending.then((instance) => {
+      if (bootPromise === pending) container = instance;
+    });
+  }
   return bootPromise;
+}
+
+async function disposeContainer() {
+  const current = container;
+  const pending = bootPromise;
+  container = null;
+  bootPromise = null;
+  teardownPromise = teardownPromise.then(async () => {
+    const instance = current ?? await pending?.catch(() => null);
+    await instance?.teardown();
+  });
+  await teardownPromise;
 }
 
 function previewScript(files: PreviewFiles): string {
@@ -63,18 +81,16 @@ export default function WebPreview({ files, visible, onClose }: { files?: Previe
     unsubscribeRef.current.splice(0).forEach((unsubscribe) => unsubscribe());
   }, []);
 
-  const stop = useCallback(() => {
+  const stop = useCallback(async () => {
     generationRef.current += 1;
     cleanExecution();
     if (logTimerRef.current != null) window.clearTimeout(logTimerRef.current);
     logTimerRef.current = null;
     logBufferRef.current = [];
-    containerRef.current?.teardown();
     containerRef.current = null;
-    container = null;
-    bootPromise = null;
     setState("idle");
     setPreviewUrl(null);
+    await disposeContainer();
   }, [cleanExecution]);
 
   const start = useCallback(async () => {
@@ -132,7 +148,7 @@ export default function WebPreview({ files, visible, onClose }: { files?: Previe
     }
   }, [cleanExecution, files, log]);
 
-  useEffect(() => () => stop(), [stop]);
+  useEffect(() => () => { void stop(); }, [stop]);
   if (!visible) return null;
 
   const working = state === "booting" || state === "installing" || state === "running";
@@ -142,7 +158,7 @@ export default function WebPreview({ files, visible, onClose }: { files?: Previe
       <div className="flex items-center gap-1">
         {state === "idle" && <Button size="sm" variant="ghost" onClick={() => void start()} disabled={!files || !Object.keys(files).length}><Play className="h-4 w-4" /> Run</Button>}
         {state === "ready" && <><Button size="icon-sm" variant="ghost" onClick={() => { if (previewUrl && iframeRef.current) iframeRef.current.src = previewUrl; }} aria-label="Refresh preview"><RefreshCcw className="h-4 w-4" /></Button>{previewUrl && <a href={previewUrl} target="_blank" rel="noreferrer" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Open preview in a new tab"><ExternalLink className="h-4 w-4" /></a>}</>}
-        {state !== "idle" && <Button size="icon-sm" variant="ghost" onClick={stop} aria-label="Stop preview"><Square className="h-4 w-4" /></Button>}
+        {state !== "idle" && <Button size="icon-sm" variant="ghost" onClick={() => void stop()} aria-label="Stop preview"><Square className="h-4 w-4" /></Button>}
         <Button size="icon-sm" variant="ghost" onClick={() => setShowOutput((value) => !value)} aria-label="Toggle preview output"><Terminal className="h-4 w-4" /></Button>
         <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="Close preview"><X className="h-4 w-4" /></Button>
       </div>

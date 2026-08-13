@@ -63,7 +63,10 @@ def capability_report(config: dict[str, Any]) -> dict[str, Any]:
     embeddings_available = embeddings_explicit if embeddings_explicit is not None else bool(
         _first(values, "embedding_provider")
         and _first(values, "embedding_model")
-        and _first(values, "embedding_api_key", "api_key")
+        and (
+            _first(values, "embedding_credential_configured", default=False)
+            or _first(values, "embedding_api_key", "api_key")
+        )
     )
 
     mcp_explicit = _explicit_bool(values, "mcp_enabled")
