@@ -1,6 +1,5 @@
 import { Compass, RefreshCcw } from "lucide-react";
-import MarkdownMessage from "./MarkdownMessage";
-import PlanChecklist from "./PlanChecklist";
+import MessageRow from "./MessageRow";
 import ToolCallCard from "./ToolCallCard";
 import PlanReviewCard from "./PlanReviewCard";
 import ToolApprovalCard from "./ToolApprovalCard";
@@ -114,27 +113,7 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
           );
         }
 
-        return (
-          <div key={msg.id || idx} className="pl-4 py-1 border-l-[3px] border-transparent">
-            {msg.plan && (
-              <div className="mb-4">
-                <PlanChecklist
-                  plan={msg.plan}
-                  completedSteps={msg.completedPlanSteps}
-                />
-              </div>
-            )}
-
-            {msg.content && (
-              <div className="text-sm leading-relaxed text-foreground">
-                <MarkdownMessage
-                  content={msg.content.replace(/<thought>[\s\S]*?<\/thought>/g, '')}
-                  isStreaming={msg.pending}
-                />
-              </div>
-            )}
-          </div>
-        );
+        return <MessageRow key={msg.id || idx} message={msg} />;
       })}
 
       {pendingApproval && (

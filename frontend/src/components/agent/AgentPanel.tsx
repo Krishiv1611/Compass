@@ -1,6 +1,6 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState, type UIEvent } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, GitPullRequest } from "lucide-react";
+import { ArrowDown, Loader2, GitPullRequest } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import MessageList from "@/components/chat/MessageList";
 import ChatInput from "@/components/chat/ChatInput";
@@ -47,11 +47,33 @@ export default function AgentPanel({
   onContextChange
 }: AgentPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const shouldFollowOutput = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  useEffect(() => {
+    if (shouldFollowOutput.current) {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [messages, isLoading]);
+
+  const handleTranscriptScroll = (event: UIEvent<HTMLDivElement>) => {
+    const viewport = event.target as HTMLElement;
+    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    const isNearBottom = distanceFromBottom <= 80;
+    shouldFollowOutput.current = isNearBottom;
+    setShowJumpToLatest(!isNearBottom);
+  };
+
+  const jumpToLatest = () => {
+    shouldFollowOutput.current = true;
+    setShowJumpToLatest(false);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  };
 
   return (
     <div className="relative flex h-full min-w-0 flex-col bg-background">
-      <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full px-4 py-5 md:px-6">
+      <div className="relative flex-1 min-h-0">
+        <ScrollArea className="h-full px-4 py-5 md:px-6" onScrollCapture={handleTranscriptScroll}>
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
             <MessageList 
               messages={messages} 
@@ -63,6 +85,18 @@ export default function AgentPanel({
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
+        {showJumpToLatest && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 gap-1.5 shadow-md"
+            onClick={jumpToLatest}
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+            Jump to latest
+          </Button>
+        )}
       </div>
 
       <div className="border-t border-border bg-background/95 shrink-0 pb-[env(safe-area-inset-bottom)]">
