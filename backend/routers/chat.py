@@ -219,6 +219,7 @@ async def _stream_agent_turn(
             resume_feedback=client_msg.feedback,
             run_id=run_id,
             context_files=client_msg.context_files,
+            active_skill=client_msg.active_skill,
         ):
             event.run_id = run_id
             event.session_id = snapshot.session_id

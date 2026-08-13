@@ -122,13 +122,15 @@ async def run_agent_sync(
     snapshot: RunContextSnapshot,
     mode: str = "edit",
     context_files: list[str] | None = None,
+    active_skill: str | None = None,
 ) -> list[BaseMessage]:
     """Invoke a non-streaming web turn through the shared runtime."""
     config = _web_config(snapshot)
     input_value = build_turn_input(
         user_message,
         mode=mode,
-        context_files=context_files,
+            context_files=context_files,
+            active_skill={"name": active_skill, "arguments": ""} if active_skill else None,
         config=config,
     )
     return await invoke_agent(input_value, config)

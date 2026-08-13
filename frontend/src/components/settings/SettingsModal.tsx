@@ -12,6 +12,7 @@ import MemoryManager from "./MemoryManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 
 interface SafePreferences {
   theme: "light" | "dark" | "system";
@@ -36,7 +37,8 @@ const defaults: SafePreferences = {
 const normalizeTab = (value?: string) => {
   if (value === "defaults" || value === "model") return "model";
   if (value === "appearance") return "appearance";
-  if (value === "advanced" || value === "skills" || value === "mcp" || value === "tools") return "advanced";
+  if (value === "skills") return "skills";
+  if (value === "advanced" || value === "mcp" || value === "tools") return "advanced";
   if (value === "memory") return "memory";
   return "account";
 };
@@ -56,22 +58,29 @@ export default function SettingsModal({
 }) {
   const { signOut } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { state, dispatch } = useWorkbench();
   const [preferences, setPreferences] = useState<SafePreferences>(defaults);
   const [newApiKey, setNewApiKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [providerBusy, setProviderBusy] = useState<"test" | "remove" | null>(null);
   const activeTab = useMemo(() => normalizeTab(initialTab), [initialTab]);
 
   useEffect(() => {
     if (!open || !user) return;
     setLoading(true);
+    setLoaded(false);
+    setNewApiKey("");
     setError(null);
     preferencesApi.getSettings()
-      .then((value) => setPreferences({ ...defaults, ...value, theme: value.theme || theme }))
+      .then((value) => { setPreferences({ ...defaults, ...value, theme: value.theme || theme }); setLoaded(true); })
       .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Could not load settings"))
       .finally(() => setLoading(false));
-  }, [open, theme, user]);
+  }, [open, user]);
+
+  const close = () => { setNewApiKey(""); onOpenChange(false); };
 
   const save = async () => {
     if (!preferences.model.trim()) {
@@ -100,8 +109,26 @@ export default function SettingsModal({
     }
   };
 
+  const testProvider = async () => {
+    setProviderBusy("test"); setError(null);
+    try {
+      await preferencesApi.testProvider({ provider: preferences.llm_provider, model: preferences.model.trim(), ...(newApiKey ? { api_key: newApiKey } : {}) });
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Provider test failed"); }
+    finally { setProviderBusy(null); }
+  };
+
+  const removeCredential = async () => {
+    setProviderBusy("remove"); setError(null);
+    try {
+      await preferencesApi.removeCredential(preferences.llm_provider);
+      setPreferences(value => ({ ...value, has_llm_api_key: false }));
+      setNewApiKey("");
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove credential"); }
+    finally { setProviderBusy(null); }
+  };
+
   return (
-    <Modal open={open} onClose={() => onOpenChange(false)} maxWidth="max-w-3xl" showClose ariaLabel="Settings">
+    <Modal open={open} onClose={close} maxWidth="max-w-3xl" showClose ariaLabel="Settings">
       <div className="flex h-[min(760px,86vh)] flex-col">
         <div className="border-b border-border px-5 py-4">
           <div className="flex items-center gap-2"><Settings className="h-5 w-5 text-primary" /><h2 className="text-base font-semibold">Settings</h2></div>
@@ -112,13 +139,14 @@ export default function SettingsModal({
         ) : (
           <Tabs key={activeTab} defaultValue={activeTab} className="flex min-h-0 flex-1 flex-col">
             <div className="border-b border-border px-5 py-2">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="account">Account</TabsTrigger>
                 <TabsTrigger value="model">Model</TabsTrigger>
                 <TabsTrigger value="appearance">Appearance</TabsTrigger>
+                <TabsTrigger value="memory">Memory</TabsTrigger>
+                <TabsTrigger value="skills">Skills</TabsTrigger>
                 <TabsTrigger value="advanced">Advanced</TabsTrigger>
               </TabsList>
-                <TabsTrigger value="memory">Memory</TabsTrigger>
             </div>
             {error && <p role="alert" className="mx-5 mt-4 border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -137,7 +165,9 @@ export default function SettingsModal({
                 <Field label="Provider"><select value={preferences.llm_provider} onChange={(event) => setPreferences((value) => ({ ...value, llm_provider: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option></select></Field>
                 <Field label="Model"><Input value={preferences.model} onChange={(event) => setPreferences((value) => ({ ...value, model: event.target.value }))} placeholder="Provider model identifier" /></Field>
                 <Field label={preferences.has_llm_api_key ? "Replace API key" : "API key"} help="Write-only. Compass encrypts this value on the backend and never returns it to the browser."><Input type="password" autoComplete="off" value={newApiKey} onChange={(event) => setNewApiKey(event.target.value)} placeholder={preferences.has_llm_api_key ? "A credential is already stored" : "Enter provider credential"} /></Field>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.safe_mode} onChange={(event) => setPreferences((value) => ({ ...value, safe_mode: event.target.checked }))} /> Require additional approval for risky changes</label>
+                <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void testProvider()} disabled={!preferences.model.trim() || !!providerBusy}>{providerBusy === "test" && <Loader2 className="h-4 w-4 animate-spin" />} Test provider</Button>{preferences.has_llm_api_key && <Button type="button" variant="outline" size="sm" onClick={() => void removeCredential()} disabled={!!providerBusy}>{providerBusy === "remove" && <Loader2 className="h-4 w-4 animate-spin" />} Remove credential</Button>}</div>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.safe_mode} onChange={(event) => setPreferences((value) => ({ ...value, safe_mode: event.target.checked }))} /> Stage agent file changes for review</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.fast_mode} onChange={(event) => setPreferences((value) => ({ ...value, fast_mode: event.target.checked }))} /> Reduce approval prompts; shell and custom tools still require approval</label>
               </TabsContent>
               <TabsContent value="appearance" className="m-0 space-y-5 p-5">
                 <SectionTitle icon={Palette} title="Appearance" description="Theme changes update the full workbench, editor, syntax, dialogs, and toasts." />
@@ -146,18 +176,16 @@ export default function SettingsModal({
               </TabsContent>
               <TabsContent value="advanced" className="m-0 space-y-8 p-5">
                 <SectionTitle icon={Shield} title="Advanced" description="Author reusable skills and inspect server-managed remote capabilities. Select skills for normal tasks from the context workflow." />
-              <TabsContent value="memory" className="m-0 p-5">
-                <MemoryManager projectId={projectId} />
-              </TabsContent>
-                <SkillsManager />
                 <div className="border-t border-border pt-6"><McpServerManager /></div>
               </TabsContent>
+              <TabsContent value="memory" className="m-0 p-5"><MemoryManager projectId={projectId} /></TabsContent>
+              <TabsContent value="skills" className="m-0 p-5"><SkillsManager activeSkill={state.activeSkill} onActiveSkillChange={(skill) => dispatch({ type: "setActiveSkill", skill })} /></TabsContent>
             </div>
           </Tabs>
         )}
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={() => void save()} disabled={!user || loading || saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save changes</Button>
+          <Button variant="outline" onClick={close}>Close</Button>
+          <Button onClick={() => void save()} disabled={!user || !loaded || loading || saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save changes</Button>
         </div>
       </div>
     </Modal>

@@ -16,6 +16,7 @@ class ChatRequest(BaseModel):
     content: str = Field(..., min_length=1)
     mode: Literal["ask", "edit", "plan", "goal", "normal", "fast"] = "edit"
     context_files: list[str] = Field(default_factory=list)
+    active_skill: str | None = None
 
 
 class WsClientMessage(BaseModel):
@@ -28,6 +29,7 @@ class WsClientMessage(BaseModel):
     error: str | None = None
     mode: Literal["ask", "edit", "plan", "goal", "normal", "fast"] = "edit"
     context_files: list[str] = Field(default_factory=list)
+    active_skill: str | None = None
     action: ResumeAction | None = None
     feedback: str | None = None
     last_seq: int | None = None

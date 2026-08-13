@@ -6,10 +6,11 @@ import type { ChatMode } from "@/types/chat";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 
 interface ChatInputProps {
-  onSend: (message: string, files: File[], mode: ChatMode, contextFiles: string[]) => void;
+  onSend: (message: string, files: File[], mode: ChatMode, contextFiles: string[]) => Promise<void> | void;
   isLoading?: boolean;
   workspaceId?: string | null;
   onContextChange?: (paths: string[]) => void;
+  initialContextPaths?: string[];
 }
 
 export type ReferencedPath = {
@@ -18,12 +19,13 @@ export type ReferencedPath = {
   type: "file" | "folder";
 };
 
-export default function ChatInput({ onSend, isLoading = false, workspaceId, onContextChange }: ChatInputProps) {
+export default function ChatInput({ onSend, isLoading = false, workspaceId, onContextChange, initialContextPaths = [] }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggingPath, setIsDraggingPath] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [referencedPaths, setReferencedPaths] = useState<ReferencedPath[]>([]);
+  const [referencedPaths, setReferencedPaths] = useState<ReferencedPath[]>(() => initialContextPaths.map(path => ({ path, name: path.split("/").pop() || path, type: "file" })));
+  const [submitting, setSubmitting] = useState(false);
   const [mentionResults, setMentionResults] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const { state, setMode, dispatch } = useWorkbench();
@@ -34,13 +36,18 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
     onContextChange?.(referencedPaths.map((item) => item.path));
   }, [onContextChange, referencedPaths]);
 
-  const handleSend = () => {
-    if (isLoading) return;
+  const handleSend = async () => {
+    if (isLoading || submitting) return;
     if (input.trim() || attachedFiles.length > 0 || referencedPaths.length > 0) {
-      onSend(input.trim(), attachedFiles, mode, referencedPaths.map((item) => item.path));
-      setInput("");
-      setAttachedFiles([]);
-      setReferencedPaths([]);
+      setSubmitting(true);
+      try {
+        await onSend(input.trim(), attachedFiles, mode, referencedPaths.map((item) => item.path));
+        setInput("");
+        setAttachedFiles([]);
+        setReferencedPaths([]);
+      } finally {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -75,7 +82,7 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -294,8 +301,8 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
             </div>
           </div>
 
-          <Button size="icon" className="h-9 w-9" onClick={handleSend} disabled={(!input.trim() && attachedFiles.length === 0 && referencedPaths.length === 0) || isLoading} title="Send message" aria-label="Send message">
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          <Button size="icon" className="h-9 w-9" onClick={() => void handleSend()} disabled={(!input.trim() && attachedFiles.length === 0 && referencedPaths.length === 0) || isLoading || submitting} title="Send message" aria-label="Send message">
+            {isLoading || submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
       </div>

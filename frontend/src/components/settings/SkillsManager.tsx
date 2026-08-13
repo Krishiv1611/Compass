@@ -18,7 +18,7 @@ type Skill = {
 
 const errorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
-export default function SkillsManager() {
+export default function SkillsManager({ activeSkill = null, onActiveSkillChange }: { activeSkill?: string | null; onActiveSkillChange?: (name: string | null) => void }) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -127,6 +127,7 @@ export default function SkillsManager() {
                     <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-sm font-medium">{skill.name}</span><Badge variant="outline">{skill.max_turns} turns</Badge></span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{skill.description}</span></span>
                     {expanded ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
                   </button>
+                  {onActiveSkillChange && <Button type="button" size="sm" variant={activeSkill === skill.name ? "default" : "outline"} onClick={() => onActiveSkillChange(activeSkill === skill.name ? null : skill.name)}>{activeSkill === skill.name ? "Active" : "Use next run"}</Button>}
                   <Button type="button" size="icon-sm" variant="ghost" className="mr-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => void handleDelete(skill.name)} disabled={deletingSkill === skill.name} aria-label={`Delete ${skill.name}`} title="Delete skill">{deletingSkill === skill.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
                 </div>
                 {expanded && (

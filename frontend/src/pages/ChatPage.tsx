@@ -182,7 +182,7 @@ export default function ChatPage() {
   useEffect(() => () => runController.dispose(), [runController, sessionParam]);
 
   const handleSend = async (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => {
-    if (!content.trim() && files.length === 0) return;
+    if (!content.trim() && files.length === 0 && contextFiles.length === 0) return;
     setIsLoading(true);
     setPendingApproval(null);
     setStreamStatus("Preparing task");
@@ -190,6 +190,12 @@ export default function ChatPage() {
       const currentSessionId = await ensureSession(content.split(/\s+/).slice(0, 7).join(" ") || "New task");
       if (files.length) {
         setStreamStatus("Uploading context");
+        const capabilities = await uploadsApi.getCapabilities(currentSessionId) as { max_upload_bytes: number; supported_extensions: string[] };
+        for (const file of files) {
+          const extension = `.${file.name.split(".").pop()?.toLowerCase() || ""}`;
+          if (file.size > capabilities.max_upload_bytes) throw new Error(`${file.name} exceeds the upload size limit.`);
+          if (!capabilities.supported_extensions.map(value => value.toLowerCase()).includes(extension)) throw new Error(`${file.name} is not a supported context file.`);
+        }
         await Promise.all(files.map((file) => uploadsApi.uploadFile(currentSessionId, file)));
       }
       const userMessage: TranscriptMessage = {
@@ -213,6 +219,7 @@ export default function ChatPage() {
         content,
         mode,
         contextFiles,
+        activeSkill: state.activeSkill,
       });
       setActiveSocket(runController.socket as WebSocket | null);
     } catch (error) {
@@ -220,6 +227,7 @@ export default function ChatPage() {
       setIsLoading(false);
       finishRun();
       toast.error(error instanceof Error ? error.message : "Could not start task");
+      throw error;
     }
   };
 

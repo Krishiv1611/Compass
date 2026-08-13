@@ -28,6 +28,14 @@ class SharedRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(payload["active_skill"], skill)
 
+    def test_web_socket_schema_accepts_selected_skill(self):
+        from backend.schemas.chat import WsClientMessage
+
+        message = WsClientMessage.model_validate(
+            {"type": "message", "content": "review", "active_skill": "code-review"}
+        )
+        self.assertEqual(message.active_skill, "code-review")
+
     def test_web_and_tui_share_the_same_event_model(self):
         self.assertIs(WebStreamEvent, StreamEvent)
         event = StreamEvent(

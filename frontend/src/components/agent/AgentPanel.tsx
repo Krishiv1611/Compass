@@ -25,7 +25,7 @@ interface AgentPanelProps {
   } | null;
   pendingPatchCount: number;
   activeWorkspaceId: string | null;
-  handleSend: (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => void;
+  handleSend: (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => Promise<void>;
   handleResume(payload: ResumePayload): void;
   handleCancel: () => void;
   reviewPatches: () => void;
