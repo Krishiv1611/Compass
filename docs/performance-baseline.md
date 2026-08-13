@@ -26,3 +26,21 @@ The frontend production build at this baseline emits hundreds of approximately
 - WebContainer ESM: approximately 979 kB minified.
 
 Plan 4 Task 6 will compare the Vite artifact against these values.
+
+## Once-per-turn context result
+
+After `TurnContext` preparation, all six deterministic scenarios meet the
+target budgets. Multi-round runs retain the same model and tool counts while
+memory recall, MCP discovery, tool resolution, and executor binding occur once:
+
+| Scenario | Model calls | Memory recalls | MCP discoveries | Tool calls |
+|---|---:|---:|---:|---:|
+| Greeting | 1 | 0 | 0 | 0 |
+| Simple edit | 1 | 1 | 1 | 0 |
+| Two-tool edit | 3 | 1 | 1 | 2 |
+| Planned edit | 3 | 1 | 1 | 1 |
+| Goal success | 4 | 1 | 1 | 1 |
+| Goal with one retry | 6 | 1 | 1 | 1 |
+
+Successful MCP discovery is cached for 300 seconds; failed discovery is cached
+for 30 seconds to avoid retry storms while still recovering quickly.

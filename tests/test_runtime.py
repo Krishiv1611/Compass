@@ -95,7 +95,10 @@ class RuntimeCancellationTests(unittest.IsolatedAsyncioTestCase):
                 yield "updates", {"executor": {"messages": []}}
 
         self_outer = self
-        with patch("agent.runtime.runner.get_workflow", return_value=FakeWorkflow()):
+        with (
+            patch("agent.runtime.runner.get_workflow", return_value=FakeWorkflow()),
+            patch("agent.runtime.runner.prepare_turn_context"),
+        ):
             events = [
                 event
                 async for event in stream_agent_events(

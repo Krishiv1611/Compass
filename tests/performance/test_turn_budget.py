@@ -15,13 +15,11 @@ class TurnBudgetBaselineTests(unittest.TestCase):
                 self.assertEqual(second, third)
                 self.assertEqual(first, expected)
 
-    @unittest.expectedFailure
     def test_executor_preparation_meets_once_per_turn_targets(self):
         for name, expected in TARGET_SCENARIOS.items():
             with self.subTest(name=name):
                 actual = run_scenario(name)
-                self.assertLessEqual(actual.memory_calls, expected.memory_calls)
-                self.assertLessEqual(actual.mcp_calls, expected.mcp_calls)
+                self.assertEqual(actual, expected)
 
     def test_fake_services_count_calls_without_sleeping(self):
         from tests.performance.fakes import services_for_counter

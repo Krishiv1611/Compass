@@ -1,5 +1,7 @@
 import json
 import os
+import asyncio
+import time
 from typing import List
 
 from langchain_core.tools import BaseTool
@@ -49,28 +51,44 @@ connections = load_mcp_config()
 mcp_client = MultiServerMCPClient(connections=connections, tool_name_prefix=True)
 
 _mcp_tools_cache = None
+_mcp_tools_expires_at = 0.0
+_mcp_cache_lock = asyncio.Lock()
+
+
+def reset_mcp_cache() -> None:
+    global _mcp_tools_cache, _mcp_tools_expires_at
+    _mcp_tools_cache = None
+    _mcp_tools_expires_at = 0.0
 
 async def get_mcp_tools() -> List[BaseTool]:
     """
     Asynchronously retrieve all available tools from the configured MCP servers.
     The client automatically handles session lifecycle per tool call.
     """
-    global _mcp_tools_cache
-    if _mcp_tools_cache is not None:
+    global _mcp_tools_cache, _mcp_tools_expires_at
+    now = time.monotonic()
+    if _mcp_tools_cache is not None and now < _mcp_tools_expires_at:
         return _mcp_tools_cache
 
-    if not connections:
-        _mcp_tools_cache = []
-        return []
-
-    try:
-        print(
-            f"[mcp] Fetching tools from {len(connections)} configured MCP server(s)..."
-        )
-        tools = await mcp_client.get_tools()
-        print(f"[mcp] Successfully loaded {len(tools)} MCP tools.")
-        _mcp_tools_cache = tools
-        return tools
-    except Exception as e:
-        print(f"[mcp] Error loading MCP tools: {e}")
-        return []
+    async with _mcp_cache_lock:
+        now = time.monotonic()
+        if _mcp_tools_cache is not None and now < _mcp_tools_expires_at:
+            return _mcp_tools_cache
+        if not connections:
+            _mcp_tools_cache = []
+            _mcp_tools_expires_at = now + 300
+            return []
+        try:
+            print(
+                f"[mcp] Fetching tools from {len(connections)} configured MCP server(s)..."
+            )
+            tools = await mcp_client.get_tools()
+            print(f"[mcp] Successfully loaded {len(tools)} MCP tools.")
+            _mcp_tools_cache = tools
+            _mcp_tools_expires_at = time.monotonic() + 300
+            return tools
+        except Exception as e:
+            print(f"[mcp] Error loading MCP tools: {e}")
+            _mcp_tools_cache = []
+            _mcp_tools_expires_at = time.monotonic() + 30
+            return []

@@ -67,7 +67,7 @@ def _metrics_for(scenario: Scenario, *, once_per_turn: bool) -> ScenarioMetrics:
     )
 
 
-CURRENT_SCENARIOS = {
+BASELINE_SCENARIOS = {
     name: _metrics_for(scenario, once_per_turn=False)
     for name, scenario in SCENARIOS.items()
 }
@@ -75,27 +75,35 @@ TARGET_SCENARIOS = {
     name: _metrics_for(scenario, once_per_turn=True)
     for name, scenario in SCENARIOS.items()
 }
+CURRENT_SCENARIOS = TARGET_SCENARIOS
 
 
 class FakeServices:
     def __init__(self, counter: Counter):
         self.counter = counter
 
-    def model(self, role: str) -> AIMessage:
+    def model(self, role: str, _config: dict | None = None) -> AIMessage:
         self.counter["model_calls"] += 1
         return AIMessage(content=f"fixed {role} response")
 
-    def memory(self) -> list[str]:
+    def memory(self, _config: dict | None = None) -> list[str]:
         self.counter["memory_calls"] += 1
         return ["fixed remembered preference"]
 
-    def mcp(self) -> list[str]:
+    def mcp(self, _config: dict | None = None) -> list[str]:
         self.counter["mcp_calls"] += 1
         return ["fixed_mcp_tool"]
 
     def tool(self, name: str) -> str:
         self.counter["tool_calls"] += 1
         return f"fixed result from {name}"
+
+    def tools(self, _config: dict | None = None) -> list[str]:
+        return ["fixed_builtin_tool"]
+
+    def bind_tools(self, model, tools):
+        self.counter["bind_tools"] += 1
+        return {"model": model, "tools": list(tools)}
 
 
 def fake_input(text: str) -> dict:
@@ -124,11 +132,11 @@ def run_scenario(name: str) -> ScenarioMetrics:
     if scenario.greeting:
         services.model("direct_chat")
     else:
+        services.memory()
+        services.mcp()
         if scenario.planned:
             services.model("planner")
         for round_number in range(scenario.executor_rounds):
-            services.memory()
-            services.mcp()
             services.model("executor")
             if round_number < scenario.tool_rounds:
                 services.tool("fixed_tool")

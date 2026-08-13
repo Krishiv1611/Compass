@@ -24,6 +24,7 @@ from agent.runtime.compaction import build_compaction_update
 from langchain_core.messages import BaseMessage as _BaseMessage
 from langchain_core.runnables import RunnableConfig
 from agent.runtime.metrics import current_run_metrics
+from agent.runtime.turn_context import get_turn_context
 
 
 async def _invoke_model(node: str, model_client, messages):
@@ -35,6 +36,23 @@ async def _invoke_model(node: str, model_client, messages):
         response = await model_client.ainvoke(messages)
     metrics.add_usage(node, getattr(response, "usage_metadata", None) or {})
     return response
+
+
+def _model_for_turn(role: str, config: dict):
+    """Cache role clients while preserving this module's injectable LLM factory."""
+    context = get_turn_context(config)
+    if context and role in context.model_clients:
+        return context.model_clients[role]
+    configurable = config.get("configurable", {})
+    model_client = llm(
+        role,
+        api_key=configurable.get("api_key"),
+        provider=configurable.get("provider"),
+        model=configurable.get("model"),
+    )
+    if context:
+        context.model_clients[role] = model_client
+    return model_client
 
 
 # Note: Tools are dynamically bound in call_model() using ALL_TOOLS from workflow.py
@@ -136,7 +154,7 @@ async def planner_node(state: AgentState, config: RunnableConfig):
     api_key = config.get("configurable", {}).get("api_key")
     provider = config.get("configurable", {}).get("provider")
     model = config.get("configurable", {}).get("model")
-    planner_model = llm("planner", api_key=api_key, provider=provider, model=model)
+    planner_model = _model_for_turn("planner", config)
 
     response = await _invoke_model("planner", planner_model, planner_messages)
 
@@ -239,15 +257,19 @@ async def call_model(state: AgentState, config: RunnableConfig):
             )
         break
 
-    try:
-        import asyncio
-        from agent.tools.memory_tool import recall_memories
+    turn_context = get_turn_context(config)
+    if turn_context is not None:
+        remembered = turn_context.recalled_memory
+    else:
+        try:
+            import asyncio
+            from agent.tools.memory_tool import recall_memories
 
-        remembered = await asyncio.to_thread(recall_memories, config)
-        if remembered:
-            context_parts.append("Relevant long-term memory:\n- " + "\n- ".join(remembered))
-    except Exception:
-        pass
+            remembered = await asyncio.to_thread(recall_memories, config)
+        except Exception:
+            remembered = []
+    if remembered:
+        context_parts.append("Relevant long-term memory:\n- " + "\n- ".join(remembered))
 
     if state.get("summary"):
         context_parts.append(f"Conversation Summary:\n{state['summary']}")
@@ -292,27 +314,23 @@ async def call_model(state: AgentState, config: RunnableConfig):
         messages = [context_msg] + messages
 
     # ── Dynamically load and bind all tools (built-in + custom + MCP) ──────
-    mcp_tools = await get_mcp_tools()
-    from agent.graph.tools_registry import ALL_TOOLS
+    if turn_context is not None and turn_context.executor_model is not None:
+        executor_with_tools = turn_context.executor_model
+    else:
+        mcp_tools = await get_mcp_tools()
+        from agent.graph.tools_registry import ALL_TOOLS
 
-    combined_tools = ALL_TOOLS + mcp_tools
-    if state.get("mode") in ("ask", "fast"):
-        read_only_tools = {
-            "read_file",
-            "list_dir",
-            "find_files",
-            "grep_search",
-            "codebase_search",
-            "web_search",
-        }
-        combined_tools = [
-            tool for tool in combined_tools
-            if getattr(tool, "name", "") in read_only_tools
-        ]
-    api_key = config.get("configurable", {}).get("api_key")
-    provider = config.get("configurable", {}).get("provider")
-    model = config.get("configurable", {}).get("model")
-    executor_with_tools = llm("executor", api_key=api_key, provider=provider, model=model).bind_tools(combined_tools)
+        combined_tools = ALL_TOOLS + mcp_tools
+        if state.get("mode") in ("ask", "fast"):
+            read_only_tools = {
+                "read_file", "list_dir", "find_files", "grep_search",
+                "codebase_search", "web_search",
+            }
+            combined_tools = [
+                tool for tool in combined_tools
+                if getattr(tool, "name", "") in read_only_tools
+            ]
+        executor_with_tools = _model_for_turn("executor", config).bind_tools(combined_tools)
 
     # ── Check for Cooperative Cancellation ──────────────────────────────────
     run_id = config.get("configurable", {}).get("run_id")
@@ -460,7 +478,7 @@ async def loop_recovery_node(state: AgentState, config: RunnableConfig):
     api_key = config.get("configurable", {}).get("api_key")
     provider = config.get("configurable", {}).get("provider")
     model = config.get("configurable", {}).get("model")
-    recovery_model = llm("recovery", api_key=api_key, provider=provider, model=model)
+    recovery_model = _model_for_turn("recovery", config)
 
     response = await _invoke_model("recovery", recovery_model, recovery_messages)
     guidance = (
@@ -538,7 +556,7 @@ async def summary_node(state: AgentState, config: RunnableConfig):
     api_key = config.get("configurable", {}).get("api_key")
     provider = config.get("configurable", {}).get("provider")
     model = config.get("configurable", {}).get("model")
-    summarizer_model = llm("summarizer", api_key=api_key, provider=provider, model=model)
+    summarizer_model = _model_for_turn("summarizer", config)
 
     response = await _invoke_model("summarizer", summarizer_model, message_for_summary)
 
@@ -641,7 +659,7 @@ async def direct_chat_node(state: AgentState, config: RunnableConfig):
     api_key = config.get("configurable", {}).get("api_key")
     provider = config.get("configurable", {}).get("provider")
     model = config.get("configurable", {}).get("model")
-    fast_model = llm("evaluator", api_key=api_key, provider=provider, model=model)
+    fast_model = _model_for_turn("evaluator", config)
 
     system_msg = SystemMessage(
         content="You are Compass, a helpful AI coding assistant. Answer directly.\n\n" + SAFETY_POLICY
@@ -761,7 +779,7 @@ async def evaluator_node(state: AgentState, config: RunnableConfig):
     model = config.get("configurable", {}).get("model")
     response = await _invoke_model(
         "evaluator",
-        llm("evaluator", api_key=api_key, provider=provider, model=model),
+        _model_for_turn("evaluator", config),
         eval_messages,
     )
     
