@@ -14,7 +14,7 @@ import { chatApi, patchesApi, runsApi, sessionsApi, uploadsApi, workspaceApi } f
 import { useRunEvents } from "@/contexts/RunContext";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import type { ChatMode } from "@/types/chat";
-import type { RunEvent } from "@/types/run";
+import type { ResumeAction } from "@/types/protocol";
 import type { TranscriptMessage } from "@/components/chat/MessageList";
 import AppLayout from "@/components/layout/AppLayout";
 import AgentPanel from "@/components/agent/AgentPanel";
@@ -25,6 +25,8 @@ import ContextDrawer from "@/components/workbench/ContextDrawer";
 import RunTimeline from "@/components/chat/RunTimeline";
 import GitHubPublishDialog from "@/components/github/GitHubPublishDialog";
 import { Button } from "@/components/ui/button";
+import { useRunController } from "@/hooks/useRunController";
+import type { RunSocket } from "@/runtime/RunController";
 
 const CenterWorkbench = lazy(() => import("@/components/workbench/CenterWorkbench"));
 
@@ -60,12 +62,7 @@ export default function ChatPage() {
   const [streamStatus, setStreamStatus] = useState("Ready");
   const [activeSocket, setActiveSocket] = useState<WebSocket | null>(null);
   const [pendingApproval, setPendingApproval] = useState<ApprovalState | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
   const assistantMessageId = useRef<string | null>(null);
-
-  const activeRunId = useRef<string | null>(null);
-  const tokenBuffer = useRef("");
-  const tokenFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ensureSession = useCallback(async (title = "New task") => {
     if (sessionId) return sessionId;
     const session = await sessionsApi.createSession(title);
@@ -121,30 +118,64 @@ export default function ChatPage() {
     return () => { cancelled = true; };
   }, [dispatch, refreshWorkspace, sessionParam]);
 
-  useEffect(() => {
-    return () => {
-      if (tokenFlushTimer.current) clearTimeout(tokenFlushTimer.current);
-      socketRef.current?.close();
-    };
-  }, []);
-
-  const flushAssistantText = useCallback(() => {
-    tokenFlushTimer.current = null;
+  const appendAssistantText = useCallback((content: string) => {
     const id = assistantMessageId.current;
-    const content = tokenBuffer.current;
-    tokenBuffer.current = "";
     if (!id || !content) return;
     setMessages((items) => items.map((item) =>
       item.id === id ? { ...item, content: `${item.content || ""}${content}`, pending: true } : item
     ));
   }, []);
 
-  const appendAssistantText = useCallback((content: string) => {
-    tokenBuffer.current += content;
-    if (!tokenFlushTimer.current) {
-      tokenFlushTimer.current = setTimeout(flushAssistantText, 32);
-    }
-  }, [flushAssistantText]);
+  const runController = useRunController({
+    createSocket: currentSessionId => chatApi.createWebSocket(currentSessionId) as unknown as RunSocket,
+    cancelRun: (currentSessionId, runId) => runsApi.cancelRun(currentSessionId, runId),
+    onOpen: () => setStreamStatus("Connected · waiting for first event"),
+    onText: content => {
+      markFirstToken();
+      appendAssistantText(content);
+      setStreamStatus("Writing response");
+    },
+    onEvent: (event, handle) => {
+      const type = event.type || "status";
+      addEvent(event);
+      if (type === "status") setStreamStatus(String(event.content || "Working"));
+      if (type === "approval_required") {
+        setPendingApproval({
+          content: event.content == null ? undefined : String(event.content),
+          data: event.data as ApprovalState["data"],
+        });
+        setStreamStatus("Waiting for approval");
+      }
+      if (type === "workspace_patch") {
+        setStreamStatus("Changes ready for review");
+        void refreshWorkspace(handle.sessionId);
+      }
+      if (type === "error") {
+        toast.error(String(event.content || "The run failed"));
+        setStreamStatus("Run failed");
+      }
+      if (type === "done" || type === "error") {
+        const id = assistantMessageId.current;
+        setMessages((items) => items.map((item) => item.id === id ? { ...item, pending: false } : item));
+        setIsLoading(false);
+        setActiveSocket(null);
+        finishRun();
+        dispatch({ type: "sessionsChanged" });
+      }
+    },
+    onError: () => {
+      setOffline();
+      setStreamStatus("Connection lost");
+    },
+    onClose: () => {
+      const id = assistantMessageId.current;
+      setActiveSocket(null);
+      setIsLoading(false);
+      setMessages((items) => items.map((item) => item.id === id ? { ...item, pending: false } : item));
+    },
+  });
+
+  useEffect(() => () => runController.dispose(), [runController, sessionParam]);
 
   const handleSend = async (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => {
     if (!content.trim() && files.length === 0) return;
@@ -165,8 +196,6 @@ export default function ChatPage() {
       };
       const assistantId = `assistant-${Date.now()}`;
       assistantMessageId.current = assistantId;
-      activeRunId.current = null;
-      tokenBuffer.current = "";
       setMessages((items) => [...items, userMessage, {
         id: assistantId,
         role: "assistant",
@@ -175,68 +204,15 @@ export default function ChatPage() {
         pending: true,
       }]);
       startRun(currentSessionId);
-      const socket = chatApi.createWebSocket(currentSessionId);
-      socketRef.current = socket;
-      setActiveSocket(socket);
-      socket.onopen = () => {
-        setStreamStatus("Connected · waiting for first event");
-        socket.send(JSON.stringify({
-          type: "message",
-          content,
-          mode,
-          context_files: contextFiles,
-        }));
-      };
-      socket.onmessage = (messageEvent) => {
-        let event: Record<string, unknown>;
-        try {
-          event = JSON.parse(messageEvent.data) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-        const type = String(event.type || "status");
-        if (event.run_id) activeRunId.current = String(event.run_id);
-        if (type === "token" || type === "assistant_delta") {
-          markFirstToken();
-          appendAssistantText(String(event.content || ""));
-          setStreamStatus("Writing response");
-          return;
-        }
-        addEvent(event as unknown as RunEvent);
-        if (type === "status") setStreamStatus(String(event.content || "Working"));
-        if (type === "approval_required") {
-          setPendingApproval({ data: event.data as ApprovalState["data"] });
-          setStreamStatus("Waiting for approval");
-        }
-        if (type === "workspace_patch") {
-          setStreamStatus("Changes ready for review");
-          void refreshWorkspace(currentSessionId);
-        }
-        if (type === "error") {
-          toast.error(String(event.content || "The run failed"));
-          setStreamStatus("Run failed");
-        }
-        if (type === "done" || type === "error") {
-          flushAssistantText();
-          setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, pending: false } : item));
-          setIsLoading(false);
-          setActiveSocket(null);
-          finishRun();
-          dispatch({ type: "sessionsChanged" });
-          socket.close();
-        }
-      };
-      socket.onerror = () => {
-        setOffline();
-        setStreamStatus("Connection lost");
-      };
-      socket.onclose = () => {
-        socketRef.current = null;
-        setActiveSocket(null);
-        setIsLoading(false);
-        setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, pending: false } : item));
-      };
+      runController.start({
+        sessionId: currentSessionId,
+        content,
+        mode,
+        contextFiles,
+      });
+      setActiveSocket(runController.socket as WebSocket | null);
     } catch (error) {
+      runController.dispose();
       setIsLoading(false);
       finishRun();
       toast.error(error instanceof Error ? error.message : "Could not start task");
@@ -244,20 +220,13 @@ export default function ChatPage() {
   };
 
   const handleApprovalAction = (action: string, feedback?: string) => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: "resume", action, content: feedback || "" }));
+    if (!runController.resume({ action: action as ResumeAction, feedback })) return;
     setPendingApproval(null);
     setStreamStatus("Resuming");
   };
 
   const handleCancel = async () => {
-    const socket = socketRef.current;
-    if (activeRunId.current && sessionId) {
-      try { await runsApi.cancelRun(sessionId, activeRunId.current); } catch { /* The socket may already be closing. */ }
-    }
-    socket?.close();
-    flushAssistantText();
+    try { await runController.cancel(); } catch { /* The socket may already be closing. */ }
     finishRun();
     setIsLoading(false);
     setStreamStatus("Stopped");
