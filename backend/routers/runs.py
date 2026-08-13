@@ -9,6 +9,8 @@ from backend.db import get_db
 from backend.models.run import AgentRun
 from backend.models.user import User
 from backend.services.ownership import owned_session
+from agent.runtime.diagnostics import capability_report, timing_report
+from backend.schemas.settings import public_preferences
 
 router = APIRouter(prefix="/sessions/{session_id}/runs", tags=["runs"])
 
@@ -23,6 +25,20 @@ def serialize_run_event(event) -> dict:
     payload.setdefault("type", event.event_type)
     payload["created_at"] = event.created_at
     return payload
+
+
+def _run_diagnostics(run: AgentRun) -> dict:
+    metrics: dict | None = None
+    for event in reversed(run.events):
+        payload = event.content if isinstance(event.content, dict) else {}
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        if event.event_type == "usage":
+            metrics = data
+            break
+        if event.event_type == "done" and isinstance(data.get("metrics"), dict):
+            metrics = data["metrics"]
+            break
+    return timing_report(metrics or run.token_usage or {})
 
 
 @router.get("")
@@ -72,14 +88,25 @@ def get_session_runs(
             "started_at": run.started_at,
             "ended_at": run.ended_at,
             "token_usage": run.token_usage,
+            "diagnostics": _run_diagnostics(run),
             "event_count": len(run.events),
             "events": [serialize_run_event(event) for event in run.events],
         }
         for run in runs
     ]
+    preferences = public_preferences(current_user.preferences or {}).model_dump()
+    capabilities = capability_report({
+        **preferences,
+        "execution_target": "web",
+        "database_enabled": True,
+        "mcp_enabled": False,
+        "custom_tools.enabled": False,
+        "shell_enabled": False,
+    })
     return {
         "items": items,
         "next_cursor": runs[-1].id if has_more and runs else None,
+        "capabilities": capabilities,
     }
 
 

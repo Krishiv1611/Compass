@@ -42,4 +42,6 @@ export interface RuntimeMetricsArtifact {
   estimated_cost_usd?: number | null;
   calls_by_node?: Record<string, number>;
   spans?: Record<string, { calls?: number; errors?: number; duration_ms?: number }>;
+  tags?: Record<string, string>;
+  usage_by_node?: Record<string, { input_tokens?: number; output_tokens?: number; total_tokens?: number }>;
 }

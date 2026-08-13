@@ -16,7 +16,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import type { JsonValue, RunStage } from "@/types/run";
 import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
-import { eventsFromRunHistory, runsApi } from "@/api/runs";
+import { eventsFromRunHistory, runsApi, type CapabilityReport, type RunDiagnostics } from "@/api/runs";
 import { deriveStageStates, durationForEvent, stageForEvent } from "@/runtime/runTimelineProjection";
 import type { RuntimeMetricsArtifact } from "@/types/artifact";
 
@@ -85,18 +85,42 @@ function ActivityRow({ event }: { event: LiveRunEvent }) {
   );
 }
 
-function RuntimeMetricsSummary({ usage }: { usage: Record<string, JsonValue> }) {
+function RuntimeMetricsSummary({ usage, history }: { usage: Record<string, JsonValue>; history: RunDiagnostics | null }) {
   const metrics = usage as RuntimeMetricsArtifact;
-  const calls = Object.values(metrics.calls_by_node ?? {}).reduce((sum, value) => sum + value, 0);
+  const calls = history?.calls ?? Object.values(metrics.calls_by_node ?? {}).reduce((sum, value) => sum + value, 0);
   const spans = Object.entries(metrics.spans ?? {});
-  if (!metrics.total_tokens && !calls && !spans.length) return null;
+  if (!metrics.total_tokens && !calls && !spans.length && !history) return null;
+  const categories = history?.categories ?? spans.reduce<Record<string, number>>((result, [name, span]) => {
+    const lowered = name.toLowerCase();
+    const category = lowered.endsWith(".model") || lowered.includes("provider") ? "provider_wait_ms"
+      : lowered.includes("tool") ? "tool_time_ms"
+      : lowered.includes("approval") || lowered.includes(".wait") ? "approval_wait_ms"
+      : ["persist", "database", "checkpoint", "db."].some(marker => lowered.includes(marker)) ? "persistence_ms"
+      : "local_compute_ms";
+    result[category] = (result[category] ?? 0) + (span.duration_ms ?? 0);
+    return result;
+  }, {});
+  const totalTokens = history?.tokens.total ?? metrics.total_tokens ?? 0;
+  const estimatedCost = history?.cost.estimated_usd ?? metrics.estimated_cost_usd;
+  const costStatus = history?.cost.status ?? (estimatedCost == null ? "unavailable" : estimatedCost === 0 ? "free" : "estimated");
+  const categoryLabels: Record<string, string> = { provider_wait_ms: "provider", local_compute_ms: "local", tool_time_ms: "tools", approval_wait_ms: "approval", persistence_ms: "persistence" };
+  const provider = history?.provider ?? metrics.tags?.provider;
+  const model = history?.model ?? metrics.tags?.model;
+  const cache = history?.cache ?? Object.fromEntries(Object.entries(metrics.tags ?? {}).filter(([name]) => name.endsWith("_cache")).map(([name, value]) => [name.replace(/_cache$/, ""), value]));
   return (
     <div className="border-b border-border py-2 text-xs">
-      <span className="font-medium">Run metrics</span>
-      <span className="ml-2 font-mono text-muted-foreground">{metrics.total_tokens ?? 0} tokens · {calls} model calls</span>
-      {!!spans.length && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-muted-foreground">{spans.map(([name, span]) => <span key={name}>{name} {Math.round(span.duration_ms ?? 0)}ms</span>)}</div>}
+      <div><span className="font-medium">Run metrics</span>{(provider || model) && <span className="ml-2 text-muted-foreground">{provider || "provider"} / {model || "model"}</span>}</div>
+      <div className="mt-1 font-mono text-muted-foreground">{totalTokens} tokens · {calls} model calls · {costStatus === "unavailable" ? "cost unavailable" : costStatus === "free" ? "free" : `$${Number(estimatedCost).toFixed(6)} estimated`}</div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-muted-foreground">{Object.entries(categories).filter(([, duration]) => duration > 0).map(([name, duration]) => <span key={name}>{categoryLabels[name] || name} {Math.round(duration)}ms</span>)}</div>
+      {!!spans.length && <details className="mt-1 text-muted-foreground"><summary className="cursor-pointer">Per-stage timing</summary><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono">{spans.map(([name, span]) => <span key={name}>{name} {Math.round(span.duration_ms ?? 0)}ms</span>)}</div></details>}
+      {!!Object.keys(cache).length && <div className="mt-1 text-muted-foreground">Cache: {Object.entries(cache).map(([name, value]) => `${name} ${value}`).join(" · ")}</div>}
     </div>
   );
+}
+
+function CapabilitySummary({ report }: { report: CapabilityReport | null }) {
+  if (!report) return null;
+  return <div className="border-b border-border py-2 text-xs"><span className="font-medium">Capabilities</span><span className="ml-2 text-muted-foreground">{report.permission_profile} permissions</span>{report.unavailable.length ? <p className="mt-1 text-warning">Unavailable: {report.unavailable.join(", ")}</p> : <p className="mt-1 text-success">All configured capabilities available</p>}</div>;
 }
 
 export default function RunTimeline({
@@ -109,13 +133,24 @@ export default function RunTimeline({
   const { currentRunEvents, artifact, isRunActive, firstEventLatencyMs, hydrateRun } = useRunEvents();
   const { state } = useWorkbench();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [historicalDiagnostics, setHistoricalDiagnostics] = useState<RunDiagnostics | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilityReport | null>(null);
+
+  useEffect(() => {
+    setHistoricalDiagnostics(null);
+    setCapabilities(null);
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId || isRunActive) return;
     let current = true;
     runsApi.getSessionRuns(sessionId)
       .then(history => {
-        if (current) hydrateRun(sessionId, eventsFromRunHistory(history));
+        if (current) {
+          hydrateRun(sessionId, eventsFromRunHistory(history));
+          setHistoricalDiagnostics(history.items?.[0]?.diagnostics ?? null);
+          setCapabilities(history.capabilities ?? null);
+        }
       })
       .catch(() => { /* Transcript loading remains usable without activity history. */ });
     return () => { current = false; };
@@ -178,7 +213,8 @@ export default function RunTimeline({
       {drawerOpen && (
         <div className="max-h-[36vh] overflow-y-auto border-t border-border px-3">
           {firstEventLatencyMs != null && <div className="border-b border-border py-2 text-xs text-muted-foreground">First event in <span className="font-mono">{firstEventLatencyMs}ms</span></div>}
-          <RuntimeMetricsSummary usage={artifact.usage} />
+          <RuntimeMetricsSummary usage={artifact.usage} history={isRunActive ? null : historicalDiagnostics} />
+          <CapabilitySummary report={capabilities} />
           {artifact.plan && <PlanChecklist plan={artifact.plan} completedSteps={artifact.steps.flatMap((step, index) => step.status === "completed" ? [index + 1] : [])} />}
           {artifact.tools.map(tool => <ToolCallCard key={tool.id} toolName={tool.name} args={tool.args} result={tool.result} status={tool.status} />)}
           {!!artifact.changed_files.length && <div className="border-b border-border py-2 text-xs"><span className="font-medium">Changed files</span><p className="mt-1 font-mono text-muted-foreground">{artifact.changed_files.join(", ")}</p></div>}

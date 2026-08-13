@@ -66,14 +66,23 @@ async def get_mcp_tools() -> List[BaseTool]:
     The client automatically handles session lifecycle per tool call.
     """
     global _mcp_tools_cache, _mcp_tools_expires_at
+    from agent.runtime.metrics import current_run_metrics
+
+    metrics = current_run_metrics()
     now = time.monotonic()
     if _mcp_tools_cache is not None and now < _mcp_tools_expires_at:
+        if metrics:
+            metrics.add_tag("mcp_cache", "hit")
         return _mcp_tools_cache
 
     async with _mcp_cache_lock:
         now = time.monotonic()
         if _mcp_tools_cache is not None and now < _mcp_tools_expires_at:
+            if metrics:
+                metrics.add_tag("mcp_cache", "hit")
             return _mcp_tools_cache
+        if metrics:
+            metrics.add_tag("mcp_cache", "miss")
         if not connections:
             _mcp_tools_cache = []
             _mcp_tools_expires_at = now + 300

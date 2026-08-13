@@ -265,6 +265,7 @@ class CompassConsole:
         self.session_total_tokens = 0
         self.turn_prompt_tokens = 0
         self.turn_completion_tokens = 0
+        self.last_run_metrics: dict = {}
 
         # Session state
         self.current_mode = "edit"
@@ -274,8 +275,9 @@ class CompassConsole:
 
     def accumulate_tokens(self, usage: dict):
         """Add token usage from a turn to session totals."""
-        prompt = usage.get("prompt_tokens", 0)
-        completion = usage.get("completion_tokens", 0)
+        self.last_run_metrics = dict(usage)
+        prompt = usage.get("total_input_tokens", usage.get("prompt_tokens", 0))
+        completion = usage.get("total_output_tokens", usage.get("completion_tokens", 0))
         total = usage.get("total_tokens", prompt + completion)
 
         self.turn_prompt_tokens = prompt
@@ -1321,6 +1323,10 @@ async def _handle_slash_command(
         "llm_provider": (config or {}).get("configurable", {}).get("llm_provider"),
         "model": compass.current_model,
         "has_llm_api_key": bool((config or {}).get("configurable", {}).get("api_key")),
+        "execution_target": "tui",
+        "mode": compass.current_mode,
+        "fast_mode": bool((config or {}).get("configurable", {}).get("fast_mode")),
+        "last_run_metrics": compass.last_run_metrics,
         "web_url": os.getenv("COMPASS_WEB_URL", "http://localhost:5173"),
     }
     registry_result = await build_registry().execute(

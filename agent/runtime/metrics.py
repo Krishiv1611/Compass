@@ -60,7 +60,10 @@ class _Span:
 class RunMetrics:
     """Collect safe aggregate metrics without prompts, tool args, or secrets."""
 
-    _SAFE_TAGS = {"provider", "model", "mode", "execution_target"}
+    _SAFE_TAGS = {
+        "provider", "model", "mode", "execution_target",
+        "mcp_cache", "turn_context_cache",
+    }
 
     def __init__(self):
         self._spans: dict[str, SpanSnapshot] = {}

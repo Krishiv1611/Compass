@@ -100,6 +100,7 @@ export default function SettingsModal({
         ...(newApiKey ? { llm_api_key: newApiKey } : {}),
       });
       setPreferences({ ...defaults, ...saved });
+      window.dispatchEvent(new CustomEvent("compass:settings-changed", { detail: saved }));
       setNewApiKey("");
       setTheme(preferences.theme);
     } catch (requestError) {
@@ -120,8 +121,9 @@ export default function SettingsModal({
   const removeCredential = async () => {
     setProviderBusy("remove"); setError(null);
     try {
-      await preferencesApi.removeCredential(preferences.llm_provider);
-      setPreferences(value => ({ ...value, has_llm_api_key: false }));
+      const saved = await preferencesApi.removeCredential(preferences.llm_provider);
+      setPreferences({ ...defaults, ...saved });
+      window.dispatchEvent(new CustomEvent("compass:settings-changed", { detail: saved }));
       setNewApiKey("");
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove credential"); }
     finally { setProviderBusy(null); }

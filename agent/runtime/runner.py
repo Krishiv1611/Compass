@@ -305,6 +305,7 @@ async def stream_agent_events(
 
     workflow = await get_workflow()
     configurable = config.setdefault("configurable", {})
+    configurable.pop("_turn_context", None)
     if configurable.get("context_mismatch"):
         yield StreamEvent(
             type=StreamEventType.ERROR,
@@ -550,9 +551,10 @@ async def invoke_agent(input_value: dict | Command, config: dict) -> list[BaseMe
         else []
     )
     before_ids = _message_ids(before_messages)
-    await prepare_turn_context(input_value, config)
+    config.setdefault("configurable", {}).pop("_turn_context", None)
     _metrics, metrics_token = begin_run_metrics()
     try:
+        await prepare_turn_context(input_value, config)
         result = await workflow.ainvoke(input_value, config=config)
     finally:
         end_run_metrics(metrics_token)

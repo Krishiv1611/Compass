@@ -89,10 +89,17 @@ async def prepare_turn_context(
     services: object | None = None,
 ) -> TurnContext:
     """Prepare memory, MCP, tools, and the bound executor once per turn."""
+    from agent.runtime.metrics import current_run_metrics
+
     configurable = config.setdefault("configurable", {})
     existing = configurable.get("_turn_context")
     if isinstance(existing, TurnContext):
+        if metrics := current_run_metrics():
+            metrics.add_tag("turn_context_cache", "hit")
         return existing
+
+    if metrics := current_run_metrics():
+        metrics.add_tag("turn_context_cache", "miss")
 
     query, mode, active_skill = _input_details(input_value)
     direct_chat = _is_direct_chat(query, mode, active_skill)
@@ -129,4 +136,3 @@ async def prepare_turn_context(
 def get_turn_context(config: dict) -> TurnContext | None:
     value = config.get("configurable", {}).get("_turn_context")
     return value if isinstance(value, TurnContext) else None
-

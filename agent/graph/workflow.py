@@ -150,76 +150,17 @@ async def _route_after_skill_manager(state: AgentState) -> str:
 
 
 def _needs_planning(text: str) -> bool:
-    """Conservatively identify edits where planning protects result quality."""
-    request = " ".join(text.lower().split())
-    complex_markers = (
-        "across the codebase",
-        "across the project",
-        "whole codebase",
-        "entire project",
-        "multiple services",
-        "multi-file",
-        "end-to-end",
-        "architecture",
-        "architectural",
-        "database migration",
-        "schema migration",
-        "authentication system",
-        "authorization system",
-        "redesign",
-        "restructure",
-        "productionize",
-        "breaking change",
-        "backward compatibility",
-    )
-    if any(marker in request for marker in complex_markers):
-        return True
+    """Compatibility wrapper around the shared route diagnostic."""
+    from agent.runtime.diagnostics import _needs_planning as needs_planning
 
-    nonempty_lines = [line.strip() for line in text.splitlines() if line.strip()]
-    listed_steps = sum(
-        line.startswith(("- ", "* "))
-        or (len(line) > 2 and line[0].isdigit() and line[1] in ".)")
-        for line in nonempty_lines
-    )
-    if listed_steps >= 3:
-        return True
-    if len(request) >= 600:
-        return True
-    if len(request) >= 250 and request.count(" and ") >= 3:
-        return True
-    return False
+    return needs_planning(text)
+
 
 def _route_start(state: AgentState) -> str:
     """Route directly to the smallest branch needed for this turn."""
-    if state.get("active_skill"):
-        return "skill_manager"
+    from agent.runtime.diagnostics import route_report
 
-    messages = state.get("messages", [])
-
-    # ── Safe: route by mode and intent (merged from _route_start) ────────────
-    mode = _normalise_mode(state)
-    if mode in ("plan", "goal"):
-        return "context_injector"
-
-    if not messages:
-        return "executor"
-
-    last_msg = str(messages[-1].content).lower()
-
-    chat_keywords = [
-        "hi", "hello", "hey", "who are you", "what can you do",
-        "thanks", "thank you", "goodbye", "bye",
-    ]
-    if (
-        any(last_msg.strip().startswith(kw) for kw in chat_keywords)
-        and len(last_msg) < 50
-    ):
-        return "direct_chat"
-
-    if mode == "edit" and _needs_planning(last_msg):
-        return "context_injector"
-
-    return "executor"
+    return str(route_report(state)["entry_node"])
 
 
 
