@@ -42,6 +42,7 @@ from backend.services.run_manager import (
 )
 from backend.services.run_persistence import RunEventBatcher, terminal_from_events
 from backend.ws.hub import manager
+from agent.runtime.metrics import current_run_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +177,14 @@ def _persist_run_event_batch(
 ) -> None:
     if not events:
         return
-    with SessionLocal() as db:
-        persist_run_events(db, run_id, events)
+    metrics = current_run_metrics()
+    if metrics is None:
+        with SessionLocal() as db:
+            persist_run_events(db, run_id, events)
+        return
+    with metrics.span("persistence.events"):
+        with SessionLocal() as db:
+            persist_run_events(db, run_id, events)
 
 
 def _end_run_record(

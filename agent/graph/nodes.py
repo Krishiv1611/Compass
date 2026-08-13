@@ -23,6 +23,18 @@ from agent.runtime.protocol import (
 from agent.runtime.compaction import build_compaction_update
 from langchain_core.messages import BaseMessage as _BaseMessage
 from langchain_core.runnables import RunnableConfig
+from agent.runtime.metrics import current_run_metrics
+
+
+async def _invoke_model(node: str, model_client, messages):
+    """Invoke one role model and record all-node timing and token usage."""
+    metrics = current_run_metrics()
+    if metrics is None:
+        return await model_client.ainvoke(messages)
+    async with metrics.span(f"{node}.model"):
+        response = await model_client.ainvoke(messages)
+    metrics.add_usage(node, getattr(response, "usage_metadata", None) or {})
+    return response
 
 
 # Note: Tools are dynamically bound in call_model() using ALL_TOOLS from workflow.py
@@ -126,7 +138,7 @@ async def planner_node(state: AgentState, config: RunnableConfig):
     model = config.get("configurable", {}).get("model")
     planner_model = llm("planner", api_key=api_key, provider=provider, model=model)
 
-    response = await planner_model.ainvoke(planner_messages)
+    response = await _invoke_model("planner", planner_model, planner_messages)
 
     plan_text = (
         response.content if isinstance(response.content, str) else str(response.content)
@@ -332,7 +344,7 @@ async def call_model(state: AgentState, config: RunnableConfig):
     messages = sanitized_messages
 
     # ── Invoke the executor LLM with tools ───────────────────────────────────
-    response = await executor_with_tools.ainvoke(messages)
+    response = await _invoke_model("executor", executor_with_tools, messages)
 
     # ── Populate state fields ────────────────────────────────────────────────
     has_tool_calls = hasattr(response, "tool_calls") and bool(response.tool_calls)
@@ -450,7 +462,7 @@ async def loop_recovery_node(state: AgentState, config: RunnableConfig):
     model = config.get("configurable", {}).get("model")
     recovery_model = llm("recovery", api_key=api_key, provider=provider, model=model)
 
-    response = await recovery_model.ainvoke(recovery_messages)
+    response = await _invoke_model("recovery", recovery_model, recovery_messages)
     guidance = (
         response.content if isinstance(response.content, str) else str(response.content)
     )
@@ -528,7 +540,7 @@ async def summary_node(state: AgentState, config: RunnableConfig):
     model = config.get("configurable", {}).get("model")
     summarizer_model = llm("summarizer", api_key=api_key, provider=provider, model=model)
 
-    response = await summarizer_model.ainvoke(message_for_summary)
+    response = await _invoke_model("summarizer", summarizer_model, message_for_summary)
 
     summary = (
         response.content
@@ -634,7 +646,7 @@ async def direct_chat_node(state: AgentState, config: RunnableConfig):
     system_msg = SystemMessage(
         content="You are Compass, a helpful AI coding assistant. Answer directly.\n\n" + SAFETY_POLICY
     )
-    response = await fast_model.ainvoke([system_msg] + messages)
+    response = await _invoke_model("direct_chat", fast_model, [system_msg] + messages)
 
     token_usage = {}
     if hasattr(response, "usage_metadata") and response.usage_metadata:
@@ -747,7 +759,11 @@ async def evaluator_node(state: AgentState, config: RunnableConfig):
     api_key = config.get("configurable", {}).get("api_key")
     provider = config.get("configurable", {}).get("provider")
     model = config.get("configurable", {}).get("model")
-    response = await llm("evaluator", api_key=api_key, provider=provider, model=model).ainvoke(eval_messages)
+    response = await _invoke_model(
+        "evaluator",
+        llm("evaluator", api_key=api_key, provider=provider, model=model),
+        eval_messages,
+    )
     
     content = str(response.content).strip()
     

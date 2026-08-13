@@ -3,9 +3,14 @@
 import asyncio
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from langchain_core.messages import AIMessage
 
 from agent.runtime.events import StreamEvent, StreamEventType
 from agent.runtime.runner import build_turn_input, stream_agent_events
+from agent.runtime.metrics import current_run_metrics
 from backend.schemas.chat import StreamEvent as WebStreamEvent
 
 
@@ -65,6 +70,44 @@ class RuntimeCancellationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].type, StreamEventType.DONE)
         self.assertEqual(events[0].data["status"], "cancelled")
+
+    async def test_done_carries_all_node_metrics_and_resets_context(self):
+        class FakeWorkflow:
+            calls = 0
+
+            async def aget_state(self, _config):
+                self.calls += 1
+                if self.calls == 1:
+                    return SimpleNamespace(values={"messages": []}, tasks=[])
+                return SimpleNamespace(
+                    values={"messages": [AIMessage(id="answer", content="done")]},
+                    tasks=[],
+                )
+
+            async def astream(self, _input, config, stream_mode):
+                metrics = current_run_metrics()
+                self_outer.assertIsNotNone(metrics)
+                with metrics.span("executor.model"):
+                    metrics.add_usage(
+                        "executor",
+                        {"input_tokens": 7, "output_tokens": 3},
+                    )
+                yield "updates", {"executor": {"messages": []}}
+
+        self_outer = self
+        with patch("agent.runtime.runner.get_workflow", return_value=FakeWorkflow()):
+            events = [
+                event
+                async for event in stream_agent_events(
+                    {"messages": []},
+                    {"configurable": {}},
+                )
+            ]
+
+        done = next(event for event in events if event.type == StreamEventType.DONE)
+        self.assertEqual(done.data["metrics"]["total_tokens"], 10)
+        self.assertEqual(done.data["metrics"]["calls_by_node"], {"executor": 1})
+        self.assertIsNone(current_run_metrics())
 
 if __name__ == "__main__":
     unittest.main()

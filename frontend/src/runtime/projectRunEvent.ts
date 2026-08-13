@@ -81,8 +81,9 @@ export function projectRunEvent(artifact: RunArtifact, event: RunEvent): RunArti
     result.terminal_status = typeof data.status === "string" ? data.status : "waiting_for_approval";
   } else if (event.type === "done") {
     result.terminal_status = typeof data.status === "string" ? data.status : "completed";
-    if (data.token_usage && typeof data.token_usage === "object" && !Array.isArray(data.token_usage)) {
-      result.usage = { ...data.token_usage };
+    const usage = data.metrics ?? data.token_usage;
+    if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+      result.usage = { ...usage };
     }
     result.final_summary = typeof event.content === "string"
       ? event.content

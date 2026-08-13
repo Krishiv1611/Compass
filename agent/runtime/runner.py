@@ -20,6 +20,7 @@ from langgraph.types import Command
 from agent.graph.workflow import get_workflow
 from agent.runtime.events import StreamEvent, StreamEventType, ToolCallData
 from agent.runtime.protocol import InterruptData, InterruptKind
+from agent.runtime.metrics import begin_run_metrics, end_run_metrics
 from agent.workspace import WorkspaceContext
 
 logger = logging.getLogger(__name__)
@@ -332,6 +333,11 @@ async def stream_agent_events(
 
     assembler = ToolCallAssembler()
     tool_calls: dict[str, tuple[str, dict]] = {}
+    metrics, metrics_token = begin_run_metrics()
+    for tag in ("provider", "model", "mode", "execution_target"):
+        value = configurable.get(tag)
+        if value is not None:
+            metrics.add_tag(tag, value)
     try:
         async for chunk_type, payload in workflow.astream(
             input_value,
@@ -455,7 +461,8 @@ async def stream_agent_events(
                                         patch_event.node = node_name
                                         yield patch_event
 
-        state = await workflow.aget_state(config)
+        with metrics.span("checkpoint.read"):
+            state = await workflow.aget_state(config)
         interrupts = [
             {"value": getattr(interrupt_value, "value", None)}
             for task in state.tasks
@@ -464,9 +471,14 @@ async def stream_agent_events(
         ]
         waiting_events = events_from_interrupts(interrupts)
         if waiting_events:
-            token_usage = state.values.get("token_usage", {}) if state.values else {}
-            if token_usage:
-                yield StreamEvent(type=StreamEventType.USAGE, data=token_usage)
+            metrics_snapshot = metrics.snapshot().model_dump(mode="json")
+            token_usage = {
+                "prompt_tokens": metrics_snapshot["total_input_tokens"],
+                "completion_tokens": metrics_snapshot["total_output_tokens"],
+                "total_tokens": metrics_snapshot["total_tokens"],
+                "per_node_breakdown": metrics_snapshot["usage_by_node"],
+            }
+            yield StreamEvent(type=StreamEventType.USAGE, data=metrics_snapshot)
             assistant_content = _current_turn_assistant_content(
                 before_ids,
                 state.values.get("messages", []) if state.values else [],
@@ -482,9 +494,14 @@ async def stream_agent_events(
                 yield event
             return
 
-        token_usage = state.values.get("token_usage", {}) if state.values else {}
-        if token_usage:
-            yield StreamEvent(type=StreamEventType.USAGE, data=token_usage)
+        metrics_snapshot = metrics.snapshot().model_dump(mode="json")
+        token_usage = {
+            "prompt_tokens": metrics_snapshot["total_input_tokens"],
+            "completion_tokens": metrics_snapshot["total_output_tokens"],
+            "total_tokens": metrics_snapshot["total_tokens"],
+            "per_node_breakdown": metrics_snapshot["usage_by_node"],
+        }
+        yield StreamEvent(type=StreamEventType.USAGE, data=metrics_snapshot)
         assistant_content = _current_turn_assistant_content(
             before_ids,
             state.values.get("messages", []) if state.values else [],
@@ -494,6 +511,7 @@ async def stream_agent_events(
             data={
                 "status": "completed",
                 "token_usage": token_usage,
+                "metrics": metrics_snapshot,
                 "assistant_content": assistant_content,
             },
         )
@@ -512,6 +530,8 @@ async def stream_agent_events(
             content=message[:500],
             data={"status": "failed"},
         )
+    finally:
+        end_run_metrics(metrics_token)
 
 
 async def invoke_agent(input_value: dict | Command, config: dict) -> list[BaseMessage]:
@@ -528,7 +548,11 @@ async def invoke_agent(input_value: dict | Command, config: dict) -> list[BaseMe
         else []
     )
     before_ids = _message_ids(before_messages)
-    result = await workflow.ainvoke(input_value, config=config)
+    _metrics, metrics_token = begin_run_metrics()
+    try:
+        result = await workflow.ainvoke(input_value, config=config)
+    finally:
+        end_run_metrics(metrics_token)
     messages = [
         message
         for message in result.get("messages", [])

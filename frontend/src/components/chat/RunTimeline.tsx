@@ -18,6 +18,7 @@ import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
 import { eventsFromRunHistory, runsApi } from "@/api/runs";
 import { deriveStageStates, durationForEvent, stageForEvent } from "@/runtime/runTimelineProjection";
+import type { RuntimeMetricsArtifact } from "@/types/artifact";
 
 const stageLabels: Record<RunStage, string> = {
   context: "Context",
@@ -80,6 +81,20 @@ function ActivityRow({ event }: { event: LiveRunEvent }) {
         )}
       </div>
       {expanded && details && <pre className="mt-2 max-h-40 overflow-auto border-l-2 border-border pl-3 font-mono text-xs text-muted-foreground">{JSON.stringify(sanitize(details), null, 2)}</pre>}
+    </div>
+  );
+}
+
+function RuntimeMetricsSummary({ usage }: { usage: Record<string, JsonValue> }) {
+  const metrics = usage as RuntimeMetricsArtifact;
+  const calls = Object.values(metrics.calls_by_node ?? {}).reduce((sum, value) => sum + value, 0);
+  const spans = Object.entries(metrics.spans ?? {});
+  if (!metrics.total_tokens && !calls && !spans.length) return null;
+  return (
+    <div className="border-b border-border py-2 text-xs">
+      <span className="font-medium">Run metrics</span>
+      <span className="ml-2 font-mono text-muted-foreground">{metrics.total_tokens ?? 0} tokens · {calls} model calls</span>
+      {!!spans.length && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-muted-foreground">{spans.map(([name, span]) => <span key={name}>{name} {Math.round(span.duration_ms ?? 0)}ms</span>)}</div>}
     </div>
   );
 }
@@ -163,6 +178,7 @@ export default function RunTimeline({
       {drawerOpen && (
         <div className="max-h-[36vh] overflow-y-auto border-t border-border px-3">
           {firstEventLatencyMs != null && <div className="border-b border-border py-2 text-xs text-muted-foreground">First event in <span className="font-mono">{firstEventLatencyMs}ms</span></div>}
+          <RuntimeMetricsSummary usage={artifact.usage} />
           {artifact.plan && <PlanChecklist plan={artifact.plan} completedSteps={artifact.steps.flatMap((step, index) => step.status === "completed" ? [index + 1] : [])} />}
           {artifact.tools.map(tool => <ToolCallCard key={tool.id} toolName={tool.name} args={tool.args} result={tool.result} status={tool.status} />)}
           {!!artifact.changed_files.length && <div className="border-b border-border py-2 text-xs"><span className="font-medium">Changed files</span><p className="mt-1 font-mono text-muted-foreground">{artifact.changed_files.join(", ")}</p></div>}

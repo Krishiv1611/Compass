@@ -118,7 +118,7 @@ def reduce_run_event(artifact: RunArtifact, event: StreamEvent) -> RunArtifact:
         result.terminal_status = str(data.get("status", "waiting_for_approval"))
     elif event.type == StreamEventType.DONE:
         result.terminal_status = str(data.get("status", "completed"))
-        usage = data.get("token_usage")
+        usage = data.get("metrics") or data.get("token_usage")
         if isinstance(usage, dict):
             result.usage = dict(usage)
         result.final_summary = event.content or data.get("assistant_content")
