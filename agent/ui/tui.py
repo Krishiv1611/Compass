@@ -1310,6 +1310,32 @@ async def _handle_slash_command(
     cmd = parts[0].lower()
     arg = parts[1].strip() if len(parts) > 1 else ""
 
+    from agent.ui.commands import build_registry
+    from agent.ui.commands.models import CommandContext
+
+    command_settings = {
+        "llm_provider": (config or {}).get("configurable", {}).get("llm_provider"),
+        "model": compass.current_model,
+        "has_llm_api_key": bool((config or {}).get("configurable", {}).get("api_key")),
+        "web_url": os.getenv("COMPASS_WEB_URL", "http://localhost:5173"),
+    }
+    registry_result = await build_registry().execute(
+        command,
+        CommandContext(
+            console=compass.console,
+            workflow=workflow,
+            run_config=config or {},
+            session_store=None,
+            workspace=os.getcwd(),
+            settings=command_settings,
+        ),
+    )
+    if registry_result.consumed:
+        if registry_result.message:
+            compass.console.print(Text(f"  {registry_result.message}", style="bright_white"))
+            compass.console.print()
+        return True
+
     operational_result = _handle_operational_command(
         compass,
         cmd,
