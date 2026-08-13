@@ -938,9 +938,17 @@ async def _stream_runtime_turn(
                 )
                 continue
 
-            if event.type == StreamEventType.APPROVAL_REQUIRED:
+            if event.type in (
+                StreamEventType.APPROVAL_REQUIRED,
+                StreamEventType.CLARIFICATION_REQUIRED,
+            ):
                 stop_live()
-                return event.data if isinstance(event.data, dict) else {}
+                interrupt_data = (
+                    dict(event.data) if isinstance(event.data, dict) else {}
+                )
+                if event.content:
+                    interrupt_data.setdefault("prompt", event.content)
+                return interrupt_data
 
             if event.type == StreamEventType.ERROR:
                 stop_live()
@@ -971,15 +979,31 @@ async def _stream_runtime_turn(
         raise
 
 
+TOOL_RESUME_ACTIONS = ("approve", "always", "skip", "deny")
+PLAN_RESUME_ACTIONS = ("execute_plan", "revise_plan", "cancel")
+CLARIFICATION_RESUME_ACTIONS = ("answer",)
+
+
 def _prompt_runtime_approval(compass: CompassConsole, approval: dict) -> dict:
     """Collect a graph-compatible decision for tool or plan approval."""
-    if approval.get("reason") == "plan_approval_required":
+    reason = approval.get("reason")
+    kind = approval.get("kind")
+    if reason == "clarification_required" or kind == "clarification":
+        prompt = approval.get("prompt") or "The agent needs clarification."
+        feedback = click.prompt(f"  {prompt}").strip()
+        return {"action": "answer", "feedback": feedback}
+
+    if reason == "plan_approval_required" or kind == "plan_approval":
         answer = click.prompt(
-            click.style("  Execute plan? (Y/n/revise)", fg="magenta", bold=True),
-            default="y",
+            click.style(
+                "  Execute plan / Revise plan / Cancel",
+                fg="magenta",
+                bold=True,
+            ),
+            default="execute_plan",
             show_default=False,
         ).strip().lower()
-        if answer in ("r", "revise"):
+        if answer in ("r", "revise", "revise_plan"):
             feedback = click.prompt("  What should change in the plan?").strip()
             return {"action": "revise_plan", "feedback": feedback}
         if answer in ("n", "no", "cancel"):
@@ -1000,14 +1024,20 @@ def _prompt_runtime_approval(compass: CompassConsole, approval: dict) -> dict:
         )
     )
     answer = click.prompt(
-        click.style("  Approve execution? (y/N/always)", fg="red", bold=True),
-        default="n",
+        click.style(
+            "  Approve once / Always allow for this thread / Skip / Deny",
+            fg="red",
+            bold=True,
+        ),
+        default="deny",
         show_default=False,
     ).strip().lower()
-    if answer in ("y", "yes"):
+    if answer in ("approve", "y", "yes"):
         return {"action": "approve"}
     if answer == "always":
         return {"action": "always"}
+    if answer in ("s", "skip"):
+        return {"action": "skip"}
     return {"action": "deny"}
 
 def _handle_operational_command(

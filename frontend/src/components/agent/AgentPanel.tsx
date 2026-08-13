@@ -6,6 +6,7 @@ import MessageList from "@/components/chat/MessageList";
 import ChatInput from "@/components/chat/ChatInput";
 import type { TranscriptMessage } from "@/components/chat/MessageList";
 import type { ChatMode } from "@/types/chat";
+import type { InterruptKind, ResumePayload } from "@/types/protocol";
 
 interface AgentPanelProps {
   messages: TranscriptMessage[];
@@ -16,6 +17,8 @@ interface AgentPanelProps {
     content?: string;
     data?: {
       reason?: string;
+      kind?: InterruptKind;
+      prompt?: string;
       plan?: string;
       tool_calls?: Array<{ id?: string; name?: string; args?: unknown; arguments?: unknown }>;
     };
@@ -23,7 +26,7 @@ interface AgentPanelProps {
   pendingPatchCount: number;
   activeWorkspaceId: string | null;
   handleSend: (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => void;
-  handleApprovalAction: (action: string, feedback?: string) => void;
+  handleResume(payload: ResumePayload): void;
   handleCancel: () => void;
   reviewPatches: () => void;
   onContextChange: (files: string[]) => void;
@@ -38,7 +41,7 @@ export default function AgentPanel({
   pendingPatchCount,
   activeWorkspaceId,
   handleSend,
-  handleApprovalAction,
+  handleResume,
   handleCancel,
   reviewPatches,
   onContextChange
@@ -55,7 +58,7 @@ export default function AgentPanel({
               isLoading={isLoading} 
               onRetry={(content) => handleSend(content, [], "edit", [])}
               pendingApproval={pendingApproval} 
-              onApprove={handleApprovalAction} 
+              onResume={handleResume}
             />
             <div ref={bottomRef} />
           </div>

@@ -14,7 +14,7 @@ import { chatApi, patchesApi, runsApi, sessionsApi, uploadsApi, workspaceApi } f
 import { useRunEvents } from "@/contexts/RunContext";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import type { ChatMode } from "@/types/chat";
-import type { ResumeAction } from "@/types/protocol";
+import type { InterruptKind, ResumePayload } from "@/types/protocol";
 import type { TranscriptMessage } from "@/components/chat/MessageList";
 import AppLayout from "@/components/layout/AppLayout";
 import AgentPanel from "@/components/agent/AgentPanel";
@@ -34,6 +34,8 @@ type ApprovalState = {
   content?: string;
   data?: {
     reason?: string;
+    kind?: InterruptKind;
+    prompt?: string;
     plan?: string;
     tool_calls?: Array<{ id?: string; name?: string; args?: unknown; arguments?: unknown }>;
   };
@@ -139,7 +141,7 @@ export default function ChatPage() {
       const type = event.type || "status";
       addEvent(event);
       if (type === "status") setStreamStatus(String(event.content || "Working"));
-      if (type === "approval_required") {
+      if (type === "approval_required" || type === "clarification_required") {
         setPendingApproval({
           content: event.content == null ? undefined : String(event.content),
           data: event.data as ApprovalState["data"],
@@ -219,8 +221,8 @@ export default function ChatPage() {
     }
   };
 
-  const handleApprovalAction = (action: string, feedback?: string) => {
-    if (!runController.resume({ action: action as ResumeAction, feedback })) return;
+  const handleResume = (payload: ResumePayload) => {
+    if (!runController.resume(payload)) return;
     setPendingApproval(null);
     setStreamStatus("Resuming");
   };
@@ -256,7 +258,7 @@ export default function ChatPage() {
           pendingPatchCount={state.pendingPatchCount}
           activeWorkspaceId={state.activeWorkspaceId}
           handleSend={handleSend}
-          handleApprovalAction={handleApprovalAction}
+          handleResume={handleResume}
           handleCancel={handleCancel}
           reviewPatches={reviewPatches}
           onContextChange={setContextFiles}

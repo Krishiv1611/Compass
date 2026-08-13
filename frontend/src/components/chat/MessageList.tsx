@@ -1,9 +1,11 @@
 import { Compass, RefreshCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import MarkdownMessage from "./MarkdownMessage";
 import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
 import PlanReviewCard from "./PlanReviewCard";
+import ToolApprovalCard from "./ToolApprovalCard";
+import ClarificationCard from "./ClarificationCard";
+import type { InterruptKind, ResumePayload } from "@/types/protocol";
 
 export type TranscriptMessage = {
   id?: string;
@@ -29,14 +31,16 @@ interface MessageListProps {
     content?: string;
     data?: {
       reason?: string;
+      kind?: InterruptKind;
+      prompt?: string;
       plan?: string;
       tool_calls?: Array<{ id?: string; name?: string; args?: unknown; arguments?: unknown }>;
     };
   } | null;
-  onApprove: (action: string, feedback?: string) => void;
+  onResume(payload: ResumePayload): void;
 }
 
-export default function MessageList({ messages, isLoading, onRetry, pendingApproval, onApprove }: MessageListProps) {
+export default function MessageList({ messages, isLoading, onRetry, pendingApproval, onResume }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex h-[70vh] flex-col items-center justify-center text-center">
@@ -138,38 +142,15 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
           {pendingApproval.data?.reason === "plan_approval_required" ? (
             <PlanReviewCard
               plan={pendingApproval.data.plan || "No plan details were returned."}
-              onAction={(action, feedback) => {
-                if (action === "execute_plan") {
-                  onApprove("execute_plan");
-                } else if (action === "revise_plan") {
-                  onApprove("revise_plan", feedback);
-                } else {
-                  onApprove("cancel");
-                }
-              }}
+              onResume={onResume}
+            />
+          ) : pendingApproval.data?.reason === "clarification_required" || pendingApproval.data?.kind === "clarification" ? (
+            <ClarificationCard
+              prompt={pendingApproval.content || pendingApproval.data?.prompt || "The agent needs clarification before proceeding."}
+              onResume={onResume}
             />
           ) : (
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-warning">
-                Approval Required
-              </div>
-              <div className="border border-warning/20 bg-warning/10 p-4">
-                <p className="mb-3 text-sm font-medium text-foreground">
-                  {pendingApproval.content || "The agent wants to perform a potentially risky action."}
-                </p>
-                {pendingApproval.data?.tool_calls?.map((tc) => (
-                  <div key={tc.id} className="text-xs font-mono bg-background/50 p-2 rounded mb-2 overflow-x-auto">
-                    <span className="font-bold text-warning">{tc.name}</span>({JSON.stringify(tc.args)})
-                  </div>
-                ))}
-                <div className="flex gap-2 mt-4 flex-wrap">
-                  <Button size="sm" onClick={() => onApprove("yes")} variant="default">Approve Once</Button>
-                  <Button size="sm" onClick={() => onApprove("always")} variant="outline" className="text-success border-success/20 hover:bg-success/10">Always Allow in Thread</Button>
-                  <Button size="sm" onClick={() => onApprove("skip")} variant="secondary">Skip Step</Button>
-                  <Button size="sm" onClick={() => onApprove("no")} variant="destructive">Deny</Button>
-                </div>
-              </div>
-            </div>
+            <ToolApprovalCard interrupt={pendingApproval} onResume={onResume} />
           )}
         </div>
       )}

@@ -2,15 +2,23 @@
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import type { ResumePayload } from "@/types/protocol";
 
 interface PlanReviewCardProps {
   plan: string;
-  onAction: (action: "execute_plan" | "revise_plan" | "cancel", feedback?: string) => void;
+  onResume(payload: ResumePayload): void;
 }
 
-export default function PlanReviewCard({ plan, onAction }: PlanReviewCardProps) {
+export default function PlanReviewCard({ plan, onResume }: PlanReviewCardProps) {
   const [isRevising, setIsRevising] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const resume = (payload: ResumePayload) => {
+    if (submitted) return;
+    setSubmitted(true);
+    onResume(payload);
+  };
 
   return (
     <div className="mb-5 flex justify-start gap-3">
@@ -32,28 +40,29 @@ export default function PlanReviewCard({ plan, onAction }: PlanReviewCardProps) 
               <textarea
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
+                disabled={submitted}
                 placeholder="What should be changed? Provide feedback for the agent..."
                 className="h-24 w-full resize-none rounded-md border border-border bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
                 autoFocus
               />
               <div className="flex justify-end gap-2 mt-2">
-                <Button size="sm" variant="ghost" onClick={() => setIsRevising(false)}>
+                <Button size="sm" variant="ghost" disabled={submitted} onClick={() => setIsRevising(false)}>
                   Cancel
                 </Button>
-                <Button size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => onAction("revise_plan", feedback)} disabled={!feedback.trim()}>
-                  Submit Revision
+                <Button size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => resume({ action: "revise_plan", feedback: feedback.trim() })} disabled={submitted || !feedback.trim()}>
+                  Submit revision
                 </Button>
               </div>
             </div>
           ) : (
             <div className="flex gap-2 mt-4 pt-4 border-t border-border flex-wrap">
-              <Button size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => onAction("execute_plan")}>
-                <Check className="h-4 w-4 mr-2" /> Execute Plan
+              <Button size="sm" disabled={submitted} className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => resume({ action: "execute_plan" })}>
+                <Check className="h-4 w-4 mr-2" /> Execute plan
               </Button>
-              <Button size="sm" variant="outline" className="border-border" onClick={() => setIsRevising(true)}>
+              <Button size="sm" disabled={submitted} variant="outline" className="border-border" onClick={() => setIsRevising(true)}>
                 <PencilLine className="h-4 w-4 mr-2" /> Revise
               </Button>
-              <Button size="sm" variant="ghost" className="rounded-none text-muted-foreground hover:text-destructive" onClick={() => onAction("cancel")}>
+              <Button size="sm" disabled={submitted} variant="ghost" className="rounded-none text-muted-foreground hover:text-destructive" onClick={() => resume({ action: "cancel" })}>
                 <X className="h-4 w-4 mr-2" /> Cancel
               </Button>
             </div>
