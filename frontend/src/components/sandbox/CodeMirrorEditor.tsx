@@ -1,11 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { css } from "@codemirror/lang-css";
-import { html } from "@codemirror/lang-html";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
+import type { Extension } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView } from "@codemirror/view";
 import { useTheme } from "@/components/ThemeProvider";
@@ -17,34 +12,44 @@ interface CodeMirrorEditorProps {
   readOnly?: boolean;
 }
 
+const languageCache = new Map<string, Extension>();
+
+async function loadLanguage(language: string): Promise<Extension | null> {
+  const normalized = language.toLowerCase();
+  const cached = languageCache.get(normalized);
+  if (cached) return cached;
+  let extension: Extension | null = null;
+  switch (normalized) {
+    case "javascript":
+    case "typescript": {
+      const { javascript } = await import("@codemirror/lang-javascript");
+      extension = javascript({ typescript: normalized === "typescript" });
+      break;
+    }
+    case "python": extension = (await import("@codemirror/lang-python")).python(); break;
+    case "css": extension = (await import("@codemirror/lang-css")).css(); break;
+    case "html": extension = (await import("@codemirror/lang-html")).html(); break;
+    case "json": extension = (await import("@codemirror/lang-json")).json(); break;
+    case "markdown": extension = (await import("@codemirror/lang-markdown")).markdown(); break;
+  }
+  if (extension) languageCache.set(normalized, extension);
+  return extension;
+}
+
 export default function CodeMirrorEditor({ code, onChange, language, readOnly = false }: CodeMirrorEditorProps) {
   const { resolvedTheme } = useTheme();
+  const [languageExtension, setLanguageExtension] = useState<Extension | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLanguageExtension(null);
+    void loadLanguage(language).then((extension) => { if (active) setLanguageExtension(extension); });
+    return () => { active = false; };
+  }, [language]);
+
   const extensions = useMemo(() => {
-    const exts = [];
-    switch (language.toLowerCase()) {
-      case "javascript":
-      case "typescript":
-        exts.push(javascript({ typescript: language.toLowerCase() === "typescript" }));
-        break;
-      case "python":
-        exts.push(python());
-        break;
-      case "css":
-        exts.push(css());
-        break;
-      case "html":
-        exts.push(html());
-        break;
-      case "json":
-        exts.push(json());
-        break;
-      case "markdown":
-        exts.push(markdown());
-        break;
-      default:
-        // fallback
-        break;
-    }
+    const exts: Extension[] = [];
+    if (languageExtension) exts.push(languageExtension);
     exts.push(EditorView.theme({
       "&": { backgroundColor: "var(--surface)", color: "var(--ink)" },
       ".cm-content": { caretColor: "var(--primary)" },
@@ -52,7 +57,7 @@ export default function CodeMirrorEditor({ code, onChange, language, readOnly = 
       ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--primary) 8%, transparent)" },
     }));
     return exts;
-  }, [language]);
+  }, [languageExtension]);
 
   return (
     <div className="h-full w-full overflow-hidden [&>.cm-editor]:h-full [&>.cm-editor]:w-full [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-[13px] [&_.cm-scroller]:leading-[21px] [&_.cm-content]:py-4">

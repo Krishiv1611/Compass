@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRef } from "react";
+import { lazy, Suspense, useRef } from "react";
 import { Code2, GitPullRequest, Globe, Loader2, Save } from "lucide-react";
 import { toast } from "react-toastify";
 import { Allotment } from "allotment";
@@ -10,12 +10,14 @@ import { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
 import type { FileNode } from "@/components/sandbox/FileExplorer";
 import FileExplorer from "@/components/sandbox/FileExplorer";
 import WorkspaceHeader from "@/components/sandbox/WorkspaceHeader";
-import CodeMirrorEditor from "@/components/sandbox/CodeMirrorEditor";
-import DiffReviewPanel from "@/components/sandbox/DiffReviewPanel";
-import WebPreview from "@/components/sandbox/WebPreview";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { beginLoad, editFile, emptyEditorState, invalidateWorkspace, isDirty as entryIsDirty, markSaved, selectEntry, shouldReloadEntry, storeLoadedFile } from "./editorState";
+
+const DiffReviewPanel = lazy(() => import("@/components/sandbox/DiffReviewPanel"));
+const WebPreview = lazy(() => import("@/components/sandbox/WebPreview"));
+const CodeMirrorEditor = lazy(() => import("@/components/sandbox/CodeMirrorEditor"));
+const panelFallback = <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading panel</div>;
 
 const languageFromName = (name: string) => {
   const extension = name.toLowerCase().split(".").pop();
@@ -169,12 +171,12 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
       <div className="min-h-0 flex-1">
         <TabsContent value="editor" className="m-0 h-full">
           {entry?.invalidated && isDirty && <div className="border-b border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">This file changed on disk. Save your version or reopen the file to review the newer copy.</div>}
-          {loadingPath === activeFile?.path ? <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Opening {activeFile?.name}</div> : activeFile ? <CodeMirrorEditor key={`${activeWorkspaceId}:${activeFile.path}`} language={activeLanguage} code={code} onChange={(value) => activeWorkspaceId && setEditorState(items => editFile(items, activeWorkspaceId, activeFile.path, value))} /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">Choose a file from Files.</div>}
+          {loadingPath === activeFile?.path ? <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Opening {activeFile?.name}</div> : activeFile ? <Suspense fallback={panelFallback}><CodeMirrorEditor key={`${activeWorkspaceId}:${activeFile.path}`} language={activeLanguage} code={code} onChange={(value) => activeWorkspaceId && setEditorState(items => editFile(items, activeWorkspaceId, activeFile.path, value))} /></Suspense> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">Choose a file from Files.</div>}
         </TabsContent>
         <TabsContent value="changes" className="m-0 h-full">
-          <DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => { notifyPatchesChanged(); refreshWorkspace(); }} onOpenFile={(path) => { const name = path.split("/").pop() || path; void loadFile({ path, name, type: "file" }); }} />
+          {state.centerTab === "changes" && <Suspense fallback={panelFallback}><DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => { notifyPatchesChanged(); refreshWorkspace(); }} onOpenFile={(path) => { const name = path.split("/").pop() || path; void loadFile({ path, name, type: "file" }); }} /></Suspense>}
         </TabsContent>
-        <TabsContent value="preview" className="m-0 h-full"><WebPreview files={previewFiles || undefined} visible onClose={() => dispatch({ type: "setCenterTab", tab: "editor" })} /></TabsContent>
+        <TabsContent value="preview" className="m-0 h-full">{state.centerTab === "preview" && <Suspense fallback={panelFallback}><WebPreview files={previewFiles || undefined} visible onClose={() => dispatch({ type: "setCenterTab", tab: "editor" })} /></Suspense>}</TabsContent>
       </div>
     </Tabs>
   );

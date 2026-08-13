@@ -23,13 +23,13 @@ import WorkspaceLanding from "@/components/sandbox/WorkspaceLanding";
 import CommandPalette from "@/components/workbench/CommandPalette";
 import ContextDrawer from "@/components/workbench/ContextDrawer";
 import RunTimeline from "@/components/chat/RunTimeline";
-import GitHubPublishDialog from "@/components/github/GitHubPublishDialog";
 import { Button } from "@/components/ui/button";
 import { useRunController } from "@/hooks/useRunController";
 import type { RunSocket } from "@/runtime/RunController";
 import { workspaceChangeNeedsConfirmation } from "@/components/workbench/editorState";
 
 const CenterWorkbench = lazy(() => import("@/components/workbench/CenterWorkbench"));
+const GitHubPublishDialog = lazy(() => import("@/components/github/GitHubPublishDialog"));
 
 type ApprovalState = {
   content?: string;
@@ -332,7 +332,7 @@ export default function ChatPage() {
       </div>
       <CommandPalette open={state.commandPaletteOpen} onOpenChange={(open) => dispatch({ type: "setCommandPalette", open })} onContext={() => dispatch({ type: "setContextDrawer", open: true })} workspaceId={state.activeWorkspaceId} />
       <ContextDrawer open={state.contextDrawerOpen} onOpenChange={(open) => dispatch({ type: "setContextDrawer", open })} workspaceId={state.activeWorkspaceId} sessionId={sessionId} selectedFiles={state.selectedContextFiles} />
-      {state.activeWorkspaceId && <GitHubPublishDialog open={state.publishOpen} onClose={() => dispatch({ type: "setPublish", open: false })} workspaceId={state.activeWorkspaceId} />}
+      {state.activeWorkspaceId && state.publishOpen && <Suspense fallback={null}><GitHubPublishDialog open onClose={() => dispatch({ type: "setPublish", open: false })} workspaceId={state.activeWorkspaceId} /></Suspense>}
     </AppLayout>
   );
 }

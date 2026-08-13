@@ -1,11 +1,13 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Clock, FolderUp, GitFork, Loader2, Plus } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { toast } from "react-toastify";
 import { workspaceApi } from "@/api";
 import type { Workspace } from "@/types/project";
-import GitHubImportDialog from "@/components/github/GitHubImportDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const GitHubImportDialog = lazy(() => import("@/components/github/GitHubImportDialog"));
 
 export default function WorkspaceLanding({
   sessionId,
@@ -134,7 +136,7 @@ export default function WorkspaceLanding({
           ) : <p className="py-4 text-sm text-muted-foreground">No recent projects yet.</p>}
         </section>
       </div>
-      {githubSessionId && <GitHubImportDialog open onClose={() => setGithubSessionId(null)} sessionId={githubSessionId} onImported={(workspace) => onWorkspaceReady(workspace.id, workspace.name)} />}
+      {githubSessionId && <Suspense fallback={null}><GitHubImportDialog open onClose={() => setGithubSessionId(null)} sessionId={githubSessionId} onImported={(workspace) => onWorkspaceReady(workspace.id, workspace.name)} /></Suspense>}
     </div>
   );
 }

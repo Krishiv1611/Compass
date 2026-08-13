@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useRef, useState } from "react";
-import type { WebContainer as WebContainerInstance } from "@webcontainer/api";
+import type { WebContainer as WebContainerInstance, WebContainerProcess } from "@webcontainer/api";
 import { ExternalLink, Globe, Loader2, Play, RefreshCcw, Square, Terminal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -17,55 +17,120 @@ async function getContainer() {
   return bootPromise;
 }
 
+function previewScript(files: PreviewFiles): string {
+  const source = files["package.json"]?.file?.contents;
+  if (!source) throw new Error("Preview requires a package.json file.");
+  let parsed: { scripts?: Record<string, string> };
+  try {
+    parsed = JSON.parse(source) as { scripts?: Record<string, string> };
+  } catch {
+    throw new Error("package.json is not valid JSON.");
+  }
+  const scripts = parsed.scripts ?? {};
+  const script = ["dev", "start", "preview"].find((name) => scripts[name]);
+  if (!script) throw new Error("package.json needs a dev, start, or preview script.");
+  return script;
+}
+
 export default function WebPreview({ files, visible, onClose }: { files?: PreviewFiles; visible: boolean; onClose: () => void }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<WebContainerInstance | null>(null);
+  const processRef = useRef<WebContainerProcess | null>(null);
+  const unsubscribeRef = useRef<Array<() => void>>([]);
+  const generationRef = useRef(0);
+  const logBufferRef = useRef<string[]>([]);
+  const logTimerRef = useRef<number | null>(null);
   const [state, setState] = useState<PreviewState>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [showOutput, setShowOutput] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const log = useCallback((message: string) => setLogs((items) => [...items.slice(-199), message]), []);
+  const flushLogs = useCallback(() => {
+    logTimerRef.current = null;
+    const pending = logBufferRef.current.splice(0);
+    if (pending.length) setLogs((items) => [...items, ...pending].slice(-200));
+  }, []);
+
+  const log = useCallback((message: string) => {
+    logBufferRef.current.push(message);
+    logTimerRef.current ??= window.setTimeout(flushLogs, 100);
+  }, [flushLogs]);
+
+  const cleanExecution = useCallback(() => {
+    processRef.current?.kill();
+    processRef.current = null;
+    unsubscribeRef.current.splice(0).forEach((unsubscribe) => unsubscribe());
+  }, []);
+
   const stop = useCallback(() => {
+    generationRef.current += 1;
+    cleanExecution();
+    if (logTimerRef.current != null) window.clearTimeout(logTimerRef.current);
+    logTimerRef.current = null;
+    logBufferRef.current = [];
     containerRef.current?.teardown();
     containerRef.current = null;
     container = null;
     bootPromise = null;
     setState("idle");
     setPreviewUrl(null);
-  }, []);
+  }, [cleanExecution]);
 
   const start = useCallback(async () => {
     if (!files || !Object.keys(files).length) return;
+    cleanExecution();
+    const generation = ++generationRef.current;
     setState("booting"); setError(null); setLogs([]);
     try {
+      const script = previewScript(files);
       log("Booting WebContainer…\n");
       const current = await getContainer();
+      if (generation !== generationRef.current) return;
       containerRef.current = current;
       log("Mounting workspace files…\n");
       await current.mount(files as never);
-      const packageFile = files["package.json"]?.file?.contents;
-      if (packageFile) {
-        setState("installing"); log("Installing dependencies…\n");
-        const install = await current.spawn("npm", ["install"]);
-        void install.output.pipeTo(new WritableStream({ write: (chunk) => log(chunk) }));
-        if (await install.exit) throw new Error("Dependency installation failed");
-      }
-      let script = "start";
-      if (packageFile) {
-        try { const parsed = JSON.parse(packageFile) as { scripts?: Record<string, string> }; script = parsed.scripts?.dev ? "dev" : parsed.scripts?.start ? "start" : parsed.scripts?.preview ? "preview" : script; } catch { /* Use the default script. */ }
-      }
+      if (generation !== generationRef.current) return;
+      setState("installing"); log("Installing dependencies…\n");
+      const install = await current.spawn("npm", ["install"]);
+      processRef.current = install;
+      void install.output.pipeTo(new WritableStream({ write: (chunk) => log(chunk) })).catch(() => undefined);
+      const installExit = await install.exit;
+      if (generation !== generationRef.current) return;
+      processRef.current = null;
+      if (installExit !== 0) throw new Error(`Dependency installation exited with code ${installExit}.`);
+
       setState("running"); log(`Starting npm run ${script}…\n`);
+      let serverReady = false;
+      unsubscribeRef.current = [
+        current.on("server-ready", (_port, url) => {
+          if (generation !== generationRef.current) return;
+          serverReady = true;
+          setPreviewUrl(url); setState("ready"); log(`Server ready at ${url}\n`);
+          if (iframeRef.current) iframeRef.current.src = url;
+        }),
+        current.on("error", (nextError) => {
+          if (generation !== generationRef.current) return;
+          setError(nextError.message); setState("error"); log(`Error: ${nextError.message}\n`);
+        }),
+      ];
       const server = await current.spawn("npm", ["run", script]);
-      void server.output.pipeTo(new WritableStream({ write: (chunk) => log(chunk) }));
-      current.on("server-ready", (_port, url) => { setPreviewUrl(url); setState("ready"); log(`Server ready at ${url}\n`); if (iframeRef.current) iframeRef.current.src = url; });
-      current.on("error", (nextError) => { setError(nextError.message); setState("error"); log(`Error: ${nextError.message}\n`); });
+      if (generation !== generationRef.current) { server.kill(); return; }
+      processRef.current = server;
+      void server.output.pipeTo(new WritableStream({ write: (chunk) => log(chunk) })).catch(() => undefined);
+      void server.exit.then((code) => {
+        if (generation !== generationRef.current) return;
+        const message = serverReady
+          ? `Preview server stopped with code ${code}.`
+          : `Preview server exited with code ${code} before it became ready.`;
+        setError(message); setState("error"); log(`Error: ${message}\n`);
+      });
     } catch (caught) {
+      if (generation !== generationRef.current) return;
       const message = caught instanceof Error ? caught.message : "Could not start the preview";
       setError(message); setState("error"); log(`Error: ${message}\n`);
     }
-  }, [files, log]);
+  }, [cleanExecution, files, log]);
 
   useEffect(() => () => stop(), [stop]);
   if (!visible) return null;
