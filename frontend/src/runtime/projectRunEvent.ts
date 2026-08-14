@@ -68,13 +68,17 @@ export function projectRunEvent(artifact: RunArtifact, event: RunEvent): RunArti
       }
     }
   } else if (event.type === "check_result") {
-    result.checks.push({
-      id: `check-${event.seq ?? result.checks.length + 1}`,
+    const id = String(data.id ?? `check-${event.seq ?? result.checks.length + 1}`);
+    const value = {
+      id,
       name: typeof event.content === "string" ? event.content : event.node ?? "Check",
       status: typeof data.status === "string" ? data.status : "unknown",
       duration_ms: typeof data.duration_ms === "number" ? data.duration_ms : null,
       details: data.details ?? null,
-    });
+    };
+    const index = result.checks.findIndex(check => check.id === id);
+    if (index >= 0) result.checks[index] = value;
+    else result.checks.push(value);
   } else if (event.type === "usage") {
     result.usage = { ...data };
   } else if (event.type === "run_waiting") {

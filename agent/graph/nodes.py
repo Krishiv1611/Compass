@@ -594,11 +594,15 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
         )
         or settings.get("fast_mode", False)
     )
-    if fast_mode:
-        return {"approval_status": "approved"}
-
     last_message = state["messages"][-1]
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+        return {"approval_status": "approved"}
+    hook_call_ids = {
+        str(call.get("id", ""))
+        for call in last_message.tool_calls
+        if str(call.get("id", "")).startswith("hook-")
+    }
+    if fast_mode and not hook_call_ids:
         return {"approval_status": "approved"}
 
     approved_ops = state.get("approved_operations", [])
@@ -607,7 +611,9 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
 
     risky_calls = []
     for tc in last_message.tool_calls:
-        if requires_approval(tc["name"], tc.get("args", {}), approved_ops):
+        if str(tc.get("id", "")) in hook_call_ids or requires_approval(
+            tc["name"], tc.get("args", {}), approved_ops
+        ):
             risky_calls.append(tc)
 
     if not risky_calls:
@@ -628,6 +634,8 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
         new_approvals = list(approved_ops)
         if user_decision.action == ResumeAction.ALWAYS:
             for tc in risky_calls:
+                if str(tc.get("id", "")).startswith("hook-"):
+                    continue
                 pattern = get_call_pattern(tc["name"], tc.get("args", {}))
                 if pattern not in new_approvals:
                     new_approvals.append(pattern)
@@ -760,6 +768,51 @@ async def linter_node(state: AgentState, config: RunnableConfig):
         }
 
     return {"syntax_checked": True, "syntax_check_failed": False}
+
+
+async def verification_hooks_node(state: AgentState, config: RunnableConfig):
+    """Schedule matching user-configured checks through normal tool approval."""
+    from agent.hooks import (
+        build_hook_run_requests,
+        changed_files_from_messages,
+        load_verification_hooks,
+        select_verification_hooks,
+    )
+    from agent.tools.utils import get_workspace_for_tool
+
+    try:
+        workspace = get_workspace_for_tool(config)
+    except ValueError:
+        return {"verification_hooks_scheduled": True, "is_done": True}
+    changed_files = changed_files_from_messages(state.get("messages", []))
+    configuration = load_verification_hooks(workspace.root)
+    selected = select_verification_hooks(configuration.hooks, changed_files)
+    requests = build_hook_run_requests(selected)
+    if not requests:
+        return {"verification_hooks_scheduled": True, "is_done": True}
+    calls = [
+        {
+            "id": request.id,
+            "name": request.tool_name,
+            "args": request.arguments,
+            "type": "tool_call",
+        }
+        for request in requests
+    ]
+    return {
+        "messages": [AIMessage(
+            content="Configured verification hooks require approval.",
+            tool_calls=calls,
+        )],
+        "pending_tool_calls": calls,
+        "verification_hooks_scheduled": True,
+        "is_done": False,
+    }
+
+
+async def verification_hooks_finalize_node(_state: AgentState):
+    """Finish after approved, failed, skipped, or denied deterministic checks."""
+    return {"pending_tool_calls": [], "is_done": True}
 
 
 async def evaluator_node(state: AgentState, config: RunnableConfig):

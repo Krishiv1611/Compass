@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
     "tools.shell_timeout": 30,
     "custom_tools.enabled": False,
     "custom_tools.approved_paths": [],
+    "hooks.after_edit": [],
     # Context
     "context.summarize_after": 10,  # message count threshold
     "context.loop_max_retries": 3,

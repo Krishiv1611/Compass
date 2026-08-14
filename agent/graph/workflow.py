@@ -33,6 +33,8 @@ from agent.graph.nodes import (
     goal_limit_node,
     loop_limit_node,
     summary_node,
+    verification_hooks_node,
+    verification_hooks_finalize_node,
 )
 
 # Tools are now managed in agent.graph.tools_registry
@@ -105,6 +107,11 @@ async def _route_after_evaluator(state: AgentState) -> str:
         return "summary_node"
     if not state.get("is_done", True):
         return "executor"
+    if not state.get("verification_hooks_scheduled"):
+        from agent.hooks import changed_files_from_messages
+
+        if changed_files_from_messages(state.get("messages", [])):
+            return "verification_hooks"
     return END
 
 
@@ -117,8 +124,30 @@ async def _route_after_summary(state: AgentState) -> str:
 async def _route_after_safety(state: AgentState) -> str:
     """Route after check_safety node. Denied and skipped go back to executor."""
     if state.get("approval_status") in ("denied", "skipped"):
+        messages = state.get("messages", [])
+        if messages and str(getattr(messages[-1], "tool_call_id", "")).startswith("hook-"):
+            return "verification_hooks_finalize"
         return "executor"
     return "tools"
+
+
+async def _route_after_verification_hooks(state: AgentState) -> str:
+    return "check_safety" if state.get("pending_tool_calls") else END
+
+
+async def _route_after_tools(state: AgentState) -> str:
+    messages = state.get("messages", [])
+    trailing = []
+    for message in reversed(messages):
+        if getattr(message, "type", "") != "tool":
+            break
+        trailing.append(message)
+    if trailing and all(
+        str(getattr(message, "tool_call_id", "")).startswith("hook-")
+        for message in trailing
+    ):
+        return "verification_hooks_finalize"
+    return "executor"
 
 
 async def _route_after_planner(state: AgentState) -> str:
@@ -183,6 +212,8 @@ builder.add_node("loop_limit", loop_limit_node)
 builder.add_node("evaluator", evaluator_node)
 builder.add_node("linter_node", linter_node)
 builder.add_node("summary_node", summary_node)
+builder.add_node("verification_hooks", verification_hooks_node)
+builder.add_node("verification_hooks_finalize", verification_hooks_finalize_node)
 
 builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
@@ -199,12 +230,15 @@ builder.add_conditional_edges(
         "context_injector": "context_injector",
         "linter_node": "linter_node",
         "summary_node": "summary_node",
+        "verification_hooks": "verification_hooks",
         "executor": "executor",
         "end": END,
     },
 )
 builder.add_conditional_edges("check_safety", _route_after_safety)
-builder.add_edge("tools", "executor")
+builder.add_conditional_edges("tools", _route_after_tools)
+builder.add_conditional_edges("verification_hooks", _route_after_verification_hooks)
+builder.add_edge("verification_hooks_finalize", END)
 builder.add_conditional_edges("linter_node", _route_after_linter)
 builder.add_edge("clarifier", "executor")
 builder.add_edge("context_injector", "planner")

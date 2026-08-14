@@ -65,6 +65,21 @@ async def timing(_argument: str, context: CommandContext) -> CommandResult:
     cost_text = "cost unavailable" if cost["status"] == "unavailable" else (
         "free" if cost["status"] == "free" else f"${cost['estimated_usd']:.6f} estimated"
     )
+
+
+async def hooks(_argument: str, context: CommandContext) -> CommandResult:
+    from agent.hooks import load_verification_hooks
+
+    configuration = load_verification_hooks(context.workspace or ".")
+    lines = [
+        f"{hook.name}: {hook.command} · cwd={hook.cwd} · "
+        f"timeout={hook.timeout_seconds}s · run_on={','.join(hook.run_on)}"
+        for hook in configuration.hooks
+    ]
+    lines.extend(f"Invalid: {error}" for error in configuration.errors)
+    if not lines:
+        lines.append("No hooks configured in .compass/config.toml.")
+    return CommandResult(True, "Verification hooks (inspection only):\n" + "\n".join(lines))
     return CommandResult(
         True,
         "Timing (latest run):\n"
@@ -83,4 +98,5 @@ COMMANDS = [
     SlashCommand("/capabilities", (), "Show effective runtime capabilities", capabilities),
     SlashCommand("/route", (), "Explain the current workflow route", route),
     SlashCommand("/timing", (), "Show timing and cost for the latest run", timing),
+    SlashCommand("/hooks", (), "Inspect configured post-edit hooks", hooks),
 ]

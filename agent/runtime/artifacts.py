@@ -99,19 +99,31 @@ def reduce_run_event(artifact: RunArtifact, event: StreamEvent) -> RunArtifact:
                 if isinstance(path, str) and path not in result.changed_files:
                     result.changed_files.append(path)
     elif event.type == StreamEventType.CHECK_RESULT:
-        result.checks.append(
-            CheckArtifact(
-                id=f"check-{event.seq if event.seq is not None else len(result.checks) + 1}",
-                name=event.content or event.node or "Check",
-                status=str(data.get("status", "unknown")),
-                duration_ms=(
-                    float(data["duration_ms"])
-                    if isinstance(data.get("duration_ms"), (int, float))
-                    else None
-                ),
-                details=data.get("details"),
-            )
+        check_id = str(
+            data.get("id")
+            or f"check-{event.seq if event.seq is not None else len(result.checks) + 1}"
         )
+        value = CheckArtifact(
+            id=check_id,
+            name=event.content or event.node or "Check",
+            status=str(data.get("status", "unknown")),
+            duration_ms=(
+                float(data["duration_ms"])
+                if isinstance(data.get("duration_ms"), (int, float))
+                else None
+            ),
+            details=data.get("details"),
+        )
+        existing = next(
+            (check for check in result.checks if check.id == check_id), None
+        )
+        if existing:
+            existing.name = value.name
+            existing.status = value.status
+            existing.duration_ms = value.duration_ms
+            existing.details = value.details
+        else:
+            result.checks.append(value)
     elif event.type == StreamEventType.USAGE:
         result.usage = dict(data)
     elif event.type == StreamEventType.RUN_WAITING:

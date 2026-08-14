@@ -137,6 +137,18 @@ class RunArtifactTests(unittest.TestCase):
             },
         )
 
+    def test_check_status_updates_in_place_by_hook_id(self):
+        artifact = reduce_run_event(
+            empty_run_artifact(),
+            StreamEvent(type="check_result", content="tests", data={"id": "hook-1", "status": "pending"}),
+        )
+        artifact = reduce_run_event(
+            artifact,
+            StreamEvent(type="check_result", content="tests", data={"id": "hook-1", "status": "passed", "duration_ms": 12}),
+        )
+        self.assertEqual(len(artifact.checks), 1)
+        self.assertEqual(artifact.checks[0].status, "passed")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,4 +34,9 @@ async def route_after_executor(state: dict) -> str:
         return "summary_node" if needs_compaction(state) else "executor"
     if needs_compaction(state):
         return "summary_node"
+    if state.get("is_done") and not state.get("verification_hooks_scheduled"):
+        from agent.hooks import changed_files_from_messages
+
+        if changed_files_from_messages(state.get("messages", [])):
+            return "verification_hooks"
     return "end" if state.get("is_done") else "executor"

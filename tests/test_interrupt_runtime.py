@@ -52,6 +52,28 @@ class InterruptRuntimeTests(unittest.TestCase):
 
 
 class InterruptNodeResumeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hook_always_requires_approval_even_in_fast_mode(self):
+        tool_call = {
+            "id": "hook-1",
+            "name": "shell_execute",
+            "args": {"command": "python -m unittest", "verification_hook": True},
+            "type": "tool_call",
+        }
+        state = {
+            "messages": [AIMessage(content="", tool_calls=[tool_call])],
+            "approved_operations": [],
+            "mode": "fast",
+        }
+        with patch(
+            "langgraph.types.interrupt",
+            return_value={"action": ResumeAction.ALWAYS.value, "feedback": None},
+        ) as fake_interrupt:
+            result = await check_safety_node(state, {"configurable": {"fast_mode": True}})
+
+        fake_interrupt.assert_called_once()
+        self.assertEqual(result["approval_status"], "approved")
+        self.assertEqual(result["approved_operations"], [])
+
     async def test_tool_approval_actions_reach_the_safety_node(self):
         expectations = {
             ResumeAction.APPROVE: "approved",

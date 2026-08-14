@@ -34,6 +34,8 @@ _NODE_STATUS = {
     "tools": "Reading project",
     "linter_node": "Checking changes",
     "evaluator": "Checking changes",
+    "verification_hooks": "Preparing verification",
+    "verification_hooks_finalize": "Verification finished",
 }
 
 _OUTPUT_NODES = {"executor", "direct_chat", "skill_manager", "sub_executor"}
@@ -251,6 +253,7 @@ def build_turn_input(
         "needs_replan": False,
         "syntax_checked": False,
         "syntax_check_failed": False,
+        "verification_hooks_scheduled": False,
         "token_usage": {},
         "active_skill": active_skill,
         "skill_result": None,
@@ -336,6 +339,18 @@ async def stream_agent_events(
 
     assembler = ToolCallAssembler()
     tool_calls: dict[str, tuple[str, dict]] = {}
+    hook_names: dict[str, str] = {}
+    for message in before_messages:
+        for call in getattr(message, "tool_calls", []) or []:
+            call_id = str(call.get("id", ""))
+            name = str(call.get("name", ""))
+            args = call.get("args") or {}
+            if call_id and name and isinstance(args, dict):
+                tool_calls[call_id] = (name, args)
+                if call_id.startswith("hook-"):
+                    hook_names[call_id] = str(
+                        args.get("hook_name") or "Verification hook"
+                    )
     metrics, metrics_token = begin_run_metrics(metrics)
     for tag in ("provider", "model", "mode", "execution_target"):
         value = configurable.get(tag)
@@ -396,6 +411,15 @@ async def stream_agent_events(
                             for message in messages
                         ):
                             status_text = "Editing files"
+                        for message in messages:
+                            call_id = str(getattr(message, "tool_call_id", ""))
+                            if call_id.startswith("hook-"):
+                                yield StreamEvent(
+                                    type=StreamEventType.CHECK_RESULT,
+                                    content=hook_names.get(call_id, "Verification hook"),
+                                    node=node_name,
+                                    data={"id": call_id, "status": "running"},
+                                )
                     if status_text:
                         yield StreamEvent(
                             type=StreamEventType.STATUS,
@@ -438,20 +462,72 @@ async def stream_agent_events(
                             data={"loop_count": loop_count},
                             node=node_name,
                         )
-                    elif node_name == "tools":
+                    elif node_name == "verification_hooks":
+                        for message in node_output.get("messages", []):
+                            for call in getattr(message, "tool_calls", []) or []:
+                                call_id = str(call.get("id", ""))
+                                name = str(call.get("name", ""))
+                                args = call.get("args") or {}
+                                if not call_id or not name or not isinstance(args, dict):
+                                    continue
+                                tool_calls[call_id] = (name, args)
+                                hook_names[call_id] = str(
+                                    args.get("hook_name") or "Verification hook"
+                                )
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL,
+                                    tool_call=ToolCallData(
+                                        id=call_id, name=name, args=args
+                                    ),
+                                    node=node_name,
+                                )
+                                yield StreamEvent(
+                                    type=StreamEventType.CHECK_RESULT,
+                                    content=hook_names[call_id],
+                                    node=node_name,
+                                    data={"id": call_id, "status": "pending"},
+                                )
+                    elif node_name in {"tools", "check_safety"}:
+                        from agent.hooks import hook_result_status, redact_hook_output
+
                         for message in node_output.get("messages", []):
                             if isinstance(message, ToolMessage):
                                 status = getattr(message, "status", "success")
+                                is_hook = str(message.tool_call_id).startswith("hook-")
+                                content = (
+                                    redact_hook_output(message.content, limit=500)
+                                    if is_hook
+                                    else str(message.content)[:500]
+                                )
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_RESULT,
                                     tool_call_id=message.tool_call_id,
-                                    content=str(message.content)[:500],
+                                    content=content,
                                     data={
                                         "name": getattr(message, "name", "tool"),
                                         "status": status,
                                     },
                                     node=node_name,
                                 )
+                                if is_hook:
+                                    call_id = str(message.tool_call_id)
+                                    yield StreamEvent(
+                                        type=StreamEventType.CHECK_RESULT,
+                                        content=hook_names.get(
+                                            call_id, "Verification hook"
+                                        ),
+                                        node=node_name,
+                                        data={
+                                            "id": call_id,
+                                            "status": hook_result_status(
+                                                message.content, status
+                                            ),
+                                            "duration_ms": duration_ms,
+                                            "details": redact_hook_output(
+                                                message.content
+                                            ),
+                                        },
+                                    )
                                 call = tool_calls.get(message.tool_call_id)
                                 if call:
                                     patch_event = workspace_patch_for_tool_result(

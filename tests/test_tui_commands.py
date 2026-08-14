@@ -55,6 +55,20 @@ class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("agent imports: ok", result.message)
         self.assertIn("provider credential: configured", result.message)
 
+    async def test_hooks_inspects_config_without_running_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / ".compass").mkdir()
+            (root / ".compass" / "config.toml").write_text(
+                '[[hooks.after_edit]]\nname="tests"\ncommand="python -m unittest"\nrun_on=["py"]\n',
+                encoding="utf-8",
+            )
+            result = await build_registry().execute(
+                "/hooks", self.context(workspace=folder)
+            )
+        self.assertIn("inspection only", result.message)
+        self.assertIn("python -m unittest", result.message)
+
     async def test_init_is_non_destructive(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "COMPASS.md"

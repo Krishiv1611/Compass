@@ -13,7 +13,17 @@ class CompassToolNode:
 
     async def __call__(self, state: dict, config: RunnableConfig) -> dict:
         target = config.get("configurable", {}).get("execution_target", "tui")
-        node = ToolNode(self._registry.tools_for(target))
+        tools = self._registry.tools_for(target)
+        calls = getattr(state.get("messages", [])[-1], "tool_calls", []) if state.get("messages") else []
+        hook_only = bool(calls) and all(
+            str(call.get("id", "")).startswith("hook-")
+            and call.get("name") == "shell_execute"
+            and bool((call.get("args") or {}).get("verification_hook"))
+            for call in calls
+        )
+        if target == "web" and hook_only:
+            tools = [*tools, self._registry.get("shell_execute").tool]
+        node = ToolNode(tools)
         metrics = current_run_metrics()
         if metrics is None:
             return await node.ainvoke(state, config)
