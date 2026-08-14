@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.patch import WorkspacePatch
 from backend.services.workspace import get_workspace
+from agent.checkpoints import create_checkpoint, seal_checkpoint
 
 
 @dataclass(slots=True)
@@ -50,6 +51,16 @@ def _write_staged_file(target: Path, content: bytes) -> Path:
         handle.flush()
         os.fsync(handle.fileno())
     return temporary
+
+
+def _checkpoint_for_patch(workspace, paths: list[str], label: str):
+    return create_checkpoint(
+        workspace.storage_path,
+        paths,
+        workspace_id=workspace.id,
+        thread_id=str(getattr(getattr(workspace, "session", None), "thread_id", None) or workspace.session_id),
+        label=label,
+    )
 
 
 def stage_patch_files(
@@ -485,6 +496,9 @@ def apply_patch(
         updated_changes.append(change)
 
     staged = stage_patch_files(workspace_dir, pending)
+    checkpoint = _checkpoint_for_patch(
+        workspace, [change["path"] for change in pending], "Before patch apply"
+    )
     metadata_changes = _metadata_changes(workspace_dir, staged)
     commit_staged_files(staged)
     try:
@@ -505,6 +519,7 @@ def apply_patch(
     from backend.services.workspace_changes import apply_workspace_metadata_delta
     apply_workspace_metadata_delta(workspace, metadata_changes)
     db.commit()
+    seal_checkpoint(workspace_dir, checkpoint.id)
     return patch
 
 
@@ -609,6 +624,9 @@ def undo_patch(
         updated_changes.append(change)
 
     staged = stage_patch_files(workspace_dir, applied, use_before=True)
+    checkpoint = _checkpoint_for_patch(
+        workspace, [change["path"] for change in applied], "Before patch undo"
+    )
     metadata_changes = _metadata_changes(workspace_dir, staged)
     commit_staged_files(staged)
     try:
@@ -625,6 +643,7 @@ def undo_patch(
     from backend.services.workspace_changes import apply_workspace_metadata_delta
     apply_workspace_metadata_delta(workspace, metadata_changes)
     db.commit()
+    seal_checkpoint(workspace_dir, checkpoint.id)
     return patch
 
 
@@ -682,6 +701,7 @@ def resolve_patch_file(
         values["applied_at"] = datetime.now(timezone.utc)
 
     staged = []
+    checkpoint = None
     if selected_change is not None:
         staged = stage_patch_files(
             workspace_dir,
@@ -689,6 +709,11 @@ def resolve_patch_file(
             use_before=action == "undo",
         )
         metadata_changes = _metadata_changes(workspace_dir, staged)
+        checkpoint = _checkpoint_for_patch(
+            workspace,
+            [selected_change["path"]],
+            f"Before patch file {action}",
+        )
         commit_staged_files(staged)
     else:
         metadata_changes = []
@@ -707,4 +732,6 @@ def resolve_patch_file(
         from backend.services.workspace_changes import apply_workspace_metadata_delta
         apply_workspace_metadata_delta(workspace, metadata_changes)
         db.commit()
+        if checkpoint is not None:
+            seal_checkpoint(workspace_dir, checkpoint.id)
     return patch

@@ -160,6 +160,7 @@ from backend.routers.workspaces import router as workspaces_router
 from backend.routers.tools import router as tools_router
 from backend.routers.github import router as github_router
 from backend.routers.memory import router as memory_router
+from backend.routers.checkpoints import router as checkpoints_router
 
 # Mount all routers under /api prefix (matches frontend VITE_API_URL)
 api_router = APIRouter(prefix="/api")
@@ -174,4 +175,5 @@ api_router.include_router(workspaces_router)
 api_router.include_router(tools_router)
 api_router.include_router(github_router)
 api_router.include_router(memory_router)
+api_router.include_router(checkpoints_router)
 app.include_router(api_router)

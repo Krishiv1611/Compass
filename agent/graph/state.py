@@ -33,6 +33,8 @@ class AgentState(TypedDict):
     syntax_checked: bool
     syntax_check_failed: bool
     verification_hooks_scheduled: bool
+    last_checkpoint_id: str | None
+    checkpoint_files: list[str]
     goal_iteration: int
     goal_iteration_limit: int
     needs_replan: bool

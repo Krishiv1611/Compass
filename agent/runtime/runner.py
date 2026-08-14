@@ -135,6 +135,18 @@ def workspace_patch_for_tool_result(
 def events_for_node_artifacts(node_name: str, node_output: dict) -> list[StreamEvent]:
     """Translate deterministic graph outcomes into surface artifact events."""
     events: list[StreamEvent] = []
+    checkpoint_id = node_output.get("last_checkpoint_id")
+    if node_name == "tools" and isinstance(checkpoint_id, str) and checkpoint_id:
+        events.append(
+            StreamEvent(
+                type=StreamEventType.CHECKPOINT_CREATED,
+                node=node_name,
+                data={
+                    "checkpoint_id": checkpoint_id,
+                    "affected_files": node_output.get("checkpoint_files", []),
+                },
+            )
+        )
     current_step = node_output.get("current_step")
     if (
         node_name in {"executor", "sub_executor"}
@@ -254,6 +266,8 @@ def build_turn_input(
         "syntax_checked": False,
         "syntax_check_failed": False,
         "verification_hooks_scheduled": False,
+        "last_checkpoint_id": None,
+        "checkpoint_files": [],
         "token_usage": {},
         "active_skill": active_skill,
         "skill_result": None,

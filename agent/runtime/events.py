@@ -16,6 +16,8 @@ class StreamEventType(str, Enum):
     RUN_WAITING = "run_waiting"
     RPC_CALL = "rpc_call"
     WORKSPACE_PATCH = "workspace_patch"
+    CHECKPOINT_CREATED = "checkpoint_created"
+    CHECKPOINT_RESTORED = "checkpoint_restored"
     PLAN_CREATED = "plan_created"
     PLAN_STEP = "plan_step"
     CHECK_RESULT = "check_result"

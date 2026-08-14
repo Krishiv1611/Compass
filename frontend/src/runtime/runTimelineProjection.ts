@@ -14,7 +14,7 @@ const nodeStages: Record<string, RunStage> = {
 
 export const stageForEvent = (event: RunEvent): RunStage | undefined => {
   if (event.type === "done") return "complete";
-  if (event.type === "workspace_patch" || event.type === "approval_required") return "review";
+  if (event.type === "workspace_patch" || event.type === "checkpoint_restored" || event.type === "approval_required") return "review";
   if (event.type === "plan_created" || event.type === "plan_step") return "plan";
   if (event.type === "check_result") return "check";
   if (event.node && nodeStages[event.node]) return nodeStages[event.node];

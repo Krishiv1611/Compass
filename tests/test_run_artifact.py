@@ -106,6 +106,13 @@ class RunArtifactTests(unittest.TestCase):
         self.assertEqual(check_events[0].type.value, "check_result")
         self.assertEqual(check_events[0].data["status"], "passed")
 
+        checkpoint_events = events_for_node_artifacts(
+            "tools",
+            {"last_checkpoint_id": "abc", "checkpoint_files": ["app.py"]},
+        )
+        self.assertEqual(checkpoint_events[0].type.value, "checkpoint_created")
+        self.assertEqual(checkpoint_events[0].data["affected_files"], ["app.py"])
+
     def test_history_serialization_restores_canonical_event_shape(self):
         stored = SimpleNamespace(
             id="stored-1",

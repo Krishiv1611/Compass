@@ -98,4 +98,10 @@ def safe_workspace_target(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace root cannot be targeted",
         )
+    relative_parts = target.relative_to(base).parts
+    if relative_parts[:2] == (".compass", "checkpoints"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Checkpoint storage is managed by Compass",
+        )
     return target

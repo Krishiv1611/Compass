@@ -103,12 +103,10 @@ async def run_agent_stream(
         from backend.services.run_manager import get_cancel_signal
 
         cancel_event = get_cancel_signal(run_id)
-    async for event in stream_agent_events(
-        input_value,
-        config,
-        cancel_event=cancel_event,
-        metrics=metrics,
-    ):
+    stream_options = {"cancel_event": cancel_event}
+    if metrics is not None:
+        stream_options["metrics"] = metrics
+    async for event in stream_agent_events(input_value, config, **stream_options):
         yield event
 
 

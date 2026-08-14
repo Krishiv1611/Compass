@@ -115,7 +115,12 @@ def update_workspace_stats(db: Session, workspace: Workspace, sync_session: bool
     for root, _, files in os.walk(path):
         for file in files:
             file_path = Path(root) / file
-            if ".git" in file_path.parts or "node_modules" in file_path.parts:
+            relative_parts = file_path.relative_to(path).parts
+            if (
+                ".git" in relative_parts
+                or "node_modules" in relative_parts
+                or relative_parts[:2] == (".compass", "checkpoints")
+            ):
                 continue
             count += 1
             try:

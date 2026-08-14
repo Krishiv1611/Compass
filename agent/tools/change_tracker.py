@@ -20,6 +20,7 @@ class FileChange:
     tool_name: str  # "write_to_file", "edit_file", etc.
     timestamp: float = field(default_factory=time.time)
     undone: bool = False
+    existed_before: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -29,6 +30,7 @@ class FileChange:
             "tool_name": self.tool_name,
             "timestamp": self.timestamp,
             "undone": self.undone,
+            "existed_before": self.existed_before,
         }
 
 
@@ -46,6 +48,7 @@ class ChangeTracker:
     def __init__(self):
         self._changes: list[FileChange] = []
         self._original_snapshots: dict[str, str] = {}  # path -> first-seen content
+        self._snapshot_existence: dict[str, bool] = {}
 
     def snapshot_before_write(self, path: str) -> str | None:
         """
@@ -55,6 +58,7 @@ class ChangeTracker:
         abs_path = os.path.abspath(path)
         try:
             if os.path.exists(abs_path) and os.path.isfile(abs_path):
+                self._snapshot_existence[abs_path] = True
                 with open(abs_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 # Store original snapshot (first time only)
@@ -62,6 +66,7 @@ class ChangeTracker:
                     self._original_snapshots[abs_path] = content
                 return content
             else:
+                self._snapshot_existence[abs_path] = False
                 if abs_path not in self._original_snapshots:
                     self._original_snapshots[abs_path] = ""
                 return ""
@@ -78,6 +83,7 @@ class ChangeTracker:
             old_content=old_content,
             new_content=new_content,
             tool_name=tool_name,
+            existed_before=self._snapshot_existence.get(abs_path, True),
         )
         self._changes.append(change)
 
@@ -92,8 +98,12 @@ class ChangeTracker:
             if not change.undone:
                 # Restore the file
                 try:
-                    with open(change.path, "w", encoding="utf-8") as f:
-                        f.write(change.old_content)
+                    if not change.existed_before:
+                        if os.path.isfile(change.path):
+                            os.unlink(change.path)
+                    else:
+                        with open(change.path, "w", encoding="utf-8") as f:
+                            f.write(change.old_content)
                     change.undone = True
                     return change
                 except Exception:
@@ -145,3 +155,4 @@ class ChangeTracker:
         """Clear all change history."""
         self._changes.clear()
         self._original_snapshots.clear()
+        self._snapshot_existence.clear()

@@ -105,7 +105,9 @@ def _content_identity(root: Path) -> str:
     if not found_manifest:
         for path in sorted(
             item for item in root.rglob("*")
-            if item.is_file() and ".git" not in item.parts
+            if item.is_file()
+            and ".git" not in item.parts
+            and not _is_checkpoint_storage(root, item)
         )[:500]:
             relative = path.relative_to(root).as_posix()
             digest.update(relative.encode())
@@ -119,7 +121,9 @@ def content_context_version(root: Path) -> str:
     excluded = {".git", ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
     files = sorted(
         item for item in root.rglob("*")
-        if item.is_file() and not any(part in excluded for part in item.parts)
+        if item.is_file()
+        and not any(part in excluded for part in item.parts)
+        and not _is_checkpoint_storage(root, item)
     )
     for path in files[:2000]:
         relative = path.relative_to(root).as_posix()
@@ -132,6 +136,14 @@ def content_context_version(root: Path) -> str:
         except OSError:
             continue
     return f"content:{digest.hexdigest()[:24]}"
+
+
+def _is_checkpoint_storage(root: Path, path: Path) -> bool:
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    return len(parts) >= 2 and parts[0] == ".compass" and parts[1] == "checkpoints"
 
 
 def discover_local_workspace(start: Path | None = None) -> WorkspaceContext:

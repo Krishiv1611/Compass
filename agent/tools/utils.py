@@ -26,7 +26,9 @@ def resolve_workspace_path(workspace: WorkspaceContext, target_path: str) -> str
     requested = Path(target_path)
     target = requested.resolve() if requested.is_absolute() else (base / requested).resolve()
     try:
-        target.relative_to(base)
+        relative = target.relative_to(base)
     except ValueError:
         raise PermissionError(f"Access denied: path '{target_path}' escapes the workspace directory.")
+    if relative.parts[:2] == (".compass", "checkpoints"):
+        raise PermissionError("Access denied: checkpoint storage is managed by Compass.")
     return str(target)

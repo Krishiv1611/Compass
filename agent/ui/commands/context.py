@@ -7,6 +7,7 @@ from agent.instructions import (
     initialize_compass_file,
     proposed_learned_instruction,
 )
+from agent.checkpoints import create_checkpoint, seal_checkpoint
 from agent.ui.commands.models import CommandContext, CommandResult, SlashCommand
 
 
@@ -22,6 +23,11 @@ async def init(argument: str, context: CommandContext) -> CommandResult:
         return CommandResult(True, "Usage: /init [--force]")
     root = Path(context.workspace or ".").resolve()
     target = root / "COMPASS.md"
+    if target.exists() and not force:
+        return CommandResult(
+            True,
+            "COMPASS.md already exists and was not changed. Use /init --force to replace it.",
+        )
     approved = False
     if target.exists() and force:
         approved = click.confirm(
@@ -29,13 +35,19 @@ async def init(argument: str, context: CommandContext) -> CommandResult:
         )
         if not approved:
             return CommandResult(True, "Initialization cancelled; COMPASS.md was unchanged.")
+    configurable = context.run_config.get("configurable", {})
+    checkpoint = create_checkpoint(
+        root,
+        ["COMPASS.md"],
+        workspace_id=str((configurable.get("workspace_context") or {}).get("workspace_id") or "local"),
+        thread_id=str(configurable.get("thread_id") or "local"),
+        label="Before /init",
+    )
     try:
         initialize_compass_file(root, force=force, approved=approved)
     except FileExistsError:
-        return CommandResult(
-            True,
-            "COMPASS.md already exists and was not changed. Use /init --force to replace it.",
-        )
+        return CommandResult(True, "COMPASS.md already exists and was not changed.")
+    seal_checkpoint(root, checkpoint.id)
     return CommandResult(True, f"Created {target}")
 
 
@@ -48,7 +60,17 @@ async def learn(argument: str, context: CommandContext) -> CommandResult:
         f"Append this exact line to COMPASS.md?\n\n{addition}", default=False
     ):
         return CommandResult(True, "Learn cancelled; COMPASS.md was unchanged.")
-    append_learned_instruction(context.workspace or ".", argument, approved=True)
+    root = Path(context.workspace or ".").resolve()
+    configurable = context.run_config.get("configurable", {})
+    checkpoint = create_checkpoint(
+        root,
+        ["COMPASS.md"],
+        workspace_id=str((configurable.get("workspace_context") or {}).get("workspace_id") or "local"),
+        thread_id=str(configurable.get("thread_id") or "local"),
+        label="Before /learn",
+    )
+    append_learned_instruction(root, argument, approved=True)
+    seal_checkpoint(root, checkpoint.id)
     return CommandResult(True, f"Added to COMPASS.md:\n{addition}")
 
 

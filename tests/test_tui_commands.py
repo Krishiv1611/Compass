@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from agent.ui.commands import build_registry
 from agent.ui.commands.models import CommandContext
+from agent.checkpoints import create_checkpoint, list_checkpoints, seal_checkpoint
 
 
 class FakeWorkflow:
@@ -99,6 +100,27 @@ class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
                 "- Prefer small functions",
                 (Path(folder) / "COMPASS.md").read_text(encoding="utf-8"),
             )
+            self.assertEqual(len(list_checkpoints(folder)), 1)
+
+    async def test_undo_restores_latest_file_checkpoint(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = root / "app.py"
+            target.write_text("before", encoding="utf-8")
+            checkpoint = create_checkpoint(
+                root, ["app.py"], workspace_id="local", thread_id="thread"
+            )
+            target.write_text("after", encoding="utf-8")
+            seal_checkpoint(root, checkpoint.id)
+            context = self.context(
+                workspace=folder,
+                run_config={"configurable": {"thread_id": "thread"}},
+            )
+            with patch("agent.ui.commands.session.click.confirm", return_value=True):
+                result = await build_registry().execute("/undo", context)
+
+            self.assertIn("Restored", result.message)
+            self.assertEqual(target.read_text(encoding="utf-8"), "before")
 
 
 if __name__ == "__main__":

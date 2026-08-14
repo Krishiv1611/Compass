@@ -46,6 +46,8 @@ const sanitize = (value: JsonValue, depth = 0): JsonValue => {
 const eventLabel = (event: LiveRunEvent) => {
   if (event.type === "approval_required") return "Waiting for approval";
   if (event.type === "workspace_patch") return "Prepared project changes";
+  if (event.type === "checkpoint_created") return "Created file checkpoint";
+  if (event.type === "checkpoint_restored") return "Restored file checkpoint";
   if (event.type === "plan_created") return "Prepared a plan";
   if (event.type === "done") return "Run completed";
   if (event.type === "error") return typeof event.content === "string" ? event.content : "Run failed";

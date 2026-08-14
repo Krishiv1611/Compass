@@ -59,12 +59,14 @@ def _bounded_workspace_files(root: Path) -> list[Path]:
     root = root.resolve()
     for current_root, dirs, names in os.walk(root):
         current = Path(current_root)
+        relative_parts = current.relative_to(root).parts
         depth = len(current.relative_to(root).parts)
         if depth > MAX_WORKSPACE_DEPTH:
             raise HTTPException(status_code=413, detail="Workspace tree is too deep")
         dirs[:] = [
             name for name in dirs
             if name not in {".git", "node_modules", "__pycache__"}
+            and not (relative_parts == (".compass",) and name == "checkpoints")
         ]
         for name in names:
             path = current / name
@@ -491,7 +493,12 @@ def search_workspace_files(
     ignored = {".git", "node_modules", ".venv", "__pycache__", "dist", "build"}
     matches = []
     for path in root.rglob("*"):
-        if not path.is_file() or any(part in ignored for part in path.parts):
+        relative_parts = path.relative_to(root).parts
+        if (
+            not path.is_file()
+            or any(part in ignored for part in relative_parts)
+            or relative_parts[:2] == (".compass", "checkpoints")
+        ):
             continue
         relative = path.relative_to(root).as_posix()
         if not query or query in relative.lower():
