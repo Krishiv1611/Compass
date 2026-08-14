@@ -29,6 +29,22 @@ class SkillManagerAgent:
         if not active_skill:
             return {}  # empty update = state unchanged, executor runs next
 
+        if config.get("configurable", {}).get("delegation_allowed") is False:
+            return {
+                "active_skill": None,
+                "skill_result": {
+                    "skill_name": active_skill.get("name", ""),
+                    "status": "error",
+                    "error": "Worker delegation is disabled.",
+                },
+                "messages": [
+                    SystemMessage(
+                        content="Worker delegation is disabled; continue without nesting."
+                    )
+                ],
+                "is_done": False,
+            }
+
         skill_name = active_skill.get("name", "")
         arguments = active_skill.get("arguments", "")
 
@@ -65,6 +81,7 @@ class SkillManagerAgent:
             "approval_status": None,
             "approved_operations": state.get("approved_operations", []),
             "pending_tool_calls": [],
+            "usage": {},
         }
 
         final_state = await sub_graph.ainvoke(initial_state, config=config)

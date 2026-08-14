@@ -66,6 +66,20 @@ class ToolRegistry:
     def tools_for(self, target: str) -> list[BaseTool]:
         return [spec.tool for spec in self.specs_for(target)]
 
+    def worker_tools(self, requested_names: list[str]) -> list[BaseTool]:
+        """Resolve an exact worker allowlist or reject it without partial access."""
+        resolved = []
+        for name in requested_names:
+            spec = self._specs.get(name)
+            if (
+                spec is None
+                or not spec.policy.worker_allowed
+                or spec.policy.mutates_workspace
+            ):
+                raise ValueError(f"tool '{name}' is not worker-allowed")
+            resolved.append(spec.tool)
+        return resolved
+
 
 def _spec(
     tool: BaseTool,

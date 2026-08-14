@@ -33,6 +33,7 @@ class SubAgentState(TypedDict):
     approval_status: str | None
     approved_operations: list[str]
     pending_tool_calls: list[dict]
+    usage: dict[str, int]
 
 
 @dataclass
