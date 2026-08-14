@@ -53,7 +53,7 @@ def _non_empty_strings(values: list[str]) -> list[str]:
 class AgentTask(StrictModel):
     id: str = Field(pattern=TASK_ID_PATTERN)
     title: str = Field(min_length=1, max_length=120)
-    objective: str = Field(min_length=1, max_length=4_000)
+    objective: str = Field(min_length=1)
     kind: WorkerKind
     depends_on: list[str] = Field(default_factory=list, max_length=12)
     allowed_tools: list[str] = Field(min_length=1, max_length=12)

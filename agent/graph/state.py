@@ -23,6 +23,9 @@ class AgentState(TypedDict):
     # ── Planner ──────────────────────────────────────────────────────────────
     plan: str  # Step-by-step plan from the planner agent
     current_step: int  # Which plan step the executor is working on
+    execution_plan: dict | None  # Validated read-only worker task graph
+    worker_artifacts: list[dict]  # Structured worker results for synthesis
+    orchestration_enabled: bool  # False for the safe main-executor fallback
 
     # ── Executor ─────────────────────────────────────────────────────────────
     is_done: bool  # True when executor produces final answer (no tool calls)

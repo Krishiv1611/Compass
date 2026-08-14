@@ -25,6 +25,11 @@ from langchain_core.messages import BaseMessage as _BaseMessage
 from langchain_core.runnables import RunnableConfig
 from agent.runtime.metrics import current_run_metrics
 from agent.runtime.turn_context import get_turn_context
+from agent.orchestration.planner import (
+    create_execution_plan,
+    is_fallback_plan,
+    render_execution_plan,
+)
 
 
 async def _invoke_model(node: str, model_client, messages):
@@ -151,9 +156,6 @@ async def planner_node(state: AgentState, config: RunnableConfig):
     # Add the conversation messages (planner needs context)
     planner_messages.extend(messages)
     
-    api_key = config.get("configurable", {}).get("api_key")
-    provider = config.get("configurable", {}).get("provider")
-    model = config.get("configurable", {}).get("model")
     planner_model = _model_for_turn("planner", config)
 
     response = await _invoke_model("planner", planner_model, planner_messages)
@@ -161,6 +163,31 @@ async def planner_node(state: AgentState, config: RunnableConfig):
     plan_text = (
         response.content if isinstance(response.content, str) else str(response.content)
     )
+
+    turn_context = get_turn_context(config)
+    planner_request = (turn_context.user_query if turn_context else "").strip()
+    if not planner_request:
+        for message in reversed(messages):
+            content = getattr(message, "content", "")
+            if getattr(message, "type", "") == "human" and isinstance(content, str):
+                planner_request = content.strip()
+                if planner_request:
+                    break
+    for message in reversed(messages):
+        content = getattr(message, "content", "")
+        if isinstance(content, str) and content.startswith(
+            "User rejected plan with feedback:"
+        ):
+            feedback = content.split(":", 1)[1].strip()
+            separator = "\n" if planner_request else ""
+            planner_request += f"{separator}Planner feedback: {feedback}"
+            break
+    execution_plan = await create_execution_plan(
+        planner_request,
+        turn_context,
+        planner_model,
+    )
+    plan_text = f"{plan_text.rstrip()}\n\n{render_execution_plan(execution_plan)}"
 
     # Parse SKILL: directive from the plan
     active_skill = _parse_skill_directive(plan_text)
@@ -172,6 +199,9 @@ async def planner_node(state: AgentState, config: RunnableConfig):
         "loop_detected": False,
         "needs_replan": False,
         "recovery_guidance": "",
+        "execution_plan": execution_plan.model_dump(mode="json"),
+        "worker_artifacts": [],
+        "orchestration_enabled": not is_fallback_plan(execution_plan),
         "messages": [response],
     }
 

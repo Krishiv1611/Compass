@@ -151,7 +151,7 @@ async def _route_after_tools(state: AgentState) -> str:
 
 
 async def _route_after_planner(state: AgentState) -> str:
-    """Route after planner: skill_manager if a skill is active, plan_approval if mode is plan, else executor."""
+    """Route after both the readable plan and typed task graph are prepared."""
     if state.get("active_skill"):
         return "skill_manager"
     if _normalise_mode(state) == "plan":
