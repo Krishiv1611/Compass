@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useRunController } from "@/hooks/useRunController";
 import type { RunSocket } from "@/runtime/RunController";
 import { workspaceChangeNeedsConfirmation } from "@/components/workbench/editorState";
+import { projectSessionFork } from "@/runtime/sessionForkEvent";
 
 const CenterWorkbench = lazy(() => import("@/components/workbench/CenterWorkbench"));
 const GitHubPublishDialog = lazy(() => import("@/components/github/GitHubPublishDialog"));
@@ -53,6 +54,7 @@ export default function ChatPage() {
     addEvent,
     clearRun,
     finishRun,
+    hydrateRun,
     isRunActive,
     markFirstToken,
     setOffline,
@@ -191,7 +193,11 @@ export default function ChatPage() {
       try {
         const session = await sessionsApi.getSession(sessionParam);
         if (cancelled) return;
-        setMessages(session.messages || []);
+        const forkProjection = projectSessionFork(session.messages || []);
+        setMessages(forkProjection.messages as TranscriptMessage[]);
+        if (forkProjection.event) {
+          hydrateRun(sessionParam, [forkProjection.event]);
+        }
         await refreshWorkspace(sessionParam, () => !cancelled && loadedSessionParam.current === sessionParam);
       } catch (error) {
         if (!cancelled) toast.error(error instanceof Error ? error.message : "Could not load task");
@@ -201,7 +207,7 @@ export default function ChatPage() {
     };
     void load();
     return () => { cancelled = true; };
-  }, [clearRun, dispatch, refreshWorkspace, runController, sessionId, sessionParam, setSearchParams, state.activeWorkspaceId, state.dirtyWorkspaceIds]);
+  }, [clearRun, dispatch, hydrateRun, refreshWorkspace, runController, sessionId, sessionParam, setSearchParams, state.activeWorkspaceId, state.dirtyWorkspaceIds]);
 
   const handleSend = async (content: string, files: File[], mode: ChatMode, contextFiles: string[]) => {
     if (!content.trim() && files.length === 0 && contextFiles.length === 0) return;

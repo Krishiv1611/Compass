@@ -9,6 +9,7 @@ from agent.checkpoints import (
     restore_checkpoint,
 )
 from agent.ui.commands.models import CommandContext, CommandResult, SlashCommand
+from agent.sessions import copy_thread_state
 
 
 async def history(_argument: str, context: CommandContext) -> CommandResult:
@@ -90,9 +91,40 @@ async def undo(_argument: str, context: CommandContext) -> CommandResult:
     return await restore(values[0].id, context)
 
 
+async def fork(_argument: str, context: CommandContext) -> CommandResult:
+    source_thread_id = _thread_id(context)
+    if not source_thread_id or context.session_store is None or context.workflow is None:
+        return CommandResult(True, "Forking requires an active local task.")
+    try:
+        forked = context.session_store.fork_session(source_thread_id)
+        await copy_thread_state(
+            context.workflow,
+            context.run_config,
+            forked["thread_id"],
+        )
+    except ValueError as exc:
+        return CommandResult(True, str(exc))
+    return CommandResult(
+        True,
+        (
+            f"Forked task as {forked['thread_id'][:10]}. "
+            "This TUI fork shares the current working directory with its source."
+        ),
+        {
+            "switch_thread_id": forked["thread_id"],
+            "session_forked": {
+                "source_thread_id": source_thread_id,
+                "forked_thread_id": forked["thread_id"],
+                "shared_workspace": True,
+            },
+        },
+    )
+
+
 COMMANDS = [
     SlashCommand("/history", (), "Show checkpoint conversation history", history),
     SlashCommand("/checkpoints", (), "List recoverable file checkpoints", checkpoints),
     SlashCommand("/restore", (), "Preview and restore one checkpoint", restore),
     SlashCommand("/undo", (), "Restore the latest file checkpoint", undo),
+    SlashCommand("/fork", (), "Fork this task in the same working directory", fork),
 ]

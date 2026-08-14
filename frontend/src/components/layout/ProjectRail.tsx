@@ -1,5 +1,5 @@
 ﻿import { useState } from "react";
-import { Compass, FolderOpen, Loader2, MoreHorizontal, Pencil, Plus, Sparkles, Plug, Settings, Trash2 } from "lucide-react";
+import { Compass, Copy, FolderOpen, Loader2, MoreHorizontal, Pencil, Plus, Sparkles, Plug, Settings, Trash2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,6 +13,8 @@ import Modal from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { useSessions, type SessionSummary } from "@/hooks/useSessions";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
+import { sessionsApi } from "@/api";
+import { toast } from "react-toastify";
 
 interface ProjectRailProps {
   onOpenSettings: (tab?: string) => void;
@@ -36,6 +38,7 @@ export default function ProjectRail({ onOpenSettings, onCloseMobile }: ProjectRa
   const [sessionToRename, setSessionToRename] = useState<SessionSummary | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<SessionSummary | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
+  const [forkingSessionId, setForkingSessionId] = useState<string | null>(null);
 
   const handleNewChat = () => {
     startNewTask();
@@ -59,6 +62,21 @@ export default function ProjectRail({ onOpenSettings, onCloseMobile }: ProjectRa
       startNewTask();
     }
     setSessionToDelete(null);
+  };
+
+  const executeFork = async (session: SessionSummary) => {
+    setForkingSessionId(session.id);
+    try {
+      const forked = await sessionsApi.forkSession(session.id);
+      startNewTask();
+      navigate(`/chat?session=${forked.id}`);
+      onCloseMobile?.();
+      toast.success("Task forked into an isolated workspace");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not fork task");
+    } finally {
+      setForkingSessionId(null);
+    }
   };
 
   const groupedSessions = sessions.reduce((acc, session) => {
@@ -141,6 +159,17 @@ export default function ProjectRail({ onOpenSettings, onCloseMobile }: ProjectRa
                               <MoreHorizontal className="h-4 w-4" />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-36">
+                              <DropdownMenuItem
+                                disabled={forkingSessionId === session.id}
+                                onClick={() => void executeFork(session)}
+                              >
+                                {forkingSessionId === session.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
+                                Fork task
+                              </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => { setSessionToRename(session); setRenameTitle(session.title || ""); }}>
                                 <Pencil className="h-4 w-4" /> Rename
                               </DropdownMenuItem>

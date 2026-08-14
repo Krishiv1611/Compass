@@ -18,6 +18,7 @@ class StreamEventType(str, Enum):
     WORKSPACE_PATCH = "workspace_patch"
     CHECKPOINT_CREATED = "checkpoint_created"
     CHECKPOINT_RESTORED = "checkpoint_restored"
+    SESSION_FORKED = "session_forked"
     PLAN_CREATED = "plan_created"
     PLAN_STEP = "plan_step"
     CHECK_RESULT = "check_result"

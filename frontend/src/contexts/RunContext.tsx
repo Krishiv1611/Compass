@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState } fro
 import type { RunEvent } from "@/types/run";
 import type { RunArtifact } from "@/types/artifact";
 import { emptyRunArtifact, projectRunEvent } from "@/runtime/projectRunEvent";
+import { mergeSessionTimelineEvents } from "@/runtime/sessionForkEvent";
 
 export type LiveRunEvent = RunEvent;
 
@@ -37,6 +38,8 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
   const firstTokenSeen = useRef(false);
   const activeRef = useRef(false);
   const frame = useRef<number | null>(null);
+  const hydratedSessionId = useRef<string | null>(null);
+  const durableSessionEvents = useRef<LiveRunEvent[]>([]);
 
   const flush = useCallback(() => {
     frame.current = null;
@@ -55,6 +58,8 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
     if (frame.current !== null) window.clearTimeout(frame.current);
     frame.current = null;
     setCurrentSessionId(sessionId);
+    hydratedSessionId.current = sessionId;
+    durableSessionEvents.current = [];
     setCurrentRunEvents([]);
     setArtifact(emptyRunArtifact());
     setStartedAt(new Date(now).toISOString());
@@ -97,6 +102,8 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
     if (frame.current !== null) window.clearTimeout(frame.current);
     frame.current = null;
     setCurrentRunEvents([]);
+    hydratedSessionId.current = null;
+    durableSessionEvents.current = [];
     setArtifact(emptyRunArtifact());
     setCurrentSessionId(null);
     setStartedAt(null);
@@ -109,9 +116,21 @@ export function RunProvider({ children }: { children: React.ReactNode }) {
     queue.current = [];
     if (frame.current !== null) window.clearTimeout(frame.current);
     frame.current = null;
+    if (hydratedSessionId.current !== sessionId) {
+      hydratedSessionId.current = sessionId;
+      durableSessionEvents.current = [];
+    }
+    durableSessionEvents.current = mergeSessionTimelineEvents(
+      durableSessionEvents.current,
+      events.filter((event) => event.type === "session_forked"),
+    );
+    const mergedEvents = mergeSessionTimelineEvents(
+      durableSessionEvents.current,
+      events,
+    );
     setCurrentSessionId(sessionId);
-    setCurrentRunEvents(events);
-    setArtifact(events.reduce(projectRunEvent, emptyRunArtifact()));
+    setCurrentRunEvents(mergedEvents);
+    setArtifact(mergedEvents.reduce(projectRunEvent, emptyRunArtifact()));
     setIsRunActive(false);
   }, []);
 

@@ -9,6 +9,7 @@ describe("run timeline stage projection", () => {
     expect(stageForEvent({ type: "check_result", node: "linter_node" })).toBe("check");
     expect(stageForEvent({ type: "workspace_patch" })).toBe("review");
     expect(stageForEvent({ type: "checkpoint_restored" })).toBe("review");
+    expect(stageForEvent({ type: "session_forked" })).toBe("review");
     expect(stageForEvent({ type: "done" })).toBe("complete");
   });
 

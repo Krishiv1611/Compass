@@ -13,8 +13,10 @@ from backend.schemas.session import (
     SessionRename,
     SessionSummary,
     SessionDetail,
+    SessionForkRequest,
 )
 from backend.services import session_manager
+from backend.services.session_fork import fork_session
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -63,6 +65,23 @@ def get_session(
     return detail
 
 
+@router.post("/{session_id}/fork", response_model=SessionDetail, status_code=status.HTTP_201_CREATED)
+async def fork_existing_session(
+    session_id: str,
+    body: SessionForkRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fork an owned task into an isolated workspace."""
+    forked = await fork_session(
+        session_id,
+        str(current_user.id),
+        body.checkpoint_id,
+        db=db,
+    )
+    return session_manager.get_session_detail(db, str(current_user.id), forked.id)
+
+
 @router.patch("/{session_id}", response_model=SessionDetail)
 def rename_session(
     session_id: str,
@@ -93,5 +112,3 @@ def delete_session(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
     return None
-
-

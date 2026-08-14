@@ -48,6 +48,7 @@ const eventLabel = (event: LiveRunEvent) => {
   if (event.type === "workspace_patch") return "Prepared project changes";
   if (event.type === "checkpoint_created") return "Created file checkpoint";
   if (event.type === "checkpoint_restored") return "Restored file checkpoint";
+  if (event.type === "session_forked") return "Forked task";
   if (event.type === "plan_created") return "Prepared a plan";
   if (event.type === "done") return "Run completed";
   if (event.type === "error") return typeof event.content === "string" ? event.content : "Run failed";

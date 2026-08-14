@@ -25,6 +25,12 @@ export const sessionsApi = {
     const response = await api.delete(`/sessions/${sessionId}`);
     return response.data;
   },
+  forkSession: async (sessionId: string, checkpointId?: string) => {
+    const response = await api.post(`/sessions/${sessionId}/fork`, {
+      checkpoint_id: checkpointId ?? null,
+    });
+    return response.data;
+  },
 };
 
 export const workspaceApi = {

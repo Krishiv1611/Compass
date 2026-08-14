@@ -17,6 +17,12 @@ class SessionRename(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
 
 
+class SessionForkRequest(BaseModel):
+    """POST /sessions/{id}/fork"""
+
+    checkpoint_id: str | None = Field(None, max_length=64)
+
+
 # ── Responses ─────────────────────────────────────────────
 
 

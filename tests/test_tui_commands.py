@@ -10,8 +10,14 @@ from agent.checkpoints import create_checkpoint, list_checkpoints, seal_checkpoi
 
 
 class FakeWorkflow:
+    def __init__(self):
+        self.updated = []
+
     async def aget_state(self, _config):
         return SimpleNamespace(values={"messages": [SimpleNamespace(content="one"), SimpleNamespace(content="two")]})
+
+    async def aupdate_state(self, config, values):
+        self.updated.append((config, values))
 
 
 class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
@@ -121,6 +127,27 @@ class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertIn("Restored", result.message)
             self.assertEqual(target.read_text(encoding="utf-8"), "before")
+
+    async def test_fork_creates_new_thread_and_reports_shared_workspace(self):
+        workflow = FakeWorkflow()
+        store = MagicMock()
+        store.fork_session.return_value = {
+            "thread_id": "fork-thread",
+            "title": "Fork of current",
+        }
+        context = self.context(
+            workflow=workflow,
+            session_store=store,
+            workspace="C:/workspace",
+            run_config={"configurable": {"thread_id": "source-thread"}},
+        )
+
+        result = await build_registry().execute("/fork", context)
+
+        self.assertIn("shares the current working directory", result.message)
+        self.assertEqual(result.state_updates["switch_thread_id"], "fork-thread")
+        store.fork_session.assert_called_once_with("source-thread")
+        self.assertEqual(workflow.updated[-1][0]["configurable"]["thread_id"], "fork-thread")
 
 
 if __name__ == "__main__":

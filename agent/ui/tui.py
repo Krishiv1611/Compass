@@ -1335,7 +1335,7 @@ async def _handle_slash_command(
             console=compass.console,
             workflow=workflow,
             run_config=config or {},
-            session_store=None,
+            session_store=SessionManager(),
             workspace=os.getcwd(),
             settings=command_settings,
         ),
@@ -1344,7 +1344,8 @@ async def _handle_slash_command(
         if registry_result.message:
             compass.console.print(Text(f"  {registry_result.message}", style="bright_white"))
             compass.console.print()
-        return True
+        switch_thread_id = registry_result.state_updates.get("switch_thread_id")
+        return str(switch_thread_id) if switch_thread_id else True
 
     operational_result = _handle_operational_command(
         compass,
@@ -2285,6 +2286,12 @@ async def compass_repl(resume_thread_id: str | None = None):
                     elif isinstance(result, str):
                         # Switch to a different session
                         thread_id = result
+                        next_session = sm.get_session(thread_id)
+                        session_ctx = next_session or {
+                            "id": thread_id,
+                            "thread_id": thread_id,
+                            "turn_count": 0,
+                        }
                         config = {
                             "configurable": {
                                 "thread_id": thread_id,
@@ -2296,9 +2303,6 @@ async def compass_repl(resume_thread_id: str | None = None):
                                 "context_version": sm.workspace.context_version,
                             }
                         }
-                        session_ctx = sm.get_session(thread_id)
-                        if session_ctx is None:
-                            session_ctx = {"thread_id": thread_id, "turn_count": 0}
                         messages = []
                         turn_count = session_ctx.get("turn_count", 0)
                         compass.change_tracker.clear()
