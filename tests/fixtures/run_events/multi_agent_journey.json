@@ -1,0 +1,36 @@
+{
+  "workers": [
+    {"task_id": "backend", "allowed_tools": ["read_file", "search_files"]},
+    {"task_id": "web", "allowed_tools": ["read_file", "search_files"]}
+  ],
+  "resume": {"action": "approve"},
+  "changed_content": "new content",
+  "events": [
+    {"type": "plan_created", "content": "1. Audit backend\n2. Audit web\n3. Apply approved change", "node": "planner", "seq": 1},
+    {"type": "agent_started", "data": {"task_id": "backend", "title": "Audit backend", "status": "running", "duration_ms": 0, "evidence_count": 0}, "seq": 2},
+    {"type": "agent_started", "data": {"task_id": "web", "title": "Audit web", "status": "running", "duration_ms": 0, "evidence_count": 0}, "seq": 3},
+    {"type": "agent_progress", "data": {"task_id": "backend", "title": "Audit backend", "status": "running", "duration_ms": 10, "evidence_count": 1}, "seq": 4},
+    {"type": "agent_completed", "content": "Backend route needs the approved guard.", "data": {"task_id": "backend", "title": "Audit backend", "status": "completed", "duration_ms": 20, "evidence_count": 1}, "seq": 5},
+    {"type": "agent_completed", "content": "Web client already handles the guarded response.", "data": {"task_id": "web", "title": "Audit web", "status": "completed", "duration_ms": 22, "evidence_count": 2}, "seq": 6},
+    {"type": "status", "content": "Worker evidence synthesized", "node": "synthesis", "data": {"conflicts": ["app.py:1: Handler cannot validate input <> Handler validates input"], "missing_evidence": []}, "seq": 7},
+    {"type": "approval_required", "content": "Approve edit_file for app.py", "data": {"kind": "tool_approval", "reason": "write_requires_approval"}, "seq": 8},
+    {"type": "checkpoint_created", "content": "Checkpoint created", "data": {"checkpoint_id": "cp-1", "affected_files": ["app.py"]}, "seq": 9},
+    {"type": "tool_call", "tool_call": {"id": "edit-1", "name": "edit_file", "args": {"path": "app.py", "content": "new content"}}, "data": {"actor": "main-executor"}, "seq": 10},
+    {"type": "tool_result", "tool_call_id": "edit-1", "content": "updated", "data": {"name": "edit_file", "status": "success", "actor": "main-executor"}, "seq": 11},
+    {"type": "workspace_patch", "data": {"affected_files": ["app.py"], "actor": "main-executor"}, "seq": 12},
+    {"type": "check_result", "content": "python tests", "data": {"id": "hook-1", "status": "passed", "duration_ms": 15}, "seq": 13},
+    {"type": "usage", "data": {"total_tokens": 70, "usage_by_node": {"planner": {"total_tokens": 10}, "worker.backend": {"total_tokens": 15}, "worker.web": {"total_tokens": 15}, "synthesizer": {"total_tokens": 10}, "executor": {"total_tokens": 20}}}, "seq": 14},
+    {"type": "done", "content": "Applied the approved guard to app.py", "data": {"status": "completed"}, "seq": 15}
+  ],
+  "expected": {
+    "plan": "1. Audit backend\n2. Audit web\n3. Apply approved change",
+    "workers": [["backend", "completed", 1], ["web", "completed", 2]],
+    "worker_contributions": ["Audit backend: Backend route needs the approved guard.", "Audit web: Web client already handles the guarded response."],
+    "changed_files": ["app.py"],
+    "checks": ["python tests=passed"],
+    "total_tokens": 70,
+    "usage_by_node": {"planner": {"total_tokens": 10}, "worker.backend": {"total_tokens": 15}, "worker.web": {"total_tokens": 15}, "synthesizer": {"total_tokens": 10}, "executor": {"total_tokens": 20}},
+    "unresolved_conflicts": ["app.py:1: Handler cannot validate input <> Handler validates input"],
+    "terminal_status": "completed"
+  }
+}
