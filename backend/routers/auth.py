@@ -2,35 +2,39 @@
 Auth router â€” registration, login, token refresh, profile, OAuth.
 """
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from jose import JWTError
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from backend.auth.dependencies import get_current_user
 from backend.auth.jwt import (
     create_oauth_state,
     create_token_pair,
     decode_oauth_state,
     decode_token,
 )
-from backend.auth.passwords import hash_password, verify_password
-from backend.auth.dependencies import get_current_user
 from backend.auth.oauth import (
-    exchange_google_code,
     exchange_github_code,
+    exchange_google_code,
     get_or_create_oauth_user,
+    normalize_email,
 )
+from backend.auth.passwords import hash_password, verify_password
 from backend.config import settings
 from backend.db import get_db
 from backend.models.user import User
 from backend.schemas.auth import (
-    RegisterRequest,
-    LoginRequest,
-    TokenResponse,
     BrowserTokenResponse,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
     UserResponse,
 )
-from urllib.parse import urlencode
+
 
 class RefreshRequest(BaseModel):
     """Refresh token request body."""
@@ -61,7 +65,8 @@ def _browser_tokens(response: Response, pair: TokenResponse) -> BrowserTokenResp
 )
 def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     """Create a new user account and return JWT tokens."""
-    existing = db.query(User).filter(User.email == body.email).first()
+    email = normalize_email(body.email)
+    existing = db.query(User).filter(User.email == email).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -69,7 +74,7 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
         )
 
     user = User(
-        email=body.email,
+        email=email,
         hashed_password=hash_password(body.password),
         display_name=body.display_name,
     )
@@ -77,13 +82,13 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
 
-    return _browser_tokens(response, create_token_pair(user.id))
+    return _browser_tokens(response, create_token_pair(user.id, user.refresh_version))
 
 
 @router.post("/login", response_model=BrowserTokenResponse)
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """Authenticate with email/password and return JWT tokens."""
-    user = db.query(User).filter(User.email == body.email).first()
+    user = db.query(User).filter(User.email == normalize_email(body.email)).first()
     if not user or not user.hashed_password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -100,7 +105,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
             detail="Account is deactivated",
         )
 
-    return _browser_tokens(response, create_token_pair(user.id))
+    return _browser_tokens(response, create_token_pair(user.id, user.refresh_version))
 
 
 @router.post("/refresh", response_model=BrowserTokenResponse)
@@ -126,14 +131,26 @@ def refresh(
         )
 
     user_id = payload.get("sub", "")
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
-    if not user:
+    refresh_version = payload.get("rv")
+    next_refresh_version = db.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            User.is_active.is_(True),
+            User.refresh_version == refresh_version,
+        )
+        .values(refresh_version=User.refresh_version + 1)
+        .returning(User.refresh_version)
+    ).scalar_one_or_none()
+    if next_refresh_version is None:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive",
+            detail="Refresh token has been revoked, expired, or belongs to an inactive user",
         )
 
-    return _browser_tokens(response, create_token_pair(user.id))
+    db.commit()
+    return _browser_tokens(response, create_token_pair(user_id, next_refresh_version))
 
 
 @router.get("/me", response_model=UserResponse)
@@ -143,15 +160,19 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response):
-    """
-    Logout (stateless).
-
-    With stateless JWTs the server has nothing to invalidate.
-    The client should discard its stored tokens.
-    """
+def logout(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke the current refresh-token generation and clear the browser cookie."""
+    db.execute(
+        update(User)
+        .where(User.id == current_user.id)
+        .values(refresh_version=User.refresh_version + 1)
+    )
+    db.commit()
     response.delete_cookie("compass_refresh", path="/api/auth")
-    return None
 
 
 # â”€â”€ OAuth Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -234,15 +255,22 @@ async def oauth_google(
             detail=f"Google OAuth failed: {exc}",
         )
 
+    if not info.get("email") or not info.get("verified_email"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google account must provide a verified email address",
+        )
+
     user = get_or_create_oauth_user(
         db,
         provider="google",
         provider_id=str(info["id"]),
         email=info["email"],
+        email_verified=bool(info.get("verified_email")),
         display_name=info.get("name"),
         avatar_url=info.get("picture"),
     )
-    return _browser_tokens(response, create_token_pair(user.id))
+    return _browser_tokens(response, create_token_pair(user.id, user.refresh_version))
 
 
 @router.post("/oauth/github", response_model=BrowserTokenResponse)
@@ -266,10 +294,10 @@ async def oauth_github(code: str, state: str, response: Response, db: Session = 
             detail=f"GitHub OAuth failed: {exc}",
         )
 
-    if not info.get("email"):
+    if not info.get("email") or not info.get("email_verified"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub account has no public email. Please set a public email on GitHub.",
+            detail="GitHub account must provide a verified email address.",
         )
 
     user = get_or_create_oauth_user(
@@ -277,8 +305,9 @@ async def oauth_github(code: str, state: str, response: Response, db: Session = 
         provider="github",
         provider_id=str(info["id"]),
         email=info["email"],
+        email_verified=bool(info.get("email_verified")),
         display_name=info.get("name") or info.get("login"),
         avatar_url=info.get("avatar_url"),
     )
-    return _browser_tokens(response, create_token_pair(user.id))
+    return _browser_tokens(response, create_token_pair(user.id, user.refresh_version))
 

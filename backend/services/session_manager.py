@@ -3,15 +3,18 @@ Session management service — CRUD operations for chat sessions.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.models.session import ChatSession
 from backend.models.message import Message
+from backend.models.session import ChatSession
 from backend.models.workspace import Workspace
-from backend.schemas.session import SessionSummary, SessionDetail, MessageInSession
+from backend.schemas.session import MessageInSession, SessionDetail, SessionSummary
+from backend.services.run_manager import active_run_ids_for_session, cancel_agent_run
+from backend.services.ws_limits import limits as ws_limits
+from backend.ws.hub import manager
 
 
 def create_session(
@@ -160,34 +163,45 @@ def rename_session(
         return None
 
     session.title = title
-    session.updated_at = datetime.now(timezone.utc)
+    session.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(session)
     return session
 
 
-def delete_session(
+async def delete_session(
     db: Session,
     user_id: str,
     session_id: str,
 ) -> bool:
     """Soft-delete a session. Returns True if found and deleted."""
-    session = (
-        db.query(ChatSession)
-        .filter(
-            ChatSession.id == session_id,
-            ChatSession.user_id == user_id,
-            ChatSession.is_deleted.is_(False),
-        )
-        .first()
-    )
-    if not session:
+    if not ws_limits.begin_session_deletion(session_id):
         return False
+    try:
+        session = (
+            db.query(ChatSession)
+            .filter(
+                ChatSession.id == session_id,
+                ChatSession.user_id == user_id,
+                ChatSession.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if not session:
+            return False
 
-    session.is_deleted = True
-    session.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    return True
+        for run_id in active_run_ids_for_session(db, session_id):
+            cancel_agent_run(run_id)
+            ws_limits.release_run(user_id, run_id)
+        for websocket in manager.get_connections(session_id).copy():
+            ws_limits.release_connection(user_id, websocket)
+        await manager.disconnect_session(session_id)
+        session.is_deleted = True
+        session.updated_at = datetime.now(UTC)
+        db.commit()
+        return True
+    finally:
+        ws_limits.finish_session_deletion(session_id)
 
 
 def deterministic_title(first_user_msg: str) -> str:
@@ -210,7 +224,7 @@ def auto_title(
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session:
         session.title = title
-        session.updated_at = datetime.now(timezone.utc)
+        session.updated_at = datetime.now(UTC)
         db.commit()
         return title
     return None

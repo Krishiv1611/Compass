@@ -6,6 +6,9 @@ from agent.runtime.events import StreamEvent, StreamEventType, ToolCallData
 from agent.runtime.protocol import ResumeAction
 
 
+MAX_WS_CONTENT_BYTES = 64 * 1024
+
+
 # ── Enums ─────────────────────────────────────────────────
 
 
@@ -23,7 +26,7 @@ class WsClientMessage(BaseModel):
     """Message sent by the client over WebSocket."""
 
     type: str = "message"  # "message" | "cancel" | "tool_result"
-    content: str | None = None
+    content: str | None = Field(default=None, max_length=MAX_WS_CONTENT_BYTES)
     call_id: str | None = None
     result: Any | None = None
     error: str | None = None

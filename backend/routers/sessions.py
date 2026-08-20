@@ -100,13 +100,13 @@ def rename_session(
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(
+async def delete_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Soft-delete a session."""
-    deleted = session_manager.delete_session(db, current_user.id, session_id)
+    deleted = await session_manager.delete_session(db, current_user.id, session_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"

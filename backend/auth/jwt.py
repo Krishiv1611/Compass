@@ -26,7 +26,7 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, refresh_version: int = 0) -> str:
     """Create a long-lived refresh token."""
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.refresh_token_expire_days
@@ -35,6 +35,7 @@ def create_refresh_token(user_id: str) -> str:
         "sub": user_id,
         "exp": expire,
         "type": "refresh",
+        "rv": refresh_version,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -49,11 +50,11 @@ def decode_token(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
 
 
-def create_token_pair(user_id: str) -> TokenResponse:
+def create_token_pair(user_id: str, refresh_version: int = 0) -> TokenResponse:
     """Create both access and refresh tokens, returned as a TokenResponse."""
     return TokenResponse(
         access_token=create_access_token(user_id),
-        refresh_token=create_refresh_token(user_id),
+        refresh_token=create_refresh_token(user_id, refresh_version),
         expires_in=settings.access_token_expire_minutes * 60,
     )
 

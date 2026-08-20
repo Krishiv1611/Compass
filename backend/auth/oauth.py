@@ -9,10 +9,17 @@ Each provider flow:
 """
 
 import httpx
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.models.user import User
+
+
+def normalize_email(email: str) -> str:
+    """Return the canonical identity form used for OAuth account matching."""
+    return email.strip().casefold()
 
 
 async def exchange_google_code(code: str, redirect_uri: str) -> dict:
@@ -84,9 +91,11 @@ async def exchange_github_code(code: str) -> dict:
         email_resp.raise_for_status()
         emails = email_resp.json()
         primary = next(
-            (e for e in emails if e.get("primary")), emails[0] if emails else None
+            (e for e in emails if e.get("primary") and e.get("verified")),
+            next((e for e in emails if e.get("verified")), None),
         )
         profile["email"] = primary["email"] if primary else None
+        profile["email_verified"] = bool(primary and primary.get("verified"))
         profile["_access_token"] = access_token
         profile["_scopes"] = token_data.get("scope", "")
 
@@ -99,6 +108,7 @@ def get_or_create_oauth_user(
     provider: str,
     provider_id: str,
     email: str,
+    email_verified: bool,
     display_name: str | None = None,
     avatar_url: str | None = None,
     access_token: str | None = None,
@@ -110,6 +120,18 @@ def get_or_create_oauth_user(
     If a user with the same email already exists (e.g. registered via password),
     link the OAuth provider to that account.
     """
+    if not email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth provider did not verify this email address",
+        )
+    canonical_email = normalize_email(email)
+    if not canonical_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth provider did not supply an email address",
+        )
+
     # 1. Try to find by provider + provider_id
     user = (
         db.query(User)
@@ -126,7 +148,7 @@ def get_or_create_oauth_user(
         return user
 
     # 2. Try to find by email (link OAuth to existing email-based account)
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(User.email == canonical_email).first()
     if user:
         user.oauth_provider = provider
         user.oauth_provider_id = provider_id
@@ -136,13 +158,20 @@ def get_or_create_oauth_user(
             from backend.auth.credentials import encrypt_credential
             user.oauth_token_encrypted = encrypt_credential(access_token)
             user.oauth_scopes = scopes
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="OAuth identity is already linked to another account",
+            ) from exc
         db.refresh(user)
         return user
 
     # 3. Create new user
     user = User(
-        email=email,
+        email=canonical_email,
         display_name=display_name,
         avatar_url=avatar_url,
         oauth_provider=provider,
@@ -153,6 +182,13 @@ def get_or_create_oauth_user(
         user.oauth_token_encrypted = encrypt_credential(access_token)
         user.oauth_scopes = scopes
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="OAuth identity is already linked to another account",
+        ) from exc
     db.refresh(user)
     return user

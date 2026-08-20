@@ -4,8 +4,8 @@ Chat router -- non-streaming POST endpoint + WebSocket streaming.
 
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from fastapi import (
     APIRouter,
@@ -18,12 +18,13 @@ from fastapi import (
 from jose import JWTError
 from sqlalchemy.orm import Session
 
+from agent.runtime.metrics import current_run_metrics
 from backend.auth.dependencies import get_current_user
 from backend.auth.jwt import decode_token
-from backend.db import get_db, SessionLocal
-from backend.models.user import User
-from backend.models.session import ChatSession
+from backend.db import SessionLocal, get_db
 from backend.models.message import Message
+from backend.models.session import ChatSession
+from backend.models.user import User
 from backend.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -32,17 +33,18 @@ from backend.schemas.chat import (
     StreamEventType,
     WsClientMessage,
 )
-from backend.services import agent_runner
-from backend.services import session_manager
+from backend.services import agent_runner, session_manager
 from backend.services.run_context import RunContextSnapshot, load_run_context
 from backend.services.run_manager import (
+    cancel_agent_run,
     claim_agent_run,
     end_agent_run,
+    normalize_run_id,
     persist_run_events,
 )
 from backend.services.run_persistence import RunEventBatcher, terminal_from_events
+from backend.services.ws_limits import limits as ws_limits
 from backend.ws.hub import manager
-from agent.runtime.metrics import current_run_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -182,9 +184,8 @@ def _persist_run_event_batch(
         with SessionLocal() as db:
             persist_run_events(db, run_id, events)
         return
-    with metrics.span("persistence.events"):
-        with SessionLocal() as db:
-            persist_run_events(db, run_id, events)
+    with metrics.span("persistence.events"), SessionLocal() as db:
+        persist_run_events(db, run_id, events)
 
 
 def _end_run_record(
@@ -197,9 +198,8 @@ def _end_run_record(
         with SessionLocal() as db:
             end_agent_run(db, run_id=run_id, status=status_value, token_usage=token_usage)
         return
-    with metrics.span("persistence.run"):
-        with SessionLocal() as db:
-            end_agent_run(db, run_id=run_id, status=status_value, token_usage=token_usage)
+    with metrics.span("persistence.run"), SessionLocal() as db:
+        end_agent_run(db, run_id=run_id, status=status_value, token_usage=token_usage)
 
 
 async def _stream_agent_turn(
@@ -210,12 +210,26 @@ async def _stream_agent_turn(
     is_resume = client_msg.type == "resume"
     if is_resume and not client_msg.run_id:
         raise HTTPException(status_code=400, detail="resume requires run_id")
-    requested_run_id = client_msg.run_id or str(uuid.uuid4())
-    run_id = _claim_run_record(
-        snapshot,
+    requested_run_id = normalize_run_id(client_msg.run_id or str(uuid.uuid4()))
+    if not ws_limits.begin_run(
+        snapshot.user_id,
         requested_run_id,
-        resume=is_resume,
-    )
+        count_start=not is_resume,
+        session_id=snapshot.session_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many active or recently started runs",
+        )
+    try:
+        run_id = _claim_run_record(
+            snapshot,
+            requested_run_id,
+            resume=is_resume,
+        )
+    except Exception:
+        ws_limits.release_run(snapshot.user_id, requested_run_id)
+        raise
     from agent.runtime.metrics import begin_run_metrics, end_run_metrics
 
     metrics, metrics_token = begin_run_metrics()
@@ -263,6 +277,7 @@ async def _stream_agent_turn(
         raise
     finally:
         end_run_metrics(metrics_token)
+        ws_limits.release_run(snapshot.user_id, run_id)
 
 
 def _persist_assistant_turn(
@@ -296,7 +311,7 @@ def _persist_assistant_turn(
                     assistant_text,
                 )
         if chat_session:
-            chat_session.updated_at = datetime.now(timezone.utc)
+            chat_session.updated_at = datetime.now(UTC)
             db.commit()
 
 
@@ -362,7 +377,7 @@ def _persist_sync_response(
                 request.content,
                 first_ai_content,
             )
-        chat_session.updated_at = datetime.now(timezone.utc)
+        chat_session.updated_at = datetime.now(UTC)
         db.commit()
     return result_messages
 
@@ -457,10 +472,25 @@ async def websocket_chat(
         db.close()
 
     # -- Connect --
-    await manager.connect(websocket, session_id, subprotocol=WEBSOCKET_PROTOCOL)
+    if not await ws_limits.acquire_connection(
+        user_id,
+        websocket,
+        session_id=session_id,
+    ):
+        return
     current_run_id: str | None = None
+    connected = False
 
     try:
+        connected = await manager.connect(
+            websocket,
+            session_id,
+            subprotocol=WEBSOCKET_PROTOCOL,
+            user_id=user_id,
+            session_is_deleting=lambda: ws_limits.is_session_deleting(session_id),
+        )
+        if not connected:
+            return
         while True:
             # Wait for client message
             raw = await websocket.receive_json()
@@ -468,6 +498,9 @@ async def websocket_chat(
             # Handle pong (heartbeat response)
             if raw.get("type") == "pong":
                 continue
+
+            if not await ws_limits.validate_message(websocket, raw.get("content")):
+                return
 
             client_msg = WsClientMessage(**raw)
 
@@ -520,5 +553,10 @@ async def websocket_chat(
         except Exception:
             pass
     finally:
-        manager.disconnect(websocket, session_id)
+        if current_run_id:
+            cancel_agent_run(current_run_id)
+            ws_limits.release_run(user_id, current_run_id)
+        if connected:
+            manager.disconnect(websocket, session_id)
+        ws_limits.release_connection(user_id, websocket)
 

@@ -69,6 +69,12 @@ The workflow routes short conversation directly to one chat node. Edit requests 
 | Long-term user/project memory | LangGraph PostgresStore | Durable cross-thread recall |
 | Vector/search data | PGVector | Semantic codebase and upload retrieval |
 
+Web-session deletion is a soft delete: Compass first cancels active runs and
+closes that session's WebSocket connections, then hides the conversation from
+the product. It does not physically erase associated workspace files, uploads,
+vectors, checkpoints, or database records. Retention and physical cleanup are
+an operator responsibility until a dedicated retention job is introduced.
+
 ## Interfaces
 
 ### Web workbench
@@ -271,6 +277,9 @@ Compass is designed to make side effects visible and reviewable. It can modify c
 6. Put PostgreSQL and workspace storage on private, backed-up volumes.
 7. Run the backend as a non-root operating-system user.
 8. Review GitHub OAuth scopes and PAT permissions; use the smallest repository scope that works.
+9. Run a single backend worker. HTTP, WebSocket connection, and active-run
+   limits are intentionally process-local; using multiple workers weakens those
+   bounds until shared rate-limit state is added.
 
 ## Web API and workspaces
 
@@ -293,6 +302,11 @@ ws://<host>/api/chat/ws/<session-id>?token=<access-token>
 ```
 
 The browser application handles this connection. Direct clients should authenticate, create a session, then pass a short-lived access token only over a secure WebSocket connection.
+
+The hosted backend currently supports one process worker. It enforces up to
+five concurrent WebSockets, two active runs, and ten run starts per minute per
+user in that process; it also caps WebSocket message content at 64 KiB. Do not
+scale workers horizontally expecting these in-memory bounds to be global.
 
 ## Repository layout
 

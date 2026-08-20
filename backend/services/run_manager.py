@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from backend.services.run_persistence import RUN_STATUSES
 _cancel_signals: dict[str, asyncio.Event] = {}
 
 
-def _validated_run_id(run_id: str) -> str:
+def normalize_run_id(run_id: str) -> str:
     try:
         return str(uuid.UUID(run_id))
     except (ValueError, TypeError, AttributeError) as exc:
@@ -20,6 +20,11 @@ def _validated_run_id(run_id: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="run_id must be a valid UUID",
         ) from exc
+
+
+def _validated_run_id(run_id: str) -> str:
+    """Backward-compatible alias for callers that only validate a run ID."""
+    return normalize_run_id(run_id)
 
 
 def claim_agent_run(
@@ -72,7 +77,7 @@ def claim_agent_run(
 def reconcile_interrupted_runs(db: Session) -> int:
     """Mark rows left active by a prior backend process as interrupted."""
     stale_runs = db.query(AgentRun).filter(AgentRun.status == "running").all()
-    ended_at = datetime.now(timezone.utc)
+    ended_at = datetime.now(UTC)
     for run in stale_runs:
         run.status = "interrupted"
         run.ended_at = ended_at
@@ -156,10 +161,22 @@ def end_agent_run(
     run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
     if run:
         run.status = status
-        run.ended_at = datetime.now(timezone.utc)
+        run.ended_at = datetime.now(UTC)
         if token_usage:
             run.token_usage = token_usage
         db.commit()
         db.refresh(run)
     _cancel_signals.pop(run_id, None)
     return run
+
+
+def active_run_ids_for_session(db: Session, session_id: str) -> list[str]:
+    """Return only runs which may still have an in-process agent task."""
+    return [
+        run_id
+        for (run_id,) in (
+            db.query(AgentRun.id)
+            .filter(AgentRun.session_id == session_id, AgentRun.status == "running")
+            .all()
+        )
+    ]

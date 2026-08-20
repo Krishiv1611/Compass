@@ -7,7 +7,6 @@ Anonymous requests (no valid JWT) share a global bucket.
 
 import time
 import logging
-from collections import defaultdict
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -25,31 +24,42 @@ WINDOW_SECONDS = 60  # window size in seconds
 class _TokenBucket:
     """Simple per-key token-bucket rate limiter."""
 
-    def __init__(self, max_requests: int = MAX_REQUESTS, window: int = WINDOW_SECONDS):
+    def __init__(
+        self,
+        max_requests: int = MAX_REQUESTS,
+        window: int = WINDOW_SECONDS,
+        clock=time.time,
+    ):
         self.max_requests = max_requests
         self.window = window
-        self._buckets: dict[str, list[float]] = defaultdict(list)
+        self.clock = clock
+        self._buckets: dict[str, list[float]] = {}
 
-    def is_allowed(self, key: str) -> bool:
+    def _prune(self) -> None:
+        now = self.clock()
+        for key, timestamps in list(self._buckets.items()):
+            kept = [timestamp for timestamp in timestamps if now - timestamp < self.window]
+            if kept:
+                self._buckets[key] = kept
+            else:
+                del self._buckets[key]
+
+    def is_allowed(self, key: str, *, weight: int = 1) -> bool:
         """Check if a request from `key` is allowed."""
-        now = time.time()
-        bucket = self._buckets[key]
+        self._prune()
+        now = self.clock()
+        bucket = self._buckets.setdefault(key, [])
 
-        # Remove expired timestamps
-        self._buckets[key] = [ts for ts in bucket if now - ts < self.window]
-        bucket = self._buckets[key]
-
-        if len(bucket) >= self.max_requests:
+        if len(bucket) + weight > self.max_requests:
             return False
 
-        bucket.append(now)
+        bucket.extend([now] * weight)
         return True
 
     def remaining(self, key: str) -> int:
         """Return remaining requests in the current window."""
-        now = time.time()
-        bucket = [ts for ts in self._buckets.get(key, []) if now - ts < self.window]
-        return max(0, self.max_requests - len(bucket))
+        self._prune()
+        return max(0, self.max_requests - len(self._buckets.get(key, [])))
 
 
 _limiter = _TokenBucket()
@@ -64,6 +74,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     # Paths exempt from rate limiting
     EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+    ENDPOINT_WEIGHTS = {
+        "/api/auth": 3,
+        "/api/uploads": 5,
+        "/api/workspaces/import": 5,
+        "/api/chat/send": 3,
+    }
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # Skip exempt paths
@@ -73,7 +89,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Determine the rate-limit key
         key = self._get_key(request)
 
-        if not _limiter.is_allowed(key):
+        weight = self._weight_for(request.url.path)
+        if not _limiter.is_allowed(key, weight=weight):
             logger.warning(f"Rate limit exceeded for key={key}")
             return JSONResponse(
                 status_code=429,
@@ -84,6 +101,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-RateLimit-Remaining"] = str(_limiter.remaining(key))
         return response
+
+    @classmethod
+    def _weight_for(cls, path: str) -> int:
+        for prefix, weight in cls.ENDPOINT_WEIGHTS.items():
+            if path.startswith(prefix):
+                return weight
+        return 1
 
     @staticmethod
     def _get_key(request: Request) -> str:

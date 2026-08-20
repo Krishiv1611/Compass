@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, Boolean, Text, JSON
+from sqlalchemy import String, DateTime, Boolean, Text, JSON, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.db import Base
 
@@ -12,6 +12,13 @@ class User(Base):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint(
+            "oauth_provider",
+            "oauth_provider_id",
+            name="uq_users_oauth_provider_identity",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: uuid.uuid4().hex
@@ -36,6 +43,7 @@ class User(Base):
     oauth_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     oauth_scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    refresh_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

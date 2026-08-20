@@ -8,6 +8,8 @@ for sending events and managing heartbeats.
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
@@ -30,8 +32,14 @@ class ConnectionManager:
         self.pending_calls: dict[str, asyncio.Future] = {}
         # Track last run_id and message_id per connection
         self._connection_states: dict[WebSocket, dict] = defaultdict(dict)
+        self._connection_users: dict[WebSocket, str] = {}
 
-    def resolve_call(self, call_id: str, result: any, error: str = None) -> None:
+    def resolve_call(
+        self,
+        call_id: str,
+        result: Any,
+        error: str | None = None,
+    ) -> None:
         """Resolve a pending RPC call from the client."""
         future = self.pending_calls.pop(call_id, None)
         if future and not future.done():
@@ -45,15 +53,23 @@ class ConnectionManager:
         websocket: WebSocket,
         session_id: str,
         subprotocol: str | None = None,
-    ) -> None:
+        user_id: str | None = None,
+        session_is_deleting: Callable[[], bool] | None = None,
+    ) -> bool:
         """Accept a WebSocket connection and start heartbeat."""
         await websocket.accept(subprotocol=subprotocol)
+        if session_is_deleting and session_is_deleting():
+            await websocket.close(code=1008, reason="Session is being deleted")
+            return False
         self._connections[session_id].add(websocket)
         self._heartbeat_tasks[websocket] = asyncio.create_task(
             self._heartbeat(websocket)
         )
         self._connection_states[websocket] = {"message_id": None, "run_id": None}
+        if user_id:
+            self._connection_users[websocket] = user_id
         logger.info(f"WebSocket connected: session={session_id}")
+        return True
 
     def disconnect(self, websocket: WebSocket, session_id: str) -> None:
         """Remove a WebSocket connection and cancel its heartbeat."""
@@ -66,6 +82,7 @@ class ConnectionManager:
             task.cancel()
             
         self._connection_states.pop(websocket, None)
+        self._connection_users.pop(websocket, None)
 
         logger.info(f"WebSocket disconnected: session={session_id}")
 
@@ -96,6 +113,17 @@ class ConnectionManager:
     def get_connections(self, session_id: str) -> set[WebSocket]:
         """Get all active connections for a session."""
         return self._connections.get(session_id, set())
+
+    async def disconnect_session(self, session_id: str) -> None:
+        """Close all sockets for a deleted session before its DB row is hidden."""
+        connections = self._connections.get(session_id, set()).copy()
+        for websocket in connections:
+            try:
+                await websocket.close(code=1001, reason="Session deleted")
+            except Exception:  # noqa: BLE001 - cleanup must continue for other sockets
+                logger.warning("Failed to close WebSocket for deleted session")
+            finally:
+                self.disconnect(websocket, session_id)
 
     async def _heartbeat(self, websocket: WebSocket) -> None:
         """Periodically ping the client to keep the connection alive."""
