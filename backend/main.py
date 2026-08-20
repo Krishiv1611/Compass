@@ -9,7 +9,6 @@ Main entry point for the web API. Includes:
   - Global exception handlers
 """
 
-import os
 import asyncio
 import sys
 from contextlib import asynccontextmanager
@@ -17,6 +16,9 @@ from contextlib import asynccontextmanager
 if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+import logging
+
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,11 +26,8 @@ from pydantic import ValidationError
 from sqlalchemy import text
 
 from backend.config import settings
-from backend.db import engine, SessionLocal
-
-import structlog
-
-import logging
+from backend.db import SessionLocal, engine
+from backend.services.readiness import get_readiness_report
 
 # ── Configure structlog ────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
@@ -67,16 +66,22 @@ async def lifespan(app: FastAPI):
                 count=interrupted_count,
             )
         logger.info("Database connection verified ✓")
-    except Exception as exc:
-        logger.error(f"Database connection failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 - startup must expose any dependency failure
+        logger.error(
+            "Database connection failed",
+            error_type=type(exc).__name__,
+        )
         
     try:
         from agent.graph.workflow import get_workflow
 
         await get_workflow(require_durable=True)
         logger.info("LangGraph workflow ready")
-    except Exception as exc:
-        logger.error(f"Workflow warmup failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 - startup must expose any warmup failure
+        logger.error(
+            "Workflow warmup failed",
+            error_type=type(exc).__name__,
+        )
     yield
 
     # Shutdown
@@ -142,25 +147,40 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["system"])
 def health_check():
-    """Health check endpoint for monitoring and load balancers."""
+    """Report process liveness without touching external dependencies."""
     return {"status": "ok", "service": "compass-api"}
+
+
+@app.get("/ready", tags=["system"])
+async def readiness_check():
+    """Report whether required backend dependencies can serve requests."""
+    services = getattr(app.state, "readiness_services", None)
+    report = await asyncio.to_thread(
+        get_readiness_report,
+        services=services,
+    )
+    return JSONResponse(
+        status_code=200 if report.ready else 503,
+        content=report.model_dump(),
+    )
 
 
 # ── Register routers ─────────────────────────────────────────────────────────────
 
 from fastapi import APIRouter
+
 from backend.routers.auth import router as auth_router
-from backend.routers.sessions import router as sessions_router
 from backend.routers.chat import router as chat_router
-from backend.routers.settings import router as settings_router
-from backend.routers.runs import router as runs_router
-from backend.routers.skills import router as skills_router
-from backend.routers.uploads import router as uploads_router
-from backend.routers.workspaces import router as workspaces_router
-from backend.routers.tools import router as tools_router
+from backend.routers.checkpoints import router as checkpoints_router
 from backend.routers.github import router as github_router
 from backend.routers.memory import router as memory_router
-from backend.routers.checkpoints import router as checkpoints_router
+from backend.routers.runs import router as runs_router
+from backend.routers.sessions import router as sessions_router
+from backend.routers.settings import router as settings_router
+from backend.routers.skills import router as skills_router
+from backend.routers.tools import router as tools_router
+from backend.routers.uploads import router as uploads_router
+from backend.routers.workspaces import router as workspaces_router
 
 # Mount all routers under /api prefix (matches frontend VITE_API_URL)
 api_router = APIRouter(prefix="/api")

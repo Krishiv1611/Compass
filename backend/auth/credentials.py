@@ -18,6 +18,11 @@ def _fernet() -> Fernet:
                 "CREDENTIAL_ENCRYPTION_KEY must be a valid Fernet key"
             ) from exc
 
+    if settings.compass_cloud_mode:
+        raise RuntimeError(
+            "CREDENTIAL_ENCRYPTION_KEY is required in cloud mode"
+        )
+
     # Development compatibility. Production deployments should provide a
     # separately rotated CREDENTIAL_ENCRYPTION_KEY.
     derived = hashlib.sha256(settings.jwt_secret.encode("utf-8")).digest()

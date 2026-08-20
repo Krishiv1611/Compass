@@ -5,10 +5,11 @@ from pathlib import Path
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.models.workspace import Workspace
-from backend.models.session import ChatSession
-from backend.services.ownership import owned_session, owned_workspace
 from agent.workspace import discover_local_workspace
+from backend.config import settings
+from backend.models.session import ChatSession
+from backend.models.workspace import Workspace
+from backend.services.ownership import owned_session, owned_workspace
 
 
 def create_workspace_record(db: Session, user_id: str, session_id: str, name: str) -> Workspace:
@@ -18,7 +19,7 @@ def create_workspace_record(db: Session, user_id: str, session_id: str, name: st
     avoiding a two-commit sequence that leaves the record temporarily path-less.
     """
     workspace_id = str(uuid.uuid4())
-    workspace_dir = Path.home() / ".compass" / "workspaces" / user_id / workspace_id
+    workspace_dir = Path(settings.workspace_root) / user_id / workspace_id
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     workspace = Workspace(
