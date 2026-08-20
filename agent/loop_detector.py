@@ -10,6 +10,7 @@ import json
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage
+from agent.config import settings
 
 if TYPE_CHECKING:
     from agent.graph.state import AgentState
@@ -64,7 +65,7 @@ def _extract_recent_tool_call_hashes(
 
 def is_looping(
     state: "AgentState",
-    max_identical_calls: int = 3,
+    max_identical_calls: int | None = None,
     new_response: AIMessage | None = None,
 ) -> bool:
     """
@@ -80,6 +81,9 @@ def is_looping(
     Returns:
         True if a loop pattern is detected.
     """
+    max_identical_calls = max_identical_calls or int(
+        settings.get("context.loop_max_retries", 3)
+    )
     hashes = _extract_recent_tool_call_hashes(
         state,
         new_response=new_response,
@@ -93,13 +97,16 @@ def is_looping(
     return len(set(tail)) == 1
 
 
-def get_loop_summary(state: "AgentState", max_identical_calls: int = 3) -> str:
+def get_loop_summary(state: "AgentState", max_identical_calls: int | None = None) -> str:
     """
     Get a human-readable summary of the detected loop pattern.
 
     Returns a description of what tool call is being repeated, or an empty
     string if no loop is detected.
     """
+    max_identical_calls = max_identical_calls or int(
+        settings.get("context.loop_max_retries", 3)
+    )
     if not is_looping(state, max_identical_calls):
         return ""
 

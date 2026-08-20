@@ -20,13 +20,14 @@ async def model(_argument: str, context: CommandContext) -> CommandResult:
 async def init(argument: str, context: CommandContext) -> CommandResult:
     force = argument.strip() == "--force"
     if argument.strip() not in {"", "--force"}:
-        return CommandResult(True, "Usage: /init [--force]")
+        return CommandResult(True, "Usage: /init [--force]", status="failed")
     root = Path(context.workspace or ".").resolve()
     target = root / "COMPASS.md"
     if target.exists() and not force:
         return CommandResult(
             True,
             "COMPASS.md already exists and was not changed. Use /init --force to replace it.",
+            status="unavailable",
         )
     approved = False
     if target.exists() and force:
@@ -34,7 +35,9 @@ async def init(argument: str, context: CommandContext) -> CommandResult:
             f"Replace existing {target}? This requires write approval.", default=False
         )
         if not approved:
-            return CommandResult(True, "Initialization cancelled; COMPASS.md was unchanged.")
+            return CommandResult(
+                True, "Initialization cancelled; COMPASS.md was unchanged.", status="waiting"
+            )
     configurable = context.run_config.get("configurable", {})
     checkpoint = create_checkpoint(
         root,
@@ -46,7 +49,9 @@ async def init(argument: str, context: CommandContext) -> CommandResult:
     try:
         initialize_compass_file(root, force=force, approved=approved)
     except FileExistsError:
-        return CommandResult(True, "COMPASS.md already exists and was not changed.")
+        return CommandResult(
+            True, "COMPASS.md already exists and was not changed.", status="unavailable"
+        )
     seal_checkpoint(root, checkpoint.id)
     return CommandResult(True, f"Created {target}")
 
@@ -55,11 +60,13 @@ async def learn(argument: str, context: CommandContext) -> CommandResult:
     try:
         addition = proposed_learned_instruction(argument)
     except ValueError:
-        return CommandResult(True, "Usage: /learn <one-line instruction>")
+        return CommandResult(True, "Usage: /learn <one-line instruction>", status="failed")
     if not click.confirm(
         f"Append this exact line to COMPASS.md?\n\n{addition}", default=False
     ):
-        return CommandResult(True, "Learn cancelled; COMPASS.md was unchanged.")
+        return CommandResult(
+            True, "Learn cancelled; COMPASS.md was unchanged.", status="waiting"
+        )
     root = Path(context.workspace or ".").resolve()
     configurable = context.run_config.get("configurable", {})
     checkpoint = create_checkpoint(

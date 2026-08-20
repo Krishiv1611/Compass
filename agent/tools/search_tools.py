@@ -1,6 +1,7 @@
 import os
 import re
 from langchain_core.tools import tool
+from agent.config import settings
 
 
 from fnmatch import fnmatch
@@ -37,6 +38,7 @@ def grep_search(
     except re.error as e:
         return f"Error: Invalid regex pattern: {e}"
 
+    max_results = max(1, min(int(max_results), int(settings.get("tools.max_results", 50))))
     matches = []
 
     def search_file(filepath: str):

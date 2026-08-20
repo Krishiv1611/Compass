@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from langchain_core.documents import Document
 
 from agent.rag.chunker import chunk_file
+from agent.config import settings
 from agent.rag.vector_store import (
     WORKSPACE_DIR,
     delete_chunks_by_filter,
@@ -159,12 +160,16 @@ def should_index_path(path: Path) -> bool:
     return is_text_file(str(path))
 
 
-def _delete_chunks_by_source(source_path: str, project_id: str | None) -> int:
+def _delete_chunks_by_source(
+    source_path: str,
+    project_id: str | None,
+    provider_config: dict | None = None,
+) -> int:
     """Delete all chunks for a source path from ChromaDB."""
     where = {"source": source_path}
     if project_id:
         where["project_id"] = project_id
-    return delete_chunks_by_filter(where)
+    return delete_chunks_by_filter(where, provider_config=provider_config)
 
 
 def index_workspace(
@@ -172,6 +177,7 @@ def index_workspace(
     *,
     project_id: str,
     context_version: str,
+    provider_config: dict | None = None,
 ) -> IndexStats:
     """
     Traverse the workspace, chunk modified files, and index them into ChromaDB.
@@ -202,13 +208,15 @@ def index_workspace(
             stats.elapsed_seconds = time.time() - start_time
             return stats
         stats.chunks_removed += delete_chunks_by_filter(
-            {"source_type": "workspace", "project_id": project_id}
+            {"source_type": "workspace", "project_id": project_id},
+            provider_config=provider_config,
         )
         state = {}
     new_state = {}
 
     documents_to_index: List[Document] = []
     modified_files: List[str] = []
+    chunk_size = int(settings.get("rag.chunk_size", 1000))
 
     # Phase 1: Traverse and collect changed files
     for root, dirs, files in os.walk(workspace_path):
@@ -243,6 +251,7 @@ def index_workspace(
                         "project_id": project_id,
                         "context_version": context_version,
                     },
+                    chunk_size=chunk_size,
                 )
                 chunks = [c for c in chunks if c.page_content.strip()]
                 documents_to_index.extend(chunks)
@@ -255,7 +264,7 @@ def index_workspace(
                 stats.errors.append(f"{filepath}: {e}")
 
     # Phase 2: Update ChromaDB
-    vector_store = get_vector_store(create=True)
+    vector_store = get_vector_store(create=True, provider_config=provider_config)
     if vector_store is None:
         stats.errors.append("Vector store could not be initialized.")
         stats.elapsed_seconds = time.time() - start_time
@@ -263,12 +272,16 @@ def index_workspace(
 
     for filepath in modified_files:
         relative_path = os.path.relpath(filepath, workspace_path).replace("\\", "/")
-        stats.chunks_removed += _delete_chunks_by_source(relative_path, project_id)
+        stats.chunks_removed += _delete_chunks_by_source(
+            relative_path, project_id, provider_config
+        )
 
     stale_files = set(state.keys()) - set(new_state.keys())
     for filepath in stale_files:
         relative_path = os.path.relpath(filepath, workspace_path).replace("\\", "/")
-        stats.chunks_removed += _delete_chunks_by_source(relative_path, project_id)
+        stats.chunks_removed += _delete_chunks_by_source(
+            relative_path, project_id, provider_config
+        )
         stats.files_removed += 1
 
     if documents_to_index:
@@ -283,6 +296,25 @@ def index_workspace(
     stats.elapsed_seconds = time.time() - start_time
 
     return stats
+
+
+def index_workspace_if_enabled(
+    workspace_path: str,
+    project_id: str,
+    context_version: str,
+    indexer=None,
+    provider_config: dict | None = None,
+) -> IndexStats | None:
+    """Run post-import indexing only when the user enabled it."""
+    if not settings.get("rag.auto_index", False):
+        return None
+    runner = indexer or index_workspace
+    return runner(
+        workspace_path,
+        project_id=project_id,
+        context_version=context_version,
+        provider_config=provider_config,
+    )
 
 
 if __name__ == "__main__":

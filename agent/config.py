@@ -38,6 +38,26 @@ DEFAULT_CONFIG = {
     "rag.chunk_size": 1000,
     # Fast mode
     "fast_mode": False,
+    # Orchestration
+    "orchestration.enabled": True,
+    "orchestration.max_workers": 2,
+}
+
+
+PUBLIC_SETTING_CONSUMERS = {
+    "theme": "agent.ui.tui.theme_for_preference",
+    "tools.max_results": "agent.tools.search_tools.grep_search",
+    "tools.shell_timeout": "agent.tools.shell_tool.shell_execute",
+    "context.summarize_after": "agent.graph.routing.needs_compaction",
+    "context.loop_max_retries": "agent.loop_detector.is_looping",
+    "rag.auto_index": "agent.rag.indexer.index_workspace_if_enabled",
+    "rag.chunk_size": "agent.rag.indexer.index_workspace",
+    "hitl.enabled": "agent.safety.requires_approval",
+    "hitl.auto_approve_safe": "agent.safety.requires_approval",
+    "safety.mode": "agent.safety.requires_approval",
+    "safety.blocked_commands": "agent.tools.shell_tool.shell_execute",
+    "orchestration.enabled": "agent.graph.nodes.planner_node",
+    "orchestration.max_workers": "agent.orchestration.coordinator.Coordinator.run",
 }
 
 
@@ -182,3 +202,11 @@ class SettingsManager:
 
 # Singleton instance
 settings = SettingsManager()
+
+
+def effective_settings_report() -> dict[str, dict[str, Any]]:
+    """Return the effective value and runtime consumer for every public setting."""
+    return {
+        key: {"consumer": consumer, "value": settings.get(key)}
+        for key, consumer in PUBLIC_SETTING_CONSUMERS.items()
+    }

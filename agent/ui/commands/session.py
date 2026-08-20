@@ -14,7 +14,11 @@ from agent.sessions import copy_thread_state
 
 async def history(_argument: str, context: CommandContext) -> CommandResult:
     if not context.workflow:
-        return CommandResult(True, "History is unavailable without an active workflow.")
+        return CommandResult(
+            True,
+            "History is unavailable without an active workflow.",
+            status="unavailable",
+        )
     state = await context.workflow.aget_state(context.run_config)
     messages = (state.values or {}).get("messages", []) if state else []
     lines = [str(getattr(message, "content", "")) for message in messages]
@@ -41,7 +45,7 @@ async def checkpoints(_argument: str, context: CommandContext) -> CommandResult:
         context.workspace or ".", thread_id=_thread_id(context)
     )
     if not values:
-        return CommandResult(True, "No file checkpoints for this task.")
+        return CommandResult(True, "No file checkpoints for this task.", status="unavailable")
     lines = [
         f"{item.id[:10]} · {item.created_at.isoformat()} · "
         f"{item.label or 'checkpoint'} · {len(item.files)} file(s)"
@@ -55,26 +59,29 @@ async def restore(argument: str, context: CommandContext) -> CommandResult:
     force = "--force" in parts
     ids = [part for part in parts if part != "--force"]
     if len(ids) != 1:
-        return CommandResult(True, "Usage: /restore <checkpoint-id> [--force]")
+        return CommandResult(True, "Usage: /restore <checkpoint-id> [--force]", status="failed")
     root = Path(context.workspace or ".").resolve()
     try:
         checkpoint = _resolve_checkpoint(root, ids[0], context)
     except ValueError as exc:
-        return CommandResult(True, str(exc))
+        return CommandResult(True, str(exc), status="failed")
     preview = preview_restore(root, checkpoint.id)
     if preview.conflicts and not force:
         return CommandResult(
             True,
             "Restore conflicts: " + ", ".join(preview.conflicts)
             + ". Re-run with --force after reviewing them.",
+            status="failed",
         )
     summary = ", ".join(preview.changes) or "no file changes"
     if not click.confirm(f"Restore checkpoint {checkpoint.id[:10]} ({summary})?", default=False):
-        return CommandResult(True, "Restore cancelled; files were unchanged.")
+        return CommandResult(True, "Restore cancelled; files were unchanged.", status="waiting")
     try:
         restore_checkpoint(root, checkpoint.id, force=force)
     except CheckpointConflictError as exc:
-        return CommandResult(True, "Restore conflicts: " + ", ".join(exc.conflicts))
+        return CommandResult(
+            True, "Restore conflicts: " + ", ".join(exc.conflicts), status="failed"
+        )
     return CommandResult(
         True,
         f"Restored {checkpoint.id[:10]}: {summary}",
@@ -87,14 +94,18 @@ async def undo(_argument: str, context: CommandContext) -> CommandResult:
         context.workspace or ".", thread_id=_thread_id(context)
     )
     if not values:
-        return CommandResult(True, "No file checkpoint is available to undo.")
+        return CommandResult(
+            True, "No file checkpoint is available to undo.", status="unavailable"
+        )
     return await restore(values[0].id, context)
 
 
 async def fork(_argument: str, context: CommandContext) -> CommandResult:
     source_thread_id = _thread_id(context)
     if not source_thread_id or context.session_store is None or context.workflow is None:
-        return CommandResult(True, "Forking requires an active local task.")
+        return CommandResult(
+            True, "Forking requires an active local task.", status="unavailable"
+        )
     try:
         forked = context.session_store.fork_session(source_thread_id)
         await copy_thread_state(
@@ -103,7 +114,7 @@ async def fork(_argument: str, context: CommandContext) -> CommandResult:
             forked["thread_id"],
         )
     except ValueError as exc:
-        return CommandResult(True, str(exc))
+        return CommandResult(True, str(exc), status="failed")
     return CommandResult(
         True,
         (

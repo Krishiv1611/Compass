@@ -129,6 +129,22 @@ async def upload_workspace(
         raise
         
     update_workspace_stats(db, workspace)
+    from agent.rag.indexer import index_workspace_if_enabled
+    from backend.services.provider_credentials import resolve_provider_config
+
+    try:
+        provider_config = resolve_provider_config(
+            dict(current_user.preferences or {})
+        ).to_config()
+        provider_config["execution_target"] = "web"
+        index_workspace_if_enabled(
+            workspace.storage_path,
+            workspace.project_id,
+            workspace.context_version,
+            provider_config=provider_config,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"[rag] Post-import indexing failed: {exc}")
         
     return {
         "message": f"Successfully uploaded {len(saved_files)} files to workspace.", 

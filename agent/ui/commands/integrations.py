@@ -9,7 +9,7 @@ async def mcp(_argument: str, _context: CommandContext) -> CommandResult:
         names = [getattr(tool, "name", str(tool)) for tool in tools]
         return CommandResult(True, f"MCP tools ({len(names)}):\n" + "\n".join(names))
     except Exception as exc:
-        return CommandResult(True, f"MCP inspection failed: {exc}")
+        return CommandResult(True, f"MCP inspection failed: {exc}", status="failed")
 
 
 async def ui(_argument: str, context: CommandContext) -> CommandResult:
@@ -24,7 +24,11 @@ async def ui(_argument: str, context: CommandContext) -> CommandResult:
         return CommandResult(True, f"Opened Web UI at {url}")
     except (urllib.error.URLError, TimeoutError, OSError):
         pass
-    return CommandResult(True, f"Web UI is not reachable at {url}. Start it with: cd frontend && npm run dev")
+    return CommandResult(
+        True,
+        f"Web UI is not reachable at {url}. Start it with: cd frontend && npm run dev",
+        status="unavailable",
+    )
 
 
 COMMANDS = [

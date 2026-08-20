@@ -19,6 +19,7 @@ class CommandResult:
     consumed: bool
     message: str = ""
     state_updates: dict = field(default_factory=dict)
+    status: str = "performed"
 
 
 CommandHandler = Callable[[str, CommandContext], Awaitable[CommandResult]]

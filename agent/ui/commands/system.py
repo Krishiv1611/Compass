@@ -7,13 +7,29 @@ from agent.runtime.diagnostics import capability_report, route_report, timing_re
 
 
 async def schedule(_argument: str, _context: CommandContext) -> CommandResult:
-    return CommandResult(True, "Scheduling is not available in the TUI yet; no task was created.")
+    return CommandResult(
+        True,
+        "Scheduling is not available; no task was created.",
+        status="unavailable",
+    )
+
+
+async def grill_me(_argument: str, _context: CommandContext) -> CommandResult:
+    return CommandResult(
+        True,
+        "Plan mode enabled. Describe the decision you want to plan next.",
+        {"mode": "plan"},
+        "performed",
+    )
 
 
 async def doctor(_argument: str, context: CommandContext) -> CommandResult:
-    from agent.mcp import MCP_CONFIG_FILE
+    try:
+        from agent.mcp import MCP_CONFIG_FILE
 
-    mcp_config = Path(MCP_CONFIG_FILE)
+        mcp_config = Path(MCP_CONFIG_FILE)
+    except ImportError:
+        mcp_config = Path.cwd() / ".compass" / "mcp_servers.json"
     checks = [
         f"agent imports: {'ok' if importlib.util.find_spec('agent') else 'missing'}",
         f"workflow: {'active' if context.workflow else 'not active'}",
@@ -107,6 +123,7 @@ async def agents(_argument: str, context: CommandContext) -> CommandResult:
 
 COMMANDS = [
     SlashCommand("/schedule", (), "Report scheduling availability", schedule),
+    SlashCommand("/grill-me", (), "Enter Plan mode", grill_me),
     SlashCommand("/doctor", (), "Inspect local Compass configuration", doctor),
     SlashCommand("/capabilities", (), "Show effective runtime capabilities", capabilities),
     SlashCommand("/route", (), "Explain the current workflow route", route),

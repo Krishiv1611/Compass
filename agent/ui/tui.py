@@ -81,6 +81,32 @@ COMPASS_THEME = Theme(
     }
 )
 
+HIGH_CONTRAST_THEME = Theme(
+    {
+        "compass.prompt": "bold bright_white on blue",
+        "compass.thinking": "bold bright_white on magenta",
+        "compass.tool_name": "bold bright_white on magenta",
+        "compass.tool_args": "bright_white",
+        "compass.success": "bold bright_white on green",
+        "compass.error": "bold bright_white on red",
+        "compass.info": "bold bright_white on blue",
+        "compass.border": "bright_white",
+        "compass.dim": "bright_white",
+        "compass.accent": "bold bright_white on blue",
+        "compass.warn": "bold black on yellow",
+        "compass.highlight": "bold black on bright_white",
+        "compass.cost": "bold bright_white on green",
+        "compass.status": "bright_white",
+    }
+)
+
+
+def theme_for_preference() -> Theme:
+    """Resolve the configured UI-only terminal theme."""
+    from agent.config import settings
+
+    return HIGH_CONTRAST_THEME if settings.get("theme") == "high-contrast" else COMPASS_THEME
+
 # ─── ASCII Art ──────────────────────────────────────────────────────────────────
 
 COMPASS_BANNER = r"""[bold bright_cyan]
@@ -123,8 +149,8 @@ COMMAND_REGISTRY = {
     "/doctor": "Diagnose configuration and connectivity",
     "/mode": "Choose Ask, Edit, Plan, or Goal mode",
     "/goal": "Switch directly to Goal mode",
-    "/schedule": "Schedule a cron-based background job",
-    "/grill-me": "Switch to active interview/planning mode",
+    "/schedule": "Report scheduling availability (unavailable)",
+    "/grill-me": "Enter Plan mode",
     "/learn": "Extract a rule and append to COMPASS.md",
     "/ui": "Launch the professional Web UI on localhost",
     "/workspace": "Show cwd, file count, and git branch",
@@ -256,7 +282,7 @@ class CompassConsole:
     """Rich-powered console with Compass theming and helper methods."""
 
     def __init__(self):
-        self.console = Console(theme=COMPASS_THEME, highlight=False)
+        self.console = Console(theme=theme_for_preference(), highlight=False)
         self.turn_count = 0
         self.session_start = time.time()
         self.change_tracker = ChangeTracker()
@@ -1381,6 +1407,8 @@ async def _handle_slash_command(
             compass.console.print(Text(f"  {registry_result.message}", style="bright_white"))
             compass.console.print()
         switch_thread_id = registry_result.state_updates.get("switch_thread_id")
+        if registry_result.state_updates.get("mode"):
+            compass.current_mode = registry_result.state_updates["mode"]
         return str(switch_thread_id) if switch_thread_id else True
 
     operational_result = _handle_operational_command(
@@ -1609,7 +1637,7 @@ async def _handle_slash_command(
         compass.current_mode = "plan"
         compass.console.print(
             Text(
-                "  🧠 Interview mode activated. I will ask you questions to resolve design decisions.",
+                "  🧠 Plan mode enabled. Describe the decision you want to plan next.",
                 style="bold bright_green",
             )
         )
@@ -1619,7 +1647,7 @@ async def _handle_slash_command(
     elif cmd == "/schedule":
         compass.console.print(
             Text(
-                "  📅 Scheduler active. Background task queued.",
+                "  📅 Scheduling is not available; no task was created.",
                 style="bold bright_yellow",
             )
         )

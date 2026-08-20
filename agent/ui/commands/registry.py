@@ -16,7 +16,21 @@ class CommandRegistry:
         command = self._commands.get(name)
         if not command:
             return CommandResult(consumed=False)
-        return await command.handler(argument, context)
+        try:
+            result = await command.handler(argument, context)
+        except Exception as exc:
+            return CommandResult(
+                consumed=True,
+                message=f"Command failed: {exc}",
+                status="failed",
+            )
+        if result.status not in {"performed", "waiting", "unavailable", "failed"}:
+            return CommandResult(
+                consumed=True,
+                message="Command failed: invalid command status.",
+                status="failed",
+            )
+        return result
 
     def help_text(self) -> str:
         commands = {command.name: command.help for command in self._commands.values()}

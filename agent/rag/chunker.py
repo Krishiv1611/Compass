@@ -3,6 +3,7 @@ from typing import Any, List
 
 from langchain_core.documents import Document
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
+from agent.config import settings
 
 # Map file extensions to LangChain Language enums
 EXTENSION_MAPPING = {
@@ -25,11 +26,14 @@ def chunk_file(
     filepath: str,
     content: str,
     metadata: dict[str, Any] | None = None,
+    chunk_size: int | None = None,
 ) -> List[Document]:
     """
     Chunk a file's content into smaller, code-aware chunks using Langchain.
     Returns a list of Document objects with metadata.
     """
+    chunk_size = chunk_size or int(settings.get("rag.chunk_size", 1000))
+    chunk_overlap = min(200, max(0, chunk_size // 5))
     _, ext = os.path.splitext(filepath)
     ext = ext.lower()
 
@@ -38,14 +42,14 @@ def chunk_file(
         language = EXTENSION_MAPPING[ext]
         splitter = RecursiveCharacterTextSplitter.from_language(
             language=language,
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
     else:
         # Fallback for generic text splitting
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
 
     doc_metadata = {"source": filepath}

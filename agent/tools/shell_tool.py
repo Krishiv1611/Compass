@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 from langchain_core.tools import tool
+from agent.config import settings
+from agent.safety import configured_blocked_patterns
 
 BLOCKED_PATTERNS = [
     r"rm\s+-rf\s+[/~*]",
@@ -23,7 +25,7 @@ _MAX_OUTPUT_CHARS = 15000
 
 def _is_blocked(command: str) -> bool:
     """Check if a command matches any blocked pattern."""
-    for pattern in BLOCKED_PATTERNS:
+    for pattern in [*BLOCKED_PATTERNS, *configured_blocked_patterns()]:
         if re.search(pattern, command, re.IGNORECASE):
             return True
     return False
@@ -58,7 +60,7 @@ from agent.tools.utils import get_workspace_for_tool, resolve_workspace_path
 @tool
 def shell_execute(
     command: str,
-    timeout: int = 120,
+    timeout: int | None = None,
     cwd: str = ".",
     verification_hook: bool = False,
     hook_name: str = "",
@@ -72,7 +74,7 @@ def shell_execute(
 
     Args:
         command: The shell command to execute.
-        timeout: Max seconds to wait before killing the process (default 120).
+        timeout: Max seconds to wait before killing the process (defaults to settings).
         cwd: Working directory for the command (default current directory).
     """
     try:
@@ -85,6 +87,9 @@ def shell_execute(
 
     if not command or not command.strip():
         return "Error: No command provided."
+
+    if timeout is None:
+        timeout = int(settings.get("tools.shell_timeout", 30))
 
     if _is_blocked(command):
         return f"Error: Command blocked for safety reasons: '{command}'"

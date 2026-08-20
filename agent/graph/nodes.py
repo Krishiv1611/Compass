@@ -9,7 +9,6 @@ Four-agent architecture:
 """
 
 from agent.graph.state import AgentState
-from agent.mcp import get_mcp_tools
 from agent.llm import llm
 from agent.config import settings
 from langchain_core.messages import SystemMessage, AIMessage
@@ -201,7 +200,8 @@ async def planner_node(state: AgentState, config: RunnableConfig):
         "recovery_guidance": "",
         "execution_plan": execution_plan.model_dump(mode="json"),
         "worker_artifacts": [],
-        "orchestration_enabled": not is_fallback_plan(execution_plan),
+        "orchestration_enabled": settings.get("orchestration.enabled", True)
+        and not is_fallback_plan(execution_plan),
         "messages": [response],
     }
 
@@ -238,6 +238,7 @@ async def coordinator_node(state: AgentState, config: RunnableConfig):
         plan,
         config,
         cancel_event,
+        max_workers=settings.get("orchestration.max_workers", 2),
     )
     return {
         "worker_artifacts": [item.model_dump(mode="json") for item in artifacts],
@@ -417,6 +418,8 @@ async def call_model(state: AgentState, config: RunnableConfig):
     if turn_context is not None and turn_context.executor_model is not None:
         executor_with_tools = turn_context.executor_model
     else:
+        from agent.mcp import get_mcp_tools
+
         mcp_tools = await get_mcp_tools()
         from agent.graph.tools_registry import ALL_TOOLS
 
@@ -517,7 +520,7 @@ async def call_model(state: AgentState, config: RunnableConfig):
     # ── Loop detection ───────────────────────────────────────────────────────
     loop = is_looping(
         state,
-        max_identical_calls=3,
+        max_identical_calls=int(settings.get("context.loop_max_retries", 3)),
         new_response=response,
     )
     new_state["loop_detected"] = loop
@@ -542,7 +545,7 @@ async def loop_recovery_node(state: AgentState, config: RunnableConfig):
     loop_summary = get_loop_summary(state)
 
     # ── Hard break after 3 recovery attempts ─────────────────────────────────
-    if loop_count >= 3:
+    if loop_count >= int(settings.get("context.loop_max_retries", 3)):
         return {
             "loop_count": loop_count,
             "loop_detected": False,

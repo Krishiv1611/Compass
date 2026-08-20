@@ -12,6 +12,7 @@ from typing import Any, Callable
 from agent.orchestration.models import AgentArtifact, AgentTask, ExecutionPlan, TaskStatus
 from agent.runtime.events import StreamEvent, StreamEventType
 from agent.runtime.metrics import current_run_metrics
+from agent.config import settings
 
 
 DEFAULT_MAX_WORKERS = 2
@@ -165,13 +166,14 @@ class Coordinator:
         plan: ExecutionPlan,
         context,
         cancel_event: asyncio.Event,
-        max_workers: int = DEFAULT_MAX_WORKERS,
+        max_workers: int | None = None,
     ) -> list[AgentArtifact]:
         """Return artifacts in plan order; nested coordinator calls are denied."""
         if _WORKER_DEPTH.get() > 0:
             raise PermissionError("workers cannot create nested coordinators")
 
-        worker_limit = max(1, min(int(max_workers), HARD_MAX_WORKERS))
+        configured_workers = settings.get("orchestration.max_workers", DEFAULT_MAX_WORKERS)
+        worker_limit = max(1, min(int(max_workers if max_workers is not None else configured_workers), HARD_MAX_WORKERS))
         semaphore = asyncio.Semaphore(worker_limit)
         tasks_by_id = {task.id: task for task in plan.tasks}
         pending = set(tasks_by_id)

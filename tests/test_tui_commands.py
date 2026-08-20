@@ -32,6 +32,31 @@ class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("not available", result.message.lower())
         self.assertNotIn("queued", result.message.lower())
 
+    async def test_non_success_commands_report_truthful_statuses(self):
+        registry = build_registry()
+        self.assertEqual(
+            (await registry.execute("/history", self.context())).status,
+            "unavailable",
+        )
+        with patch("urllib.request.urlopen", side_effect=OSError("offline")):
+            self.assertEqual(
+                (await registry.execute("/web", self.context())).status,
+                "unavailable",
+            )
+        with patch("agent.mcp.get_mcp_tools", side_effect=RuntimeError("offline")):
+            self.assertEqual(
+                (await registry.execute("/mcp", self.context())).status,
+                "failed",
+            )
+        self.assertEqual(
+            (await registry.execute("/restore", self.context())).status,
+            "failed",
+        )
+        self.assertEqual(
+            (await registry.execute("/fork", self.context())).status,
+            "unavailable",
+        )
+
     async def test_history_reads_checkpoint_messages(self):
         result = await build_registry().execute("/history", self.context(workflow=FakeWorkflow()))
         self.assertIn("one", result.message)

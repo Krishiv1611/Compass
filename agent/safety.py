@@ -5,10 +5,20 @@ Decision engine for tool safety and approval, and path validators.
 import json
 from pathlib import Path
 from agent.config import settings
-from agent.tools.registry import build_builtin_registry
 
 HITL_ACTIONS = ["yes", "no", "always", "skip"]  # ordered for frontend display
-_BUILTIN_REGISTRY = build_builtin_registry()
+_SAFE_TOOL_NAMES = {
+    "read_file", "list_dir", "find_files", "grep_search", "codebase_search",
+    "web_search",
+}
+
+
+def configured_blocked_patterns() -> list[str]:
+    """Return non-empty command patterns configured by the user."""
+    value = settings.get("safety.blocked_commands", "")
+    if not isinstance(value, str):
+        return []
+    return [item.strip() for item in value.replace("\n", ",").split(",") if item.strip()]
 
 
 def build_interrupt_payload(
@@ -40,17 +50,20 @@ def requires_approval(
     Determines if a tool call requires human approval based on policies and cache.
     """
     # 1. Check Policy
+    if not settings.get("hitl.enabled", True):
+        return False
+
     safety_mode = settings.get("safety.mode", "auto")
     if safety_mode == "yolo" or settings.get("fast_mode", False):
         return False
 
-    try:
-        risk = _BUILTIN_REGISTRY.get(tool_name).policy.risk
-    except KeyError:
-        risk = "approval"
+    if safety_mode == "strict":
+        return True
+
+    risk = "safe" if tool_name in _SAFE_TOOL_NAMES else "approval"
 
     if risk == "safe":
-        return False
+        return not settings.get("hitl.auto_approve_safe", True)
 
     # 2. Check Cache
     call_pattern = get_call_pattern(tool_name, tool_args)
