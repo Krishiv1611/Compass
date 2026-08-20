@@ -113,37 +113,33 @@ The TUI includes session management, diffs, rollback, RAG indexing, configuratio
 
 ### Requirements
 
-- Python 3.12 or newer
+- Python 3.12
+- uv 0.9 or newer
 - Node.js 20 or newer
 - PostgreSQL 15 or newer for the web application and durable checkpoints
 - an LLM provider key; `OPENROUTER_API_KEY` is the default supported path
 
 Git, Docker, GitHub CLI, and OAuth credentials are optional but enable additional workflows.
 
-### 1. Get the source and create a Python environment
+### 1. Get the source and bootstrap dependencies
 
 ```bash
 git clone https://github.com/Krishiv1611/Compass.git
 cd Compass
-python -m venv .venv
 ```
 
-Activate the environment:
+On Windows, the bootstrap script verifies prerequisites, creates the frozen
+Python environment, and installs the frontend with `npm ci`:
 
 ```powershell
-# Windows PowerShell
-.\.venv\Scripts\Activate.ps1
+.\tools\bootstrap.ps1
 ```
 
-```bash
-# macOS / Linux
-source .venv/bin/activate
-```
-
-Install backend and agent dependencies:
+For manual or non-Windows setup, use the same frozen inputs:
 
 ```bash
-pip install -r requirements.txt
+uv sync --frozen --all-groups
+cd frontend && npm ci
 ```
 
 ### 2. Configure local development
@@ -321,7 +317,10 @@ The browser application handles this connection. Direct clients should authentic
 │   └── src/pages/          # Login, callback, and workbench routes
 ├── tests/                  # Fast architecture and routing invariants
 ├── main.py                 # TUI CLI entry point
-├── requirements.txt        # Python dependencies
+├── pyproject.toml          # Human-maintained Python dependencies
+├── requirements.lock      # Frozen runtime install input
+├── requirements-dev.lock  # Frozen runtime and development install input
+├── requirements.txt       # Compatibility pointer to requirements.lock
 ├── alembic.ini             # Migration configuration
 ├── docker-compose.yml      # Development Docker stack
 └── docker-compose.prod.yml # Production-oriented Docker stack

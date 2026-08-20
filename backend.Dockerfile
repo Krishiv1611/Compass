@@ -1,19 +1,13 @@
-FROM python:3.12-slim
+FROM ghcr.io/astral-sh/uv:0.9.1 AS uv
+FROM python:3.12.13-slim-bookworm
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv for fast dependency management
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /app
 
-# Copy requirements and install
-COPY requirements.txt .
-RUN uv pip install --system -r requirements.txt
+# Install the exact resolver output used by local and CI environments.
+COPY requirements.lock .
+RUN uv pip install --system --require-hashes -r requirements.lock
 
 # Copy source code
 COPY . .

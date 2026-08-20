@@ -4,7 +4,53 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "aiohttp",
+    "alembic",
+    "bcrypt",
+    "beautifulsoup4",
+    "click",
+    "duckduckgo-search",
+    "email-validator",
+    "fastapi",
+    "httpx",
+    "langchain",
+    "langchain-anthropic",
+    "langchain-community",
+    "langchain-google-genai",
+    "langchain-groq",
+    "langchain-mcp-adapters",
+    "langchain-openai",
+    "langchain-openrouter",
+    "langchain-postgres",
+    "langchain-redis",
+    "langchain-text-splitters",
+    "langgraph",
+    "langgraph-checkpoint-postgres",
+    "markdownify",
+    "platformdirs",
+    "prompt-toolkit",
+    "psycopg[binary]",
+    "psycopg-pool",
+    "pydantic",
+    "pydantic-settings",
+    "python-dotenv",
+    "python-jose[cryptography]",
+    "python-multipart",
+    "pyyaml",
+    "redis",
+    "rich",
+    "sqlalchemy",
+    "structlog",
+    "tavily",
+    "tiktoken",
+    "tomli",
+    "tomli-w",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = ["pyright", "ruff"]
 
 [tool.pyright]
 venvPath = "."
@@ -12,4 +58,3 @@ venv = ".venv"
 
 [tool.ruff.lint]
 ignore = ["E402"]
-
