@@ -136,6 +136,7 @@ COMMAND_REGISTRY = {
     "/commit": "Commit local Git changes with a message",
     "/pr": "Open a draft pull request with the GitHub CLI",
     "/github": "Show Git remote and GitHub CLI connection status",
+    "/agents": "Show worker tasks from the latest run",
 }
 
 SLASH_COMMANDS = COMMAND_REGISTRY
@@ -852,7 +853,11 @@ async def _stream_runtime_turn(
 ) -> dict | None:
     """Render one shared-runtime turn and return an approval interrupt, if any."""
     from agent.runtime.runner import stream_agent_events
-    from agent.ui.event_renderer import EventRenderer, artifact_summary_for_event
+    from agent.ui.event_renderer import (
+        EventRenderer,
+        artifact_summary_for_event,
+        walkthrough_summary,
+    )
 
     live_panel = None
     current_text = ""
@@ -868,6 +873,9 @@ async def _stream_runtime_turn(
     try:
         async for event in stream_agent_events(input_value, config):
             artifact = event_renderer.add(event)
+            config.setdefault("configurable", {})["last_run_artifact"] = (
+                artifact.model_dump(mode="json")
+            )
             if event.type == StreamEventType.USAGE and isinstance(event.data, dict):
                 compass.accumulate_tokens(event.data)
             artifact_summary = artifact_summary_for_event(event, artifact)
@@ -875,7 +883,8 @@ async def _stream_runtime_turn(
                 stop_live()
                 current_text = ""
                 compass.console.print(Text(f"  {artifact_summary}", style="dim"))
-                continue
+                if event.type != StreamEventType.DONE:
+                    continue
             if event.type == StreamEventType.TOKEN and event.content:
                 if not live_panel:
                     live_panel = Live(
@@ -965,10 +974,16 @@ async def _stream_runtime_turn(
 
             if event.type == StreamEventType.ERROR:
                 stop_live()
+                summary = walkthrough_summary(artifact)
+                if summary:
+                    compass.console.print(Panel(summary, title="Final walkthrough"))
                 raise RuntimeError(event.content or "Agent execution failed.")
 
             if event.type == StreamEventType.DONE:
                 stop_live()
+                summary = walkthrough_summary(artifact)
+                if summary:
+                    compass.console.print(Panel(summary, title="Final walkthrough"))
 
         stop_live()
         return None

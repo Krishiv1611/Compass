@@ -125,6 +125,11 @@ def _sanitize_error(value: str) -> str:
     return text[:500]
 
 
+def sanitize_artifact_text(value: str) -> str:
+    """Bound and redact worker-authored text before it reaches a surface event."""
+    return _sanitize_error(value)
+
+
 class AgentArtifact(StrictModel):
     task_id: str = Field(pattern=TASK_ID_PATTERN)
     status: TaskStatus

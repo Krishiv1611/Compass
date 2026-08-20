@@ -65,6 +65,16 @@ async def timing(_argument: str, context: CommandContext) -> CommandResult:
     cost_text = "cost unavailable" if cost["status"] == "unavailable" else (
         "free" if cost["status"] == "free" else f"${cost['estimated_usd']:.6f} estimated"
     )
+    return CommandResult(
+        True,
+        "Timing (latest run):\n"
+        f"Provider wait: {categories['provider_wait_ms']:.1f} ms\n"
+        f"Local compute: {categories['local_compute_ms']:.1f} ms\n"
+        f"Tools: {categories['tool_time_ms']:.1f} ms\n"
+        f"Approval wait: {categories['approval_wait_ms']:.1f} ms\n"
+        f"Persistence: {categories['persistence_ms']:.1f} ms\n"
+        f"Model calls: {report['calls']} · tokens: {report['tokens']['total']} · {cost_text}",
+    )
 
 
 async def hooks(_argument: str, context: CommandContext) -> CommandResult:
@@ -80,16 +90,19 @@ async def hooks(_argument: str, context: CommandContext) -> CommandResult:
     if not lines:
         lines.append("No hooks configured in .compass/config.toml.")
     return CommandResult(True, "Verification hooks (inspection only):\n" + "\n".join(lines))
-    return CommandResult(
-        True,
-        "Timing (latest run):\n"
-        f"Provider wait: {categories['provider_wait_ms']:.1f} ms\n"
-        f"Local compute: {categories['local_compute_ms']:.1f} ms\n"
-        f"Tools: {categories['tool_time_ms']:.1f} ms\n"
-        f"Approval wait: {categories['approval_wait_ms']:.1f} ms\n"
-        f"Persistence: {categories['persistence_ms']:.1f} ms\n"
-        f"Model calls: {report['calls']} · tokens: {report['tokens']['total']} · {cost_text}",
-    )
+
+
+async def agents(_argument: str, context: CommandContext) -> CommandResult:
+    from agent.runtime.artifacts import RunArtifact
+    from agent.ui.event_renderer import workers_table
+
+    configurable = context.run_config.get("configurable", {})
+    payload = configurable.get("last_run_artifact", {})
+    try:
+        artifact = RunArtifact.model_validate(payload)
+    except Exception:
+        artifact = RunArtifact()
+    return CommandResult(True, workers_table(artifact))
 
 
 COMMANDS = [
@@ -99,4 +112,5 @@ COMMANDS = [
     SlashCommand("/route", (), "Explain the current workflow route", route),
     SlashCommand("/timing", (), "Show timing and cost for the latest run", timing),
     SlashCommand("/hooks", (), "Inspect configured post-edit hooks", hooks),
+    SlashCommand("/agents", (), "Show worker tasks from the latest run", agents),
 ]

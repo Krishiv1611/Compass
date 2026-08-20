@@ -42,6 +42,51 @@ class TuiCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("anthropic", result.message)
         self.assertIn("claude-sonnet", result.message)
 
+    async def test_agents_shows_latest_worker_table(self):
+        run_config = {
+            "configurable": {
+                "last_run_artifact": {
+                    "workers": [
+                        {
+                            "task_id": "web",
+                            "title": "Audit web",
+                            "status": "completed",
+                            "duration_ms": 25,
+                            "evidence_count": 3,
+                        }
+                    ]
+                }
+            }
+        }
+
+        result = await build_registry().execute(
+            "/agents",
+            self.context(run_config=run_config),
+        )
+
+        self.assertTrue(result.consumed)
+        self.assertIn("Audit web", result.message)
+        self.assertIn("3", result.message)
+
+    async def test_timing_command_returns_latest_metrics(self):
+        result = await build_registry().execute(
+            "/timing",
+            self.context(
+                settings={
+                    "last_run_metrics": {
+                        "spans": {},
+                        "calls_by_node": {"executor": 1},
+                        "total_input_tokens": 8,
+                        "total_output_tokens": 3,
+                        "total_tokens": 11,
+                    }
+                }
+            ),
+        )
+
+        self.assertTrue(result.consumed)
+        self.assertIn("11", result.message)
+
     async def test_alias_and_help_are_registered(self):
         registry = build_registry()
         with patch("urllib.request.urlopen", side_effect=OSError("offline")):

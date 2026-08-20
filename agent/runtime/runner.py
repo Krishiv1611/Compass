@@ -30,6 +30,8 @@ _NODE_STATUS = {
     "context_injector": "Reading project",
     "planner": "Planning changes",
     "plan_approval": "Waiting for approval",
+    "coordinator": "Running read-only workers",
+    "synthesis": "Reviewing worker evidence",
     "executor": "Working on request",
     "tools": "Reading project",
     "linter_node": "Checking changes",
@@ -173,7 +175,49 @@ def events_for_node_artifacts(node_name: str, node_output: dict) -> list[StreamE
                 },
             )
         )
+    if node_name == "coordinator":
+        from agent.orchestration.models import sanitize_artifact_text
+
+        summaries = {
+            str(item.get("task_id")): sanitize_artifact_text(str(item.get("summary", "")))
+            for item in node_output.get("worker_artifacts", [])
+            if isinstance(item, dict) and item.get("task_id")
+        }
+        for payload in node_output.get("worker_events", []):
+            try:
+                event = StreamEvent.model_validate(payload)
+            except Exception:
+                continue
+            data = event.data if isinstance(event.data, dict) else {}
+            if event.type in {
+                StreamEventType.AGENT_COMPLETED,
+                StreamEventType.AGENT_FAILED,
+            }:
+                event.content = summaries.get(str(data.get("task_id"))) or None
+            events.append(event)
+    if node_name == "synthesis":
+        synthesis = node_output.get("synthesis", {})
+        if isinstance(synthesis, dict):
+            events.append(
+                StreamEvent(
+                    type=StreamEventType.STATUS,
+                    content="Worker evidence synthesized",
+                    node=node_name,
+                    data={
+                        "conflicts": synthesis.get("conflicts", []),
+                        "missing_evidence": synthesis.get("missing_evidence", []),
+                    },
+                )
+            )
     return events
+
+
+def with_node_duration(event: StreamEvent, duration_ms: float) -> StreamEvent:
+    """Add node timing without erasing a more precise event duration."""
+    data = dict(event.data) if isinstance(event.data, dict) else {}
+    data.setdefault("duration_ms", duration_ms)
+    event.data = data
+    return event
 
 
 def events_from_interrupts(interrupts: list[dict]) -> list[StreamEvent]:
@@ -256,6 +300,8 @@ def build_turn_input(
         "current_step": 0,
         "execution_plan": None,
         "worker_artifacts": [],
+        "worker_events": [],
+        "synthesis": None,
         "orchestration_enabled": False,
         "is_done": False,
         "pending_tool_calls": [],
@@ -455,11 +501,7 @@ async def stream_agent_events(
                         node_name,
                         node_output,
                     ):
-                        artifact_event.data = {
-                            **(artifact_event.data or {}),
-                            "duration_ms": duration_ms,
-                        }
-                        yield artifact_event
+                        yield with_node_duration(artifact_event, duration_ms)
 
                     if node_name == "planner":
                         plan = node_output.get("plan", "")

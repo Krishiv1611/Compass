@@ -24,15 +24,46 @@ export interface CheckArtifact {
   details: JsonValue;
 }
 
+export type WorkerStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "cancelled"
+  | "invalid";
+
+export interface WorkerArtifact {
+  task_id: string;
+  title: string;
+  status: WorkerStatus;
+  duration_ms: number;
+  evidence_count: number;
+  summary?: string;
+}
+
+export interface RunWalkthroughArtifact {
+  plan: string | null;
+  worker_contributions: string[];
+  changed_files: string[];
+  checks: CheckArtifact[];
+  usage: Record<string, JsonValue>;
+  unresolved_conflicts: string[];
+  terminal_status: string | null;
+}
+
 export interface RunArtifact {
   plan: string | null;
   steps: PlanStepArtifact[];
   tools: ToolArtifact[];
   changed_files: string[];
   checks: CheckArtifact[];
+  workers: WorkerArtifact[];
+  unresolved_conflicts: string[];
   usage: Record<string, JsonValue>;
   terminal_status: string | null;
   final_summary: string | null;
+  walkthrough: RunWalkthroughArtifact;
 }
 
 export interface RuntimeMetricsArtifact {

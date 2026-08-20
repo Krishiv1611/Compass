@@ -25,6 +25,8 @@ class AgentState(TypedDict):
     current_step: int  # Which plan step the executor is working on
     execution_plan: dict | None  # Validated read-only worker task graph
     worker_artifacts: list[dict]  # Structured worker results for synthesis
+    worker_events: list[dict]  # Redacted worker lifecycle events for surfaces
+    synthesis: dict | None  # Evidence briefing consumed by the main executor
     orchestration_enabled: bool  # False for the safe main-executor fallback
 
     # ── Executor ─────────────────────────────────────────────────────────────

@@ -30,15 +30,27 @@ class CheckArtifact(BaseModel):
     details: Any | None = None
 
 
+class WorkerArtifact(BaseModel):
+    task_id: str
+    title: str
+    status: str
+    duration_ms: float = 0
+    evidence_count: int = 0
+    summary: str | None = None
+
+
 class RunArtifact(BaseModel):
     plan: str | None = None
     steps: list[PlanStepArtifact] = Field(default_factory=list)
     tools: list[ToolArtifact] = Field(default_factory=list)
     changed_files: list[str] = Field(default_factory=list)
     checks: list[CheckArtifact] = Field(default_factory=list)
+    workers: list[WorkerArtifact] = Field(default_factory=list)
+    unresolved_conflicts: list[str] = Field(default_factory=list)
     usage: dict[str, Any] = Field(default_factory=dict)
     terminal_status: str | None = None
     final_summary: str | None = None
+    walkthrough: dict[str, Any] = Field(default_factory=dict)
 
 
 def empty_run_artifact() -> RunArtifact:
@@ -57,6 +69,44 @@ def _plan_steps(plan: str) -> list[PlanStepArtifact]:
         PlanStepArtifact(id=f"step-{index}", text=text)
         for index, text in enumerate(values, start=1)
     ]
+
+
+def _worker_from_event(event: StreamEvent, data: dict) -> WorkerArtifact | None:
+    task_id = data.get("task_id")
+    title = data.get("title")
+    if not isinstance(task_id, str) or not isinstance(title, str):
+        return None
+    return WorkerArtifact(
+        task_id=task_id,
+        title=title,
+        status=str(data.get("status", "running")),
+        duration_ms=(
+            float(data["duration_ms"])
+            if isinstance(data.get("duration_ms"), (int, float))
+            else 0
+        ),
+        evidence_count=(
+            int(data["evidence_count"])
+            if isinstance(data.get("evidence_count"), (int, float))
+            else 0
+        ),
+        summary=event.content if isinstance(event.content, str) else None,
+    )
+
+
+def _build_walkthrough(result: RunArtifact) -> dict[str, Any]:
+    return {
+        "plan": result.plan,
+        "worker_contributions": [
+            f"{worker.title}: {worker.summary or worker.status}"
+            for worker in result.workers
+        ],
+        "changed_files": list(result.changed_files),
+        "checks": [check.model_dump(mode="json") for check in result.checks],
+        "usage": dict(result.usage),
+        "unresolved_conflicts": list(result.unresolved_conflicts),
+        "terminal_status": result.terminal_status,
+    }
 
 
 def reduce_run_event(artifact: RunArtifact, event: StreamEvent) -> RunArtifact:
@@ -124,6 +174,33 @@ def reduce_run_event(artifact: RunArtifact, event: StreamEvent) -> RunArtifact:
             existing.details = value.details
         else:
             result.checks.append(value)
+    elif event.type in {
+        StreamEventType.AGENT_STARTED,
+        StreamEventType.AGENT_PROGRESS,
+        StreamEventType.AGENT_COMPLETED,
+        StreamEventType.AGENT_FAILED,
+    }:
+        worker = _worker_from_event(event, data)
+        if worker:
+            existing = next(
+                (item for item in result.workers if item.task_id == worker.task_id),
+                None,
+            )
+            if existing:
+                existing.title = worker.title
+                existing.status = worker.status
+                existing.duration_ms = worker.duration_ms
+                existing.evidence_count = worker.evidence_count
+                if worker.summary:
+                    existing.summary = worker.summary
+            else:
+                result.workers.append(worker)
+    elif event.type == StreamEventType.STATUS:
+        conflicts = data.get("conflicts")
+        if isinstance(conflicts, list):
+            result.unresolved_conflicts = [
+                value for value in conflicts if isinstance(value, str)
+            ]
     elif event.type == StreamEventType.USAGE:
         result.usage = dict(data)
     elif event.type == StreamEventType.RUN_WAITING:
@@ -134,8 +211,10 @@ def reduce_run_event(artifact: RunArtifact, event: StreamEvent) -> RunArtifact:
         if isinstance(usage, dict):
             result.usage = dict(usage)
         result.final_summary = event.content or data.get("assistant_content")
+        result.walkthrough = _build_walkthrough(result)
     elif event.type == StreamEventType.ERROR:
         result.terminal_status = "failed"
         result.final_summary = event.content
+        result.walkthrough = _build_walkthrough(result)
 
     return result

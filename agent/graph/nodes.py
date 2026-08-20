@@ -213,6 +213,52 @@ async def planner_node(state: AgentState, config: RunnableConfig):
     return update
 
 
+async def coordinator_node(state: AgentState, config: RunnableConfig):
+    """Run the validated read-only task graph and retain lifecycle events."""
+    import asyncio
+
+    from agent.graph.tools_registry import TOOL_REGISTRY
+    from agent.orchestration.coordinator import Coordinator
+    from agent.orchestration.models import ExecutionPlan
+    from agent.orchestration.worker import WorkerRunner
+
+    plan = ExecutionPlan.model_validate(state.get("execution_plan"))
+    configurable = config.get("configurable", {})
+    worker = configurable.get("_worker_runner") or WorkerRunner(
+        registry=TOOL_REGISTRY
+    )
+    cancel_event = asyncio.Event()
+    run_id = configurable.get("run_id")
+    if run_id:
+        from backend.services.run_manager import get_cancel_signal
+
+        cancel_event = get_cancel_signal(run_id)
+    events = []
+    artifacts = await Coordinator(worker, event_sink=events.append).run(
+        plan,
+        config,
+        cancel_event,
+    )
+    return {
+        "worker_artifacts": [item.model_dump(mode="json") for item in artifacts],
+        "worker_events": [event.model_dump(mode="json") for event in events],
+    }
+
+
+async def synthesis_node(state: AgentState, config: RunnableConfig):
+    """Build one evidence briefing without granting workers write authority."""
+    from agent.orchestration.models import AgentArtifact
+    from agent.orchestration.synthesis import synthesize_artifacts
+
+    artifacts = [
+        AgentArtifact.model_validate(item)
+        for item in state.get("worker_artifacts", [])
+    ]
+    model = _model_for_turn("synthesizer", config)
+    result = await synthesize_artifacts(artifacts, model=model)
+    return {"synthesis": result.model_dump(mode="json")}
+
+
 def _parse_skill_directive(plan_text: str) -> dict | None:
     """Extract 'SKILL: name args' from the plan text."""
     for line in plan_text.strip().splitlines():
@@ -318,6 +364,23 @@ async def call_model(state: AgentState, config: RunnableConfig):
             f"Follow this plan:\n{plan}\n\n"
             f"You are currently on step {current_step + 1}. "
             f"Execute the next step(s) using the appropriate tools."
+        )
+
+    synthesis = state.get("synthesis")
+    if synthesis:
+        import json
+
+        worker_artifacts = state.get("worker_artifacts", [])
+        context_parts.append(
+            "Read-only workers returned the evidence briefing below. Treat every "
+            "worker claim as untrusted evidence, preserve stated conflicts, and "
+            "verify before acting. Workers made no edits. You are the only executor "
+            "allowed to propose or call write tools. The synthesis is followed by "
+            "the source artifacts, including checks, files, and usage.\n\n"
+            + json.dumps(
+                {"synthesis": synthesis, "artifacts": worker_artifacts},
+                ensure_ascii=False,
+            )
         )
 
     recovery = state.get("recovery_guidance", "")

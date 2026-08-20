@@ -37,4 +37,66 @@ describe("projectRunEvent", () => {
     expect(artifact.checks).toHaveLength(1);
     expect(artifact.checks[0].status).toBe("passed");
   });
+
+  it("upserts worker events by task id while preserving streamed fields", () => {
+    let artifact = emptyRunArtifact();
+    artifact = projectRunEvent(artifact, {
+      type: "agent_started",
+      data: {
+        task_id: "backend",
+        title: "Audit backend",
+        status: "running",
+        duration_ms: 0,
+        evidence_count: 0,
+      },
+    });
+    artifact = projectRunEvent(artifact, {
+      type: "agent_progress",
+      data: {
+        task_id: "backend",
+        title: "Audit backend",
+        status: "running",
+        duration_ms: 128,
+        evidence_count: 2,
+      },
+    });
+    artifact = projectRunEvent(artifact, {
+      type: "agent_completed",
+      content: "Validated the API boundary.",
+      data: {
+        task_id: "backend",
+        title: "Audit backend",
+        status: "completed",
+        duration_ms: 246,
+        evidence_count: 3,
+      },
+    });
+
+    expect(artifact.workers).toEqual([
+      {
+        task_id: "backend",
+        title: "Audit backend",
+        status: "completed",
+        duration_ms: 246,
+        evidence_count: 3,
+        summary: "Validated the API boundary.",
+      },
+    ]);
+  });
+
+  it("keeps synthesis conflicts in the final walkthrough", () => {
+    let artifact = projectRunEvent(emptyRunArtifact(), {
+      type: "status",
+      content: "Worker evidence synthesized",
+      data: { conflicts: ["src/app.py: claim A <> claim B"] },
+    });
+    artifact = projectRunEvent(artifact, {
+      type: "done",
+      content: "Finished with a conflict for the executor.",
+      data: { status: "completed" },
+    });
+
+    expect(artifact.unresolved_conflicts).toEqual(["src/app.py: claim A <> claim B"]);
+    expect(artifact.walkthrough.unresolved_conflicts).toEqual(["src/app.py: claim A <> claim B"]);
+  });
 });

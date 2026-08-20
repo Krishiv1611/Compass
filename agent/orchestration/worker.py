@@ -222,6 +222,13 @@ class WorkerRunner:
                 started_at=started_at,
                 ended_at=_now(),
             )
+            if not artifact.evidence:
+                return _invalid(
+                    task,
+                    "Completed worker returned no evidence",
+                    started_at,
+                    usage=final_usage,
+                )
             return AgentArtifact.model_validate(artifact)
         except Exception as exc:
             return _invalid(

@@ -288,6 +288,29 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("unresolved tool calls", result.error)
         self.assertEqual(result.usage["total_tokens"], 7)
 
+    async def test_worker_adapter_rejects_success_without_evidence(self):
+        from agent.orchestration.worker import WorkerRunner
+
+        FakeFactory.final_state = {
+            "messages": [
+                AIMessage(
+                    content=(
+                        '{"summary":"Looked around","evidence":[],'
+                        '"files_considered":[],"proposed_changes":[],"checks":[]}'
+                    )
+                )
+            ],
+            "usage": {"input_tokens": 4, "output_tokens": 2, "total_tokens": 6},
+        }
+
+        result = await WorkerRunner(
+            registry=build_builtin_registry(), factory_type=FakeFactory
+        ).run(make_task("empty"), context={}, cancel_event=asyncio.Event())
+
+        self.assertEqual(result.status, TaskStatus.INVALID)
+        self.assertIn("no evidence", result.error.lower())
+        self.assertEqual(result.usage["total_tokens"], 6)
+
     async def test_timeout_is_failed_and_preserves_partial_usage(self):
         from agent.orchestration.coordinator import Coordinator
         from agent.orchestration.worker import WorkerRunner

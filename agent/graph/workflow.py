@@ -35,6 +35,8 @@ from agent.graph.nodes import (
     summary_node,
     verification_hooks_node,
     verification_hooks_finalize_node,
+    coordinator_node,
+    synthesis_node,
 )
 
 # Tools are now managed in agent.graph.tools_registry
@@ -156,6 +158,8 @@ async def _route_after_planner(state: AgentState) -> str:
         return "skill_manager"
     if _normalise_mode(state) == "plan":
         return "plan_approval"
+    if _has_parallel_tasks(state):
+        return "coordinator"
     return "executor"
 
 async def _route_after_plan_approval(state: AgentState) -> str:
@@ -168,7 +172,34 @@ async def _route_after_plan_approval(state: AgentState) -> str:
     if isinstance(last_msg, str) and last_msg.startswith("User rejected plan"):
         return "planner"
         
-    return "executor"
+    return "coordinator" if _has_parallel_tasks(state) else "executor"
+
+
+def _has_parallel_tasks(state: AgentState) -> bool:
+    """Use workers when any dependency layer contains independent tasks."""
+    if not state.get("orchestration_enabled") or not state.get("execution_plan"):
+        return False
+    try:
+        from agent.orchestration.models import ExecutionPlan
+        plan = ExecutionPlan.model_validate(state["execution_plan"])
+        completed: set[str] = set()
+        pending = {task.id: task for task in plan.tasks}
+        while pending:
+            ready = sorted(
+                task_id
+                for task_id, task in pending.items()
+                if set(task.depends_on).issubset(completed)
+            )
+            if len(ready) >= 2:
+                return True
+            if not ready:
+                return False
+            completed.update(ready)
+            for task_id in ready:
+                pending.pop(task_id)
+        return False
+    except Exception:
+        return False
 
 
 async def _route_after_skill_manager(state: AgentState) -> str:
@@ -214,6 +245,8 @@ builder.add_node("linter_node", linter_node)
 builder.add_node("summary_node", summary_node)
 builder.add_node("verification_hooks", verification_hooks_node)
 builder.add_node("verification_hooks_finalize", verification_hooks_finalize_node)
+builder.add_node("coordinator", coordinator_node)
+builder.add_node("synthesis", synthesis_node)
 
 builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
@@ -248,6 +281,8 @@ builder.add_edge("loop_limit", END)
 builder.add_conditional_edges("evaluator", _route_after_evaluator)
 builder.add_conditional_edges("summary_node", _route_after_summary)
 builder.add_edge("direct_chat", END)
+builder.add_edge("coordinator", "synthesis")
+builder.add_edge("synthesis", "executor")
 
 # â”€â”€â”€ Async Workflow Factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # AsyncPostgresSaver requires async initialization, so we expose an async factory

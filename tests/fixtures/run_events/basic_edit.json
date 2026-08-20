@@ -31,8 +31,21 @@
     "checks": [
       {"id": "check-10", "name": "Python syntax", "status": "passed", "duration_ms": 18, "details": null}
     ],
+    "workers": [],
+    "unresolved_conflicts": [],
     "usage": {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28},
     "terminal_status": "completed",
-    "final_summary": "Updated src/app.py"
+    "final_summary": "Updated src/app.py",
+    "walkthrough": {
+      "plan": "1. Inspect the file\n2. Update the file",
+      "worker_contributions": [],
+      "changed_files": ["src/app.py"],
+      "checks": [
+        {"id": "check-10", "name": "Python syntax", "status": "passed", "duration_ms": 18, "details": null}
+      ],
+      "usage": {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28},
+      "unresolved_conflicts": [],
+      "terminal_status": "completed"
+    }
   }
 }

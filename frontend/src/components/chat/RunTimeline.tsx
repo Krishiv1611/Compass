@@ -16,6 +16,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import type { JsonValue, RunStage } from "@/types/run";
 import PlanChecklist from "./PlanChecklist";
 import ToolCallCard from "./ToolCallCard";
+import WorkerTimeline, { FinalWalkthrough } from "@/components/agent/WorkerTimeline";
 import { eventsFromRunHistory, runsApi, type CapabilityReport, type RunDiagnostics } from "@/api/runs";
 import { deriveStageStates, durationForEvent, stageForEvent } from "@/runtime/runTimelineProjection";
 import type { RuntimeMetricsArtifact } from "@/types/artifact";
@@ -213,10 +214,12 @@ export default function RunTimeline({
           <Activity className="h-3.5 w-3.5" /> Activity {drawerOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
       </div>
+      <WorkerTimeline workers={artifact.workers} />
       {drawerOpen && (
         <div className="max-h-[36vh] overflow-y-auto border-t border-border px-3">
           {firstEventLatencyMs != null && <div className="border-b border-border py-2 text-xs text-muted-foreground">First event in <span className="font-mono">{firstEventLatencyMs}ms</span></div>}
           <RuntimeMetricsSummary usage={artifact.usage} history={isRunActive ? null : historicalDiagnostics} />
+          <FinalWalkthrough walkthrough={artifact.walkthrough} />
           <CapabilitySummary report={capabilities} />
           {artifact.plan && <PlanChecklist plan={artifact.plan} completedSteps={artifact.steps.flatMap((step, index) => step.status === "completed" ? [index + 1] : [])} />}
           {artifact.tools.map(tool => <ToolCallCard key={tool.id} toolName={tool.name} args={tool.args} result={tool.result} status={tool.status} />)}
