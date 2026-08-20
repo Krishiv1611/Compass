@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import asyncio
+from pathlib import Path
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
@@ -845,6 +846,20 @@ def _format_prompt() -> str:
     return click.style("🧭 › ", fg="cyan", bold=True)
 
 
+def _local_skill_scope(config: dict):
+    """Build a fresh skill scope for the local workspace in this runtime turn."""
+    from agent.skills.loader import SkillScope
+
+    workspace_context = config.get("configurable", {}).get("workspace_context", {})
+    workspace_root = workspace_context.get("root")
+    workspace_dir = (
+        Path(workspace_root).resolve() / ".compass" / "skills"
+        if workspace_root
+        else Path.cwd() / ".compass" / "skills"
+    )
+    return SkillScope.local(workspace_dir=workspace_dir)
+
+
 async def _stream_runtime_turn(
     compass: CompassConsole,
     input_value,
@@ -853,6 +868,7 @@ async def _stream_runtime_turn(
 ) -> dict | None:
     """Render one shared-runtime turn and return an approval interrupt, if any."""
     from agent.runtime.runner import stream_agent_events
+    from agent.skills.registry import skill_scope
     from agent.ui.event_renderer import (
         EventRenderer,
         artifact_summary_for_event,
@@ -870,8 +886,13 @@ async def _stream_runtime_turn(
             live_panel.stop()
             live_panel = None
 
+    async def scoped_events():
+        with skill_scope(_local_skill_scope(config)):
+            async for event in stream_agent_events(input_value, config):
+                yield event
+
     try:
-        async for event in stream_agent_events(input_value, config):
+        async for event in scoped_events():
             artifact = event_renderer.add(event)
             config.setdefault("configurable", {})["last_run_artifact"] = (
                 artifact.model_dump(mode="json")

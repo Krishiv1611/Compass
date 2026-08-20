@@ -1,15 +1,17 @@
 """Web adapter for the shared Compass agent runtime."""
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import AsyncGenerator
 
 from langchain_core.messages import BaseMessage
 from langgraph.types import Command
 
 from agent.runtime.events import StreamEvent
+from agent.runtime.metrics import RunMetrics
 from agent.runtime.protocol import ResumeAction, ResumePayload
 from agent.runtime.runner import build_turn_input, invoke_agent, stream_agent_events
-from agent.runtime.metrics import RunMetrics
+from agent.skills.loader import SkillScope
+from agent.skills.registry import skill_scope
 from agent.telemetry import get_run_config
 from agent.workspace import WorkspaceContext, canonical_git_remote
 from backend.services.run_context import RunContextSnapshot
@@ -106,8 +108,11 @@ async def run_agent_stream(
     stream_options = {"cancel_event": cancel_event}
     if metrics is not None:
         stream_options["metrics"] = metrics
-    async for event in stream_agent_events(input_value, config, **stream_options):
-        yield event
+    from backend.config import settings
+
+    with skill_scope(SkillScope.web(settings.skills_root, snapshot.user_id)):
+        async for event in stream_agent_events(input_value, config, **stream_options):
+            yield event
 
 
 def build_resume_command(
@@ -136,4 +141,7 @@ async def run_agent_sync(
         active_skill={"name": active_skill, "arguments": ""} if active_skill else None,
         config=config,
     )
-    return await invoke_agent(input_value, config)
+    from backend.config import settings
+
+    with skill_scope(SkillScope.web(settings.skills_root, snapshot.user_id)):
+        return await invoke_agent(input_value, config)

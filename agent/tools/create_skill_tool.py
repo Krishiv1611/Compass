@@ -1,7 +1,8 @@
 import yaml
-from pathlib import Path
-
 from langchain_core.tools import tool
+
+from agent.skills.loader import SkillNameError, safe_skill_path
+from agent.skills.registry import current_skill_scope, skill_registry
 
 
 @tool
@@ -14,7 +15,7 @@ def create_skill(
     max_turns: int = 8,
 ) -> str:
     """
-    Create a new SKILL.md file in .compass/skills/.
+    Create a new skill in the current workspace or user scope.
     Only call this when the user explicitly asks to create/register a new skill.
 
     Args:
@@ -28,8 +29,14 @@ def create_skill(
         max_turns: Max turns for the sub-agent (default: 8).
 
     Returns:
-        Success message with the skill file path.
+        Success message with a display-safe source label.
     """
+    scope = current_skill_scope()
+    try:
+        file_path = safe_skill_path(scope, name)
+    except SkillNameError as exc:
+        return f"Skill not created: {exc}"
+
     # Build YAML frontmatter
     frontmatter = {"name": name, "description": description, "max_turns": max_turns}
     if allowed_tools:
@@ -37,17 +44,13 @@ def create_skill(
     if model:
         frontmatter["model"] = model
 
-    # Write SKILL.md
-    skills_dir = Path.cwd() / ".compass" / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    file_path = skills_dir / f"{name}.md"
+    # The active scope is a workspace for TUI runs and a user directory for web runs.
+    file_path.parent.mkdir(parents=True, exist_ok=True)
 
     content = f"---\n{yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)}---\n\n{system_prompt}\n"
     file_path.write_text(content, encoding="utf-8")
 
-    # Hot-reload into registry
-    from agent.skills.registry import skill_registry
-
     skill_registry.reload()
 
-    return f"✔ Skill '{name}' created at {file_path}\nUse /{name} <args> to invoke it."
+    source = "user" if scope.user_dir is not None else "workspace"
+    return f"✔ Skill '{name}' created in {source} skills\nUse /{name} <args> to invoke it."

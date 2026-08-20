@@ -1,18 +1,27 @@
 """CRUD API for reusable skill definitions."""
 
-import re
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from agent.skills.loader import (
+    SkillNameError,
+    SkillScope,
+    safe_skill_path,
+    validate_skill_name,
+)
+from agent.skills.registry import SkillRegistry
 from backend.auth.dependencies import get_current_user
+from backend.config import settings
 from backend.models.user import User
 
 router = APIRouter(prefix="/skills", tags=["skills"])
-SKILLS_DIR = Path.cwd() / ".compass" / "skills"
-SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def configured_skill_root() -> Path:
+    return settings.skills_root.resolve()
 
 
 class SkillWrite(BaseModel):
@@ -35,20 +44,24 @@ class SkillResponse(BaseModel):
 
 
 def _safe_name(name: str) -> str:
-    normalized = name.strip().lower()
-    if not SKILL_NAME.fullmatch(normalized):
+    try:
+        return validate_skill_name(name)
+    except SkillNameError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Skill names may contain lowercase letters, numbers, hyphens, and underscores.",
-        )
-    return normalized
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+
+def _registry_for_user(user: User) -> SkillRegistry:
+    registry = SkillRegistry(SkillScope.web(configured_skill_root(), str(user.id)))
+    registry.load_all()
+    return registry
 
 
 @router.get("", response_model=list[SkillResponse])
 def list_skills(current_user: User = Depends(get_current_user)):
-    from agent.skills.registry import skill_registry
-
-    skill_registry.reload()
+    skill_registry = _registry_for_user(current_user)
     return [
         SkillResponse(
             name=skill.name,
@@ -68,11 +81,10 @@ def create_skill(
     body: SkillWrite,
     current_user: User = Depends(get_current_user),
 ):
-    from agent.skills.registry import skill_registry
-
     name = _safe_name(body.name)
-    SKILLS_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = SKILLS_DIR / f"{name}.md"
+    scope = SkillScope.web(configured_skill_root(), str(current_user.id))
+    file_path = safe_skill_path(scope, name)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     frontmatter: dict = {
         "name": name,
         "description": body.description,
@@ -86,7 +98,6 @@ def create_skill(
         f"---\n{yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)}---\n\n{body.system_prompt}\n",
         encoding="utf-8",
     )
-    skill_registry.reload()
     return SkillResponse(
         name=name,
         description=body.description,
@@ -94,7 +105,7 @@ def create_skill(
         allowed_tools=body.allowed_tools or None,
         model=body.model or None,
         max_turns=body.max_turns,
-        source_path=str(file_path),
+        source_path="user",
     )
 
 
@@ -103,12 +114,11 @@ def delete_skill(
     skill_name: str,
     current_user: User = Depends(get_current_user),
 ):
-    from agent.skills.registry import skill_registry
-
     name = _safe_name(skill_name)
-    file_path = SKILLS_DIR / f"{name}.md"
+    file_path = safe_skill_path(
+        SkillScope.web(configured_skill_root(), str(current_user.id)), name
+    )
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found.")
     file_path.unlink()
-    skill_registry.reload()
     return {"status": "ok", "message": f"Skill '{name}' deleted."}

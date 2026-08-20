@@ -229,6 +229,7 @@ Without `DB_URI`, the agent runs without PostgreSQL-backed LangGraph checkpoints
 | `COMPASS_CLOUD_MODE` | Hosted deployments | Removes the shell tool from the agent tool registry. |
 | `TAVILY_API_KEY` | Optional | Enables Tavily-backed web search when configured. |
 | `COMPASS_REDIS_URL` | Optional | Enables the configured LLM response-cache path. |
+| `SKILLS_ROOT` | Optional | Root for installed skills and isolated web-user skills under `users/{user_id}`. |
 | `VITE_API_URL`, `VITE_WS_URL` | Frontend only | Public API and WebSocket bases for separately hosted frontend. Never put secrets here. |
 
 ### Local agent configuration

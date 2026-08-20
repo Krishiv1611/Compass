@@ -24,6 +24,10 @@ class Settings(BaseSettings):
         default_factory=lambda: Path.home() / ".compass" / "workspaces",
         validation_alias=AliasChoices("WORKSPACE_ROOT", "workspace_root"),
     )
+    skills_root: Path = Field(
+        default_factory=lambda: Path.home() / ".compass" / "skills",
+        validation_alias=AliasChoices("SKILLS_ROOT", "skills_root"),
+    )
     default_provider: str = Field(
         default="openrouter",
         validation_alias=AliasChoices("DEFAULT_PROVIDER", "default_provider"),
