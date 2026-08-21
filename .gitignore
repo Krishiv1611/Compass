@@ -46,3 +46,7 @@ node_modules/
 dist-ssr/
 .vite/
 *.tsbuildinfo
+
+# Generated frontend build artifacts (the cleanup helper targets only these paths).
+frontend/dist/
+frontend/.vite/
