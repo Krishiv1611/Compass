@@ -8,16 +8,18 @@ wheels/
 
 # Virtual environments
 .venv
+.venv.*
 .env
 .env.*
 !.env.example
 !.env.*.example
-.vscode/*
 
 # OS/Editor
 .DS_Store
 *.swp
 *.swo
+.vscode/
+.idea/
 
 # Caches and logs
 .pytest_cache/
@@ -25,6 +27,7 @@ wheels/
 .ruff_cache/
 .pyre/
 .pytype/
+.uv-cache/
 .coverage
 coverage/
 *.log
@@ -32,14 +35,22 @@ coverage/
 
 # App specific
 .antigravitycli/
-.compass/chroma/
 .compass/
-.vscode/
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
 *.sqlite3
+
+# Lock files (large, reproducible from pyproject.toml / package.json)
+uv.lock
+requirements.lock
+requirements-dev.lock
+package-lock.json
+
+# Binary documents and generated reports
+*.docx
+artifacts/
 
 # JavaScript and TypeScript generated output
 node_modules/
@@ -47,6 +58,10 @@ dist-ssr/
 .vite/
 *.tsbuildinfo
 
-# Generated frontend build artifacts (the cleanup helper targets only these paths).
+# Generated frontend build artifacts
 frontend/dist/
 frontend/.vite/
+
+# VSCode extension build outputs
+vscode-extension/dist/
+vscode-extension/out/
