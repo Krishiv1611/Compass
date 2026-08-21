@@ -11,29 +11,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Modal from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
-import { useSessions, type SessionSummary } from "@/hooks/useSessions";
+import type { SessionSummary, UseSessionsResult } from "@/hooks/useSessions";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { sessionsApi } from "@/api";
 import { toast } from "react-toastify";
 
 interface ProjectRailProps {
+  sessionState: UseSessionsResult;
   onOpenSettings: (tab?: string) => void;
   onCloseMobile?: () => void;
 }
 
-export default function ProjectRail({ onOpenSettings, onCloseMobile }: ProjectRailProps) {
+export default function ProjectRail({ sessionState, onOpenSettings, onCloseMobile }: ProjectRailProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const activeSessionId = searchParams.get("session");
   const { startNewTask } = useWorkbench();
-  const {
-    sessions,
-    isLoadingSessions,
-    hasMoreSessions,
-    loadMoreSessions,
-    renameSession,
-    deleteSession
-  } = useSessions(activeSessionId);
+  const { sessions, isLoadingSessions, hasMoreSessions, loadMoreSessions, renameSession, deleteSession } = sessionState;
 
   const [sessionToRename, setSessionToRename] = useState<SessionSummary | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<SessionSummary | null>(null);
@@ -49,19 +43,27 @@ export default function ProjectRail({ onOpenSettings, onCloseMobile }: ProjectRa
   const executeRename = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!sessionToRename || !renameTitle.trim()) return;
-    await renameSession(sessionToRename.id, renameTitle.trim());
-    setSessionToRename(null);
-    setRenameTitle("");
+    try {
+      await renameSession(sessionToRename.id, renameTitle.trim());
+      setSessionToRename(null);
+      setRenameTitle("");
+    } catch {
+      // The hook reports the failure; keep the dialog open so the title can be corrected.
+    }
   };
 
   const executeDelete = async () => {
     if (!sessionToDelete) return;
-    await deleteSession(sessionToDelete.id);
-    if (activeSessionId === sessionToDelete.id) {
-      navigate("/chat");
-      startNewTask();
+    try {
+      await deleteSession(sessionToDelete.id);
+      if (activeSessionId === sessionToDelete.id) {
+        navigate("/chat");
+        startNewTask();
+      }
+      setSessionToDelete(null);
+    } catch {
+      // The hook reports the failure; retain the confirmation dialog for retry/cancel.
     }
-    setSessionToDelete(null);
   };
 
   const executeFork = async (session: SessionSummary) => {
@@ -155,7 +157,7 @@ export default function ProjectRail({ onOpenSettings, onCloseMobile }: ProjectRa
                             <span className="truncate text-[13px]">{session.title || "Untitled task"}</span>
                           </button>
                           <DropdownMenu>
-                            <DropdownMenuTrigger className="flex size-7 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 aria-expanded:opacity-100">
+                          <DropdownMenuTrigger aria-label={`Task actions for ${session.title || "Untitled task"}`} className="flex size-7 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 aria-expanded:opacity-100">
                               <MoreHorizontal className="h-4 w-4" />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-36">

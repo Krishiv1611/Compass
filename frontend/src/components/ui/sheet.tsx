@@ -41,10 +41,12 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  title,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  title?: React.ReactNode
 }) {
   return (
     <SheetPortal>
@@ -58,6 +60,7 @@ function SheetContent({
         )}
         {...props}
       >
+        {title && <SheetPrimitive.Title className="sr-only">{title}</SheetPrimitive.Title>}
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close
@@ -67,6 +70,7 @@ function SheetContent({
                 variant="ghost"
                 className="absolute top-3 right-3"
                 size="icon-sm"
+                aria-label="Close panel"
               />
             }
           >

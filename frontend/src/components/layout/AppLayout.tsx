@@ -23,7 +23,8 @@ export default function AppLayout({ children, headerActions }: AppLayoutProps) {
 
   const { user } = useAuth();
   const { state } = useWorkbench();
-  const { sessions } = useSessions(activeSessionId);
+  const sessionState = useSessions(activeSessionId);
+  const { sessions } = sessionState;
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
@@ -40,6 +41,7 @@ export default function AppLayout({ children, headerActions }: AppLayoutProps) {
 
   const sidebarContent = (
     <ProjectRail
+      sessionState={sessionState}
       onOpenSettings={handleOpenSettings}
       onCloseMobile={() => setIsMobileOpen(false)}
     />

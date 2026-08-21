@@ -12,6 +12,16 @@ export type SessionSummary = {
   workspace_name?: string | null;
 };
 
+export type UseSessionsResult = {
+  sessions: SessionSummary[];
+  isLoadingSessions: boolean;
+  hasMoreSessions: boolean;
+  loadMoreSessions: () => Promise<void>;
+  renameSession: (id: string, title: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
+  fetchSessions: () => Promise<void>;
+};
+
 export function useSessions(_activeSessionId: string | null) {
   const { status } = useAuth();
   const { state } = useWorkbench();
@@ -61,9 +71,10 @@ export function useSessions(_activeSessionId: string | null) {
     try {
       await sessionsApi.renameSession(id, title);
       toast.success("Chat renamed");
-      fetchSessions();
+      await fetchSessions();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not rename task");
+      throw error;
     }
   };
 
@@ -71,9 +82,10 @@ export function useSessions(_activeSessionId: string | null) {
     try {
       await sessionsApi.deleteSession(id);
       toast.success("Chat deleted");
-      fetchSessions();
+      await fetchSessions();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not delete task");
+      throw error;
     }
   };
 

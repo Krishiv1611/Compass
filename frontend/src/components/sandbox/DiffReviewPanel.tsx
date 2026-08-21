@@ -63,6 +63,7 @@ const diffStats = (change: FileChange) => {
 export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }: PatchReviewProps) {
   const [patches, setPatches] = useState<WorkspacePatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const requestGeneration = useRef(0);
@@ -73,10 +74,12 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
     const generation = ++requestGeneration.current;
     setPatches([]);
     setLoading(true);
+    setLoadError(false);
     try {
       const next = await patchesApi.getPatches(workspaceId);
       if (generation === requestGeneration.current) setPatches(next);
     } catch {
+      setLoadError(true);
       toast.error("Failed to load project changes", { toastId: "patch-load-error" });
     } finally {
       if (generation === requestGeneration.current) setLoading(false);
@@ -180,7 +183,10 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {changes.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">No project changes to review.</div>
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+            <span>{loadError ? "Could not load project changes." : "No project changes to review."}</span>
+            {loadError && <Button size="sm" variant="outline" onClick={() => void fetchPatches()}>Retry loading project changes</Button>}
+          </div>
         ) : changes.map((change) => {
           const key = `${change.patchId}:${change.path}`;
           const isExpanded = expanded[key] ?? change.status === "pending";
@@ -188,10 +194,10 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
           return (
             <section key={key} className="border-b border-border">
               <div className="flex min-h-12 items-center gap-2 px-3">
-                <button type="button" className="rounded p-1 hover:bg-muted" onClick={() => setExpanded((state) => ({ ...state, [key]: !isExpanded }))} title={isExpanded ? "Collapse diff" : "Expand diff"}>
+                <button type="button" aria-label={`${isExpanded ? "Collapse" : "Expand"} diff for ${change.path}`} className="rounded p-1 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setExpanded((state) => ({ ...state, [key]: !isExpanded }))} title={isExpanded ? "Collapse diff" : "Expand diff"}>
                   {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                 </button>
-                <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpenFile?.(change.path)}>
+                <button type="button" aria-label={`Open ${change.path}`} className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:ring-2 focus-visible:ring-ring" onClick={() => onOpenFile?.(change.path)}>
                   <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="truncate font-mono text-xs">{change.path}</span>
                   <StatusBadge status={change.status} />
@@ -199,12 +205,12 @@ export default function DiffReviewPanel({ workspaceId, onResolved, onOpenFile }:
                 <div className="flex shrink-0 items-center gap-1">
                   {change.status === "pending" && (
                     <>
-                      <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "reject")} disabled={actionBusy} title="Reject file"><X className="h-3.5 w-3.5 text-destructive" /></Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "apply")} disabled={actionBusy} title="Apply file"><Check className="h-3.5 w-3.5 text-success" /></Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "reject")} disabled={actionBusy} title="Reject file" aria-label={`Reject ${change.path}`}><X className="h-3.5 w-3.5 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "apply")} disabled={actionBusy} title="Apply file" aria-label={`Apply ${change.path}`}><Check className="h-3.5 w-3.5 text-success" /></Button>
                     </>
                   )}
                   {change.status === "applied" && (
-                    <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "undo")} disabled={actionBusy} title="Undo file"><RotateCcw className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon-sm" onClick={() => resolveFile(change, "undo")} disabled={actionBusy} title="Undo file" aria-label={`Undo ${change.path}`}><RotateCcw className="h-3.5 w-3.5" /></Button>
                   )}
                 </div>
               </div>

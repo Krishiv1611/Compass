@@ -31,10 +31,10 @@ export default function TopBar({
     <header className="glass-header absolute inset-x-0 top-0 z-10 flex h-[48px] shrink-0 items-center justify-between px-4 lg:px-6 border-b border-border">
       <div className="flex min-w-0 items-center gap-3">
         <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
-          <SheetTrigger className="inline-flex size-8 items-center justify-center rounded-none hover:bg-muted md:hidden">
+          <SheetTrigger aria-label="Open navigation" className="inline-flex size-8 items-center justify-center rounded-none hover:bg-muted md:hidden">
             <Menu className="h-5 w-5" />
           </SheetTrigger>
-          <SheetContent side="left" className="w-72 border-r-0 p-0" showCloseButton={false}>
+          <SheetContent side="left" title="Navigation" className="w-72 border-r-0 p-0" showCloseButton={false}>
             {SidebarContent}
           </SheetContent>
         </Sheet>
@@ -58,7 +58,7 @@ export default function TopBar({
         <div className="flex items-center gap-2 mr-2">
           {headerActions}
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted" onClick={onOpenSettings} title="Settings">
+        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted" onClick={onOpenSettings} title="Settings" aria-label="Settings">
           {user ? <UserCircle className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
         </Button>
       </div>
