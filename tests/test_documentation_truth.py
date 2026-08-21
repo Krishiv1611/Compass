@@ -417,8 +417,22 @@ class VerificationCommandTests(unittest.TestCase):
         self.assertEqual(list(check.args), positional[0])
         self.assertEqual(ROOT, keyword["cwd"])
         self.assertEqual(7, keyword["timeout"])
+        self.assertEqual(os.environ, keyword["env"])
         self.assertIs(False, keyword["shell"])
         self.assertIs(False, keyword["check"])
+
+    def test_python_scope_supplies_only_the_test_database_setting(self):
+        # Break caught: a clean checkout needs a developer .env merely to
+        # import backend test modules.
+        from tools.verify import checks_for_scope
+
+        python_test = next(
+            check for check in checks_for_scope("python") if check.name == "python tests"
+        )
+        self.assertEqual(
+            (("DB_URI", "postgresql://compass:change-me@127.0.0.1:5432/compass"),),
+            python_test.environment,
+        )
 
     def test_runner_reports_timeout_as_failure(self):
         # Break caught: a timed-out child crashes the orchestrator without a summary.

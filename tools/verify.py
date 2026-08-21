@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,7 @@ class Check:
     args: tuple[str, ...]
     cwd: Path
     timeout: int
+    environment: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,11 @@ def _check_catalog() -> tuple[Check, ...]:
             (python, "-m", "unittest", "discover", "-s", "tests", "-v"),
             ROOT,
             600,
+            # Backend imports require a configured URI. Tests replace database
+            # access with isolated engines, so this must be syntactically
+            # compatible with the application's pooled PostgreSQL engine but
+            # must never be contacted.
+            (("DB_URI", "postgresql://compass:change-me@127.0.0.1:5432/compass"),),
         ),
         Check(
             "python",
@@ -153,11 +160,14 @@ def run_check(check: Check) -> CheckResult:
     print(f"cwd: {check.cwd}", flush=True)
     print(f"timeout: {check.timeout}s", flush=True)
     started = time.perf_counter()
+    environment = os.environ.copy()
+    environment.update(dict(check.environment))
     try:
         completed = subprocess.run(
             list(check.args),
             cwd=check.cwd,
             timeout=check.timeout,
+            env=environment,
             shell=False,
             check=False,
         )
