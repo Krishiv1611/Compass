@@ -1,4 +1,5 @@
 """Build the Compass product and technical report."""
+import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from docx import Document
@@ -9,8 +10,21 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 OUTPUT = ROOT / "Compass_Product_and_Technical_Report.docx"
 ASSETS = ROOT / "artifacts" / "compass_report_assets"
+REPORT_TRUTH_CLAIMS = {
+    "workflow": (
+        "Compaction is entered only when messages exceed context.summarize_after "
+        "(default 10) and no tool calls are pending."
+    ),
+    "refresh": (
+        "Access tokens stay in browser memory; rotating, single-use refresh tokens "
+        "use an HttpOnly cookie scoped to /api/auth, and refresh generation advances "
+        "before the next token is issued."
+    ),
+}
 BLUE,NAVY,INK,MUTED,CORAL,GREEN,AMBER,LINE = "2864DC","172B4D","172027","596773","E0604E","2E8B62","B7791F","CBD5E1"
 LIGHT_BLUE,LIGHT_GRAY,WHITE = "E8EEF8","F2F4F7","FFFFFF"
 
@@ -56,28 +70,38 @@ def make_architecture():
     dibox(d,900,660,300,105,"Workspace storage\nper-user project files",LIGHT_GRAY,LINE,23)
     dibox(d,1225,545,200,105,"GitHub\nconnection","FFF3EE",CORAL,22)
     dibox(d,1000,100,300,90,"LLM providers\nmodels + embeddings",LIGHT_GRAY,LINE,21)
-    for a,b,c in [((360,238),(970,345),BLUE),((360,478),(500,478),BLUE),((820,478),(970,405),BLUE),((650,540),(650,660),BLUE),((770,540),(1010,660),BLUE),((1190,440),(1225,545),CORAL),((1150,190),(1150,280),CORAL)]: arrow(d,a,b,c)
-    d.text((790,815),"RAG, skills, tools, guardrails and local MCP extend the agent within policy boundaries.",font=img_font(18),fill=pc(MUTED))
+    for a,b,c in [((360,238),(970,345),BLUE),((360,478),(500,478),BLUE),((820,478),(970,405),BLUE),((650,540),(650,660),BLUE),((770,540),(1010,660),BLUE),((820,500),(1225,595),CORAL),((1150,280),(1150,190),CORAL)]: arrow(d,a,b,c)
+    d.text((690,815),"Tools, skills, optional retrieval and local MCP stay inside surface-specific policy boundaries.",font=img_font(18),fill=pc(MUTED))
     im.save(path); return path
 
 
 def make_workflow():
+    from tools.render_workflow import describe_builder
+
     ASSETS.mkdir(parents=True,exist_ok=True); path=ASSETS/"workflow.png"
     im=Image.new("RGB",(1500,1050),pc(WHITE)); d=ImageDraw.Draw(im)
-    d.text((60,30),"Compass execution workflow",font=img_font(38,True),fill=pc(NAVY))
-    d.text((60,80),"Context, approvals and validation remain visible to the developer.",font=img_font(22),fill=pc(MUTED))
-    steps=[(60,"User task",LIGHT_GRAY,LINE),(320,"Input\nguardrails","FFF7E8",AMBER),(580,"Context +\nplanner",LIGHT_BLUE,BLUE),(840,"Executor",LIGHT_BLUE,BLUE),(1100,"Output\nguardrails","FFF7E8",AMBER)]
-    for i,(x,label,fill,outline) in enumerate(steps):
-        dibox(d,x,190,190,105,label,fill,outline,23)
-        if i: arrow(d,(steps[i-1][0]+190,242),(x,242))
-    dibox(d,1100,390,190,105,"Result +\nrun record","EAF7EF",GREEN,23); arrow(d,(1195,295),(1195,390),GREEN)
-    dibox(d,740,430,230,110,"Tool request",LIGHT_GRAY,LINE)
-    dibox(d,385,660,270,125,"Safety policy\napproval when required","FFF7E8",AMBER,23)
-    dibox(d,825,660,285,125,"Tools, RAG, skills\nand project operations",LIGHT_BLUE,BLUE,22)
-    dibox(d,75,660,230,125,"Plan mode\napproval gate","FFF3EE",CORAL,23)
-    dibox(d,1100,830,280,105,"Validation and\nrecovery loop","EAF7EF",GREEN,22)
-    for a,b,c in [((935,295),(850,430),BLUE),((740,485),(655,720),AMBER),((655,722),(825,722),AMBER),((1110,722),(935,295),BLUE),((305,722),(580,295),CORAL),((935,295),(1210,830),GREEN),((1100,880),(935,295),GREEN)]: arrow(d,a,b,c)
-    d.text((60,970),"Ask can answer directly. Edit and Goal can enter the tool loop. Plan requires approval before execution.",font=img_font(18),fill=pc(MUTED))
+    descriptor=describe_builder()
+    registered=set(descriptor.nodes)-{"__start__","__end__"}
+    groups=[
+        ("Entry + context",["direct_chat","context_injector"],LIGHT_GRAY,LINE),
+        ("Planning + skills",["planner","plan_approval","clarifier","skill_manager"],"FFF3EE",CORAL),
+        ("Read-only analysis",["coordinator","synthesis"],"EAF7EF",GREEN),
+        ("Single executor spine",["executor","check_safety","tools"],LIGHT_BLUE,BLUE),
+        ("Validation + recovery",["linter_node","evaluator","summary_node","loop_recovery","goal_limit","loop_limit"],"FFF7E8",AMBER),
+        ("Verification",["verification_hooks","verification_hooks_finalize"],"EAF7EF",GREEN),
+    ]
+    assigned={node for _title,nodes,_fill,_outline in groups for node in nodes}
+    if registered-assigned:
+        groups.append(("Other registered nodes",sorted(registered-assigned),LIGHT_GRAY,LINE))
+    d.text((60,30),"Registered Compass workflow",font=img_font(38,True),fill=pc(NAVY))
+    d.text((60,80),"All current StateGraph nodes, grouped for readability; exact edges live in the generated workflow document.",font=img_font(20),fill=pc(MUTED))
+    positions=[(60,165),(540,165),(1020,165),(60,535),(540,535),(1020,535),(540,820)]
+    for (title,nodes,fill,outline),(x,y) in zip(groups,positions):
+        visible=[node for node in nodes if node in registered]
+        label=title+"\n\n"+"\n".join(visible)
+        dibox(d,x,y,420,300 if y<800 else 145,label,fill,outline,22)
+    d.text((60,920),f"Descriptor: {len(registered)} runtime nodes · {len(descriptor.edges)} statically registered destinations · {len(descriptor.dynamic_routes)} runtime-selected routers",font=img_font(18),fill=pc(MUTED))
+    d.text((60,965),"Plan/tool/clarification interrupts are explicit. Read-only workers return evidence to the executor; they do not mutate files.",font=img_font(18),fill=pc(MUTED))
     im.save(path); return path
 
 
@@ -94,22 +118,27 @@ def shade(cell,fill):
 
 def table_geometry(table,widths):
     table.autofit=False; pr=table._tbl.tblPr
-    tw=pr.first_child_found_in("w:tblW") or OxmlElement("w:tblW")
+    tw=pr.first_child_found_in("w:tblW")
+    if tw is None: tw=OxmlElement("w:tblW")
     if tw.getparent() is None: pr.append(tw)
     tw.set(qn("w:w"),str(sum(widths))); tw.set(qn("w:type"),"dxa")
-    ind=pr.first_child_found_in("w:tblInd") or OxmlElement("w:tblInd")
+    ind=pr.first_child_found_in("w:tblInd")
+    if ind is None: ind=OxmlElement("w:tblInd")
     if ind.getparent() is None: pr.append(ind)
     ind.set(qn("w:w"),"120"); ind.set(qn("w:type"),"dxa")
     for col,w in zip(table._tbl.tblGrid.gridCol_lst,widths): col.set(qn("w:w"),str(w))
     for row in table.rows:
         for cell,w in zip(row.cells,widths):
-            cp=cell._tc.get_or_add_tcPr(); cw=cp.find(qn("w:tcW")) or OxmlElement("w:tcW")
+            cp=cell._tc.get_or_add_tcPr(); cw=cp.find(qn("w:tcW"))
+            if cw is None: cw=OxmlElement("w:tcW")
             if cw.getparent() is None: cp.append(cw)
             cw.set(qn("w:w"),str(w)); cw.set(qn("w:type"),"dxa"); cell.vertical_alignment=WD_CELL_VERTICAL_ALIGNMENT.CENTER
-            mar=cp.first_child_found_in("w:tcMar") or OxmlElement("w:tcMar")
+            mar=cp.first_child_found_in("w:tcMar")
+            if mar is None: mar=OxmlElement("w:tcMar")
             if mar.getparent() is None: cp.append(mar)
             for name,val in (("top",80),("start",120),("bottom",80),("end",120)):
-                node=mar.find(qn("w:"+name)) or OxmlElement("w:"+name)
+                node=mar.find(qn("w:"+name))
+                if node is None: node=OxmlElement("w:"+name)
                 if node.getparent() is None: mar.append(node)
                 node.set(qn("w:w"),str(val)); node.set(qn("w:type"),"dxa")
 
@@ -162,7 +191,7 @@ def build():
     p=doc.add_paragraph(); p.paragraph_format.space_after=Pt(9); set_font(p.add_run("Compass"),34,NAVY,True)
     p=doc.add_paragraph(); p.paragraph_format.space_after=Pt(24); set_font(p.add_run("An inspectable AI coding workbench for project change, review, and delivery"),15,MUTED)
     callout(doc,"EXECUTIVE SUMMARY","Compass combines a governed LangGraph agent with a local terminal UI and an authenticated web workbench. It helps developers move from project understanding to reviewed changes and GitHub delivery while keeping context, approvals, and run activity visible.")
-    p=doc.add_paragraph(); p.paragraph_format.space_before=Pt(18); set_font(p.add_run("Prepared from the current Compass implementation\n25 July 2026"),10,MUTED)
+    p=doc.add_paragraph(); p.paragraph_format.space_before=Pt(18); set_font(p.add_run("Prepared from the current Compass implementation\n21 August 2026"),10,MUTED)
     doc.add_page_break()
 
     section_title(doc,"1. Product overview")
@@ -177,8 +206,8 @@ def build():
     section_title(doc,"3. Feature set")
     table(doc,["Capability","What it enables","Surface"],[
         ["Project workbench","Files, editor, changes, preview, agent and activity views share one responsive workspace state.","Web"],
-        ["Agent execution","Ask, Edit, Plan and Goal modes route work through planning, tools, guardrails, recovery and evaluation.","TUI + web"],
-        ["Context intelligence","File search, semantic retrieval/RAG, pinned files, session history, skills and task state.","Agent + workbench"],
+        ["Agent execution","Ask, Edit, Plan and Goal modes route through one executor spine with typed interrupts, tools, recovery and evaluation.","TUI + web"],
+        ["Context intelligence","File search and pinned context work directly; semantic retrieval and memory require embedding configuration and credentials.","Agent + workbench"],
         ["Review and recovery","Patch counts, diff review, accept/reject, undo, run stages, failure details and loop recovery.","TUI + web"],
         ["GitHub delivery","Separate repository connection, import, branch creation, commits and draft pull requests.","Web + TUI helpers"],
         ["Local integrations","Local MCP configuration, custom tools, skills, shell execution and repository configuration.","TUI only"],
@@ -191,13 +220,14 @@ def build():
         ["Agent","LangGraph, LangChain, provider adapters","Planning, models, tools, recovery and persistent routing."],
         ["Persistence","PostgreSQL, psycopg, LangGraph Postgres checkpointing","Users, sessions, messages, runs, patches, workspaces and resumable state."],
         ["Intelligence","RAG indexing, chunking, retrieval, embeddings","Relevant project evidence and semantic source search."],
-        ["Safety + operations","NeMo Guardrails, JWT, OAuth, encryption, logging, rate limiting","Input/output policy, identity, credentials and operational visibility."],
+        ["Safety + operations","Typed interrupts, tool policy, JWT/OAuth, encryption, logging and process-local limits","Approvals, identity, credentials and bounded single-process operation."],
         ["Delivery","GitHub OAuth/PAT, Docker Compose, Nginx","Repository integration and deployable packaging."],
     ],[1750,3500,4110])
 
     doc.add_page_break(); section_title(doc,"5. Workflow graph and modes")
-    para(doc,"The graph keeps project-changing activity visible. It checks the request, builds context, plans when required, evaluates each side effect against policy, records tool activity, and validates the result before completion.")
-    doc.add_picture(str(flow),width=Inches(6.45)); doc.inline_shapes[-1]._inline.docPr.set("descr","Compass execution workflow from user task through guardrails, context and planning, executor, approval-controlled tools, validation and result recording."); p=para(doc,"Figure 2. Main execution path and approval-controlled tool loop.","Caption"); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    para(doc,"The registered graph uses one main executor spine. Short read-only work may finish directly; planning, explicit interrupts, approval-controlled tools, bounded read-only workers, validation, recovery, compaction and verification are entered only when needed.")
+    para(doc,REPORT_TRUTH_CLAIMS["workflow"])
+    doc.add_picture(str(flow),width=Inches(6.45)); doc.inline_shapes[-1]._inline.docPr.set("descr","All registered Compass StateGraph nodes grouped into entry, planning, read-only analysis, executor, validation and verification responsibilities."); p=para(doc,"Figure 2. Registered workflow-node inventory generated from the StateGraph builder.","Caption"); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
     table(doc,["Mode","Intent","Control model"],[
         ["Ask","Understand code, explain behavior or research.","Read-oriented and can answer directly."],
         ["Edit","Make bounded project changes.","Risky actions follow approval policy."],
@@ -215,7 +245,7 @@ def build():
     ],[2250,4400,2710])
 
     section_title(doc,"7. Safety and operating model")
-    bullets(doc,["Read/search operations can proceed under the default policy; local writes, edits and shell commands are classified as risky.","Approvals offer Yes, No, Always and Skip decisions.","Hosted mode removes shell execution and rejects browser-configured command MCP servers.","Web workspaces are ownership-checked and reject absolute paths or traversal.","GitHub access is separate from identity login; stored provider credentials are encrypted by the backend."])
+    bullets(doc,["Read/search operations can proceed under the default policy; local writes, edits and shell commands are classified as risky.","Plan, tool and clarification requests use typed interrupts; approval actions are Execute/Revise/Cancel or Yes/No/Always/Skip as appropriate.","Hosted mode removes shell execution and rejects browser-configured command MCP servers.","Web workspaces are ownership-checked, use one explicit active workspace and reject absolute paths or traversal.",REPORT_TRUTH_CLAIMS["refresh"],"Stored provider credentials are encrypted with the configured credential key."])
     callout(doc,"IMPORTANT","AI-generated changes still require engineering review. The intended loop is: inspect context -> approve relevant side effects -> review the patch -> validate -> publish through a pull request.")
 
     section_title(doc,"8. Future improvements")

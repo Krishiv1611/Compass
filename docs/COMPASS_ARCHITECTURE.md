@@ -1,516 +1,119 @@
-# Compass architecture and feature reference
+# Compass architecture
 
-This document is the developer map for Compass. It describes the active web and TUI product, the LangGraph workflow, long-term memory, API routers, persistence tables, frontend surfaces, safety boundaries, and the intended extension points.
+This document describes code that is registered and exercised in the current repository. Future work is isolated in [roadmap.md](../roadmap.md).
 
-## 1. Product definition
-
-Compass is a web coding workbench and local terminal agent. Its target is Codex-style project work at the feature level: chat, code understanding, controlled edits, patch review, project preview, project download, reusable skills and subagents, durable memory, RAG, MCP, and GitHub publishing.
-
-The web product and TUI share the agent but have different execution boundaries:
-
-| Surface | Project boundary | Shell | MCP | Change behavior |
-| --- | --- | --- | --- | --- |
-| Web workbench | Server-managed isolated workspace | Disabled | Server-managed capabilities only | Agent writes become reviewable workspace patches |
-| Local TUI | User-selected local repository | Available with approval policy | Local command MCP allowed | Shared runtime with local diff and undo controls |
-
-The VS Code extension is intentionally outside the active product architecture for now. Its source remains in the repository, but web and TUI development must not depend on it.
-
-## 2. Design rules
-
-1. Normal conversation uses the shortest possible path: one chat node and no project tools.
-2. Expensive features load only when their branch needs them.
-3. Thread history and durable user memory are separate concerns.
-4. All web data is scoped by authenticated user ownership.
-5. Risky tool calls pass through deterministic approval; prompts are an additional behavioral layer, not the security boundary.
-6. Agent changes are inspectable as patches before publishing.
-7. Public API URLs remain stable even when internal modules are reorganized.
-8. Web, TUI and automation consume one canonical agent runtime and event protocol.
-
-## 3. System overview
+## System boundary
 
 ```mermaid
 flowchart LR
-    browser["React web workbench"] -->|REST and WebSocket| api["FastAPI API"]
-    tui["Local TUI"] --> runtime["Shared agent runtime"]
-    api --> runtime
-    runtime --> agent["LangGraph agent"]
-    api --> sql[("PostgreSQL product tables")]
-    api --> files["Isolated workspace storage"]
-    agent --> checkpoints[("LangGraph checkpoints")]
-    agent --> memory[("LangGraph PostgresStore memory")]
-    agent --> rag[("PGVector RAG index")]
-    agent --> llm["Configured LLM provider"]
-    agent --> tools["Project, search, memory, web and integration tools"]
-    api --> github["GitHub API"]
-    browser --> preview["Lazy WebContainer preview"]
+  TUI[Local TUI] --> Runner[Shared runtime runner]
+  Browser[React web workbench] --> API[FastAPI REST + WebSocket]
+  API --> Runner
+  API --> ProductDB[(PostgreSQL product data)]
+  API --> Workspace[Owned active workspace]
+  Runner --> Graph[Registered LangGraph]
+  Graph --> Provider[Selected BYOK model provider]
+  Graph --> Tools[Policy-scoped tools]
+  Graph --> Checkpoints[(LangGraph checkpointer)]
+  Graph -. optional .-> Memory[(Memory and embeddings)]
+  API --> GitHub[GitHub connection and publish service]
 ```
 
-## 4. LangGraph workflow
-
-### Modes
-
-| Mode | Entry branch | Purpose | Validation |
-| --- | --- | --- | --- |
-| Ask | Direct chat for short questions; read-only executor when project tools are needed | Explain and inspect | No mutation tools |
-| Edit | Executor for bounded changes; planner for complex or expanded scope | Make project changes without sacrificing complex-task quality | Tool safety and patch review |
-| Plan | Context → planner → plan approval | Produce and approve a plan before execution | Human plan approval |
-| Goal | Context → planner → executor | Autonomous multi-step goal | Syntax checks, evaluator and loop recovery |
-| Skill | Planner-selected ephemeral subgraph | Run specialized instructions/tools | Inherits parent config and tool approval |
-
-### Active graph
-
-```mermaid
-flowchart TD
-    start((START)) --> route{"Mode and request routing"}
-    route -->|short chat| chat["direct_chat"] --> done((END))
-    route -->|small edit or tool-backed ask| executor["executor"]
-    route -->|complex edit, plan or goal| context["context_injector"] --> planner["planner"]
-    planner -->|matching skill| skill["skill_manager / subgraph"] --> done
-    planner -->|plan mode| approvePlan["plan_approval"]
-    planner -->|edit or goal mode| executor
-    approvePlan -->|approved| executor
-    approvePlan -->|revise| planner
-    approvePlan -->|cancel| done
-    executor -->|scope expands before mutation| context
-    executor -->|tool calls| safety["check_safety"]
-    safety -->|approved or safe| tools["tools"] --> executor
-    safety -->|denied| executor
-    executor -->|goal changed files| lint["linter_node"]
-    lint -->|failed| executor
-    lint --> evaluator["evaluator"]
-    evaluator -->|more work| executor
-    evaluator -->|complete| done
-    executor -->|loop| recovery["loop_recovery or clarifier"] --> executor
-    executor -->|complete| done
-```
-
-Important implementation points:
-
-- NeMo Guardrails is not part of the graph.
-- The input/output safety behavior is in system policy, while actual mutation control is in `check_safety_node` and workspace boundaries.
-- New turns reset plan, tool, loop, syntax, and approval state so previous work cannot hijack routing.
-- Only `direct_chat`, `executor`, `skill_manager`, and nested `sub_executor` output is sent as assistant tokens.
-- Planner and evaluator output is represented as structured status/plan events, not mixed into the answer.
-- Web and TUI consume the same `agent/runtime` events for tokens, tools, plans, approvals, cancellation, errors and completion.
-- Skills use per-invocation subgraphs and inherit user, project, provider, model, run, workspace, and approval context.
-
-## 5. Memory architecture
-
-Compass uses the two LangGraph memory layers for different jobs.
-
-### Short-term thread memory
-
-- Backing technology: `AsyncPostgresSaver` when `DB_URI` is available.
-- Key: the chat session's LangGraph `thread_id`.
-- Contents: graph state and conversation messages required to resume or interrupt a thread.
-- Initialization: warmed during FastAPI startup; connection waits are bounded and fall back rather than blocking a request indefinitely.
-
-### Long-term memory
-
-- Backing technology: LangGraph `PostgresStore` with an optional pgvector semantic index.
-- Graph integration: a lazy `BaseStore` proxy is attached at graph compilation.
-- Initialization: the Store and embedding client are created only on first memory use.
-- Recall: enabled global and active-project memories are injected for executor turns; the greeting/direct-chat path does not initialize memory.
-- Editing: authenticated CRUD at `/api/memory` and the frontend Settings → Memory surface.
-
-Namespaces are isolated as follows:
-
-```text
-("users", user_id, "memory", "global")
-("users", user_id, "memory", "projects", project_id)
-```
-
-Each memory document contains:
-
-| Field | Meaning |
-| --- | --- |
-| `key` | Stable identifier |
-| `content` | Recallable fact or preference |
-| `category` | User-facing grouping |
-| `scope` | `global` or `project` |
-| `project_id` | Project identity for project scope |
-| `enabled` | Whether the agent may recall it |
-| `created_at`, `updated_at` | Audit timestamps |
-
-The legacy `/api/tools/memory` endpoint remains read-compatible for the Context Drawer. New writes use `/api/memory`.
-
-## 6. Feature inventory
-
-| Feature | Web | TUI | Main implementation |
-| --- | --- | --- | --- |
-| Streaming chat | Yes | Yes | `backend/routers/chat.py`, `agent/ui/tui.py` |
-| Ask/Edit/Plan/Goal | Yes | Yes | `agent/graph/workflow.py` |
-| Project file browsing/editing | Yes | Yes | workspace routers and file tools |
-| Patch review/apply/reject/undo | Yes | Yes | `patch_manager.py`, changes UI, TUI diffs |
-| ZIP download | Yes | Local filesystem already available | `GET /api/workspaces/{id}/download` |
-| Web preview | Yes, lazy WebContainer | External/local tools | `WebPreview.tsx` |
-| GitHub import/branch/commit/PR | Yes | Yes | GitHub router/service and TUI helpers |
-| RAG/codebase search | Yes | Yes | `agent/rag`, PGVector, search tools |
-| Uploaded document context | Yes | Yes | uploads router and RAG ingestion |
-| Skills manager | Yes | Yes | skills router, registry and Settings UI |
-| Skill subagents | Yes | Yes | `SubAgentFactory`, `SkillManagerAgent` |
-| Long-term memory editing | Yes | Tool/commands | LangGraph Store and `MemoryManager.tsx` |
-| MCP | Managed only | Local command MCP | `agent/mcp.py`, settings policy |
-| Risky tool approval | Yes | Yes | `agent/safety.py`, LangGraph interrupt |
-| Run timeline/history | Yes | Console status | runs router and `RunContext` |
-| Cooperative cancellation | Yes | Ctrl+C | cancel endpoint and run signals |
-| Themes/responsive workbench | Yes | TUI theme | frontend contexts/components |
+The TUI and web workbench share `agent.runtime.runner`, event types, interrupt protocol, and the registered graph. They do not share the same authority. The TUI targets the current repository and can request local shell/file side effects. The hosted web target is restricted to an owned server workspace and removes shell execution in cloud mode.
 
-## 7. Backend router inventory
+## One executor spine
 
-Every HTTP route below is mounted beneath `/api`. WebSocket chat is also mounted beneath `/api`.
+The graph has one main `executor` mutation spine. Routing can take a smaller path for short read-only chat, but planning, tools, recovery, linting, evaluation, compaction, and verification return to or finish from that main spine. Skills use scoped registries; optional coordinator workers do not become independent mutating executors.
 
-### `auth.py` — `/auth`
+The complete registered node/edge view is generated from the `StateGraph` builder in [langgraph_workflow.md](../langgraph_workflow.md). `tools/render_workflow.py` imports registration only: it does not compile the graph, connect to a model or database, or invoke a tool.
 
-- `POST /register`
-- `POST /login`
-- `POST /refresh`
-- `GET /me`
-- `POST /logout`
-- `GET /oauth/google/url`
-- `GET /oauth/github/url`
-- `POST /oauth/google`
-- `POST /oauth/github`
+### Turn sequence
 
-Responsibilities: password/OAuth identity, access and refresh tokens, browser-safe user response.
+1. The surface builds a fresh turn payload and normalizes mode names.
+2. The runtime validates explicit context files against the configured workspace.
+3. Turn context loads bounded project rules, tools, skills, model/provider settings, and workspace metadata.
+4. The graph chooses direct chat, planning, skill, or executor entry based on the request and mode.
+5. Tool calls pass through the safety node. File mutations create checkpoints before execution.
+6. Goal work can run deterministic lint/evaluation/recovery and loop/goal limits.
+7. Changed files can schedule configured verification hooks through the same approval boundary.
+8. The shared runner emits canonical events and a run artifact to the TUI or web persistence layer.
 
-### `sessions.py` — `/sessions`
+## Explicit interrupts
 
-- `GET /`
-- `POST /`
-- `GET /{session_id}`
-- `PATCH /{session_id}`
-- `DELETE /{session_id}`
+Compass uses typed LangGraph interrupts for three cases:
 
-Responsibilities: task/session lifecycle, titles, soft deletion, messages and LangGraph thread identity.
+| Interrupt | Resume actions | Effect |
+| --- | --- | --- |
+| Plan approval | execute, revise with feedback, cancel | Execution does not silently pass the plan gate. |
+| Tool approval | approve, always for the allowed local operation, deny, skip | Denied/skipped calls return to the executor; verification hooks always ask. |
+| Clarification | answer with feedback | The exact answer is returned to the graph as user clarification. |
 
-### `chat.py` — `/chat`
+The shared runtime projects an interrupt into an approval/clarification event followed by a waiting event. Web runs persist that waiting state and resume through a typed `Command`; the TUI uses the same action vocabulary.
 
-- `POST /send` — non-streaming fallback
-- `WS /ws/{session_id}` — primary streaming agent channel
+## Active workspace and ownership
 
-Responsibilities: ownership check, message persistence, local agent run creation, WebSocket events, final assistant persistence and auto-title.
+Each web session points to one explicit `active_workspace_id`. A newer failed or unrelated workspace is not substituted. Before an agent run, the backend loads a short database transaction and detaches a `RunContextSnapshot` containing user, session/thread, active workspace path, project identity, context versions, preferences, and Git metadata.
 
-### `settings.py` — `/settings`
+Workspace APIs enforce ownership and descendant paths. Turn context rejects absolute paths and `..` traversal. If the session and workspace context versions disagree, the run returns a context-mismatch failure instead of using stale project evidence.
 
-- `GET /`
-- `PUT /`
-- `GET /mcp-servers`
-- `POST /mcp-servers`
-- `POST /mcp-servers/test`
+The TUI uses a local `WorkspaceContext` for the selected repository. Local session forks share that working directory; web workspace ownership remains per user/session.
 
-Responsibilities: user model/theme/safety preferences and the hosted MCP boundary. Command-based MCP mutations are rejected in the hosted product.
+## Rules, hooks, and checkpoints
 
-### `runs.py` — `/sessions/{session_id}/runs`
+### Project rules
 
-- `GET /`
-- `POST /{run_id}/cancel`
+At each turn Compass discovers regular UTF-8 rule files from the user and workspace: global `COMPASS.md`, then workspace `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `COMPASS.md` in defined precedence. Rendering is bounded to 20,000 characters and keeps higher-precedence rules when truncation is necessary. Rule digests and inclusion metadata are safe to inspect; arbitrary nested rule discovery is not claimed.
 
-Responsibilities: run/event history and cooperative cancellation.
+### Verification hooks
 
-### `skills.py` — `/skills`
+Post-edit hooks come from the project `.compass/config.toml`. The loader validates names, command arrays, relative working directories, run modes, and timeouts. Hooks are inspection-only until scheduled by a changed-file result, then execute through the shell tool only after explicit approval. Their started/passed/failed status is projected into run events.
 
-- `GET /`
-- `POST /`
-- `DELETE /{skill_name}`
+### File checkpoints
 
-Responsibilities: validated skill names, `SKILL.md` authoring, registry reload, and skill metadata.
+Mutating file tools create recoverable workspace checkpoints. Checkpoints carry workspace/thread identity and file digests; restore previews expose conflicts before replacement. TUI commands and owned web endpoints list, preview, and restore them. These file checkpoints are distinct from LangGraph conversation checkpoints.
 
-### `memory.py` — `/memory`
+## Bounded read-only workers
 
-- `GET /`
-- `POST /`
-- `PUT /{memory_key}`
-- `DELETE /{memory_key}`
+Planning may opt into orchestration only when the typed dependency graph contains at least two independent ready tasks and orchestration is enabled. The coordinator caps workers according to configuration. Each worker receives only registry-approved read tools, cannot edit, approve, delegate, create skills, or spawn another coordinator, and must return a structured artifact with evidence. Timeout, cancellation, invalid artifacts, dependency failures, and synthesis conflicts are surfaced.
 
-Responsibilities: authenticated global/project LangGraph Store memory CRUD.
+`synthesis` merges worker evidence and proposed text suggestions, then returns to the single executor. Workers never bypass the executor or safety node for changes.
 
-### `tools.py` — `/tools`
+## Metrics and events
 
-- `GET /` — tool catalog and web/TUI availability
-- `GET /tasks` — compatibility task list
-- `GET /memory` — compatibility global memory view
+Run metrics are request-scoped through a context variable. They aggregate span calls/errors/duration, model calls and tokens per node, total tokens, a model-dependent estimated cost when known, and a small allowlist of safe tags. Prompts, tool arguments, credentials, and raw file contents are not metric tags.
 
-### `uploads.py` — `/sessions/{session_id}/uploads`
+The shared stream protocol includes status, tokens, tool calls/results, approvals, clarification, plan/check steps, worker lifecycle, patches, checkpoints, errors, cancellation, and completion. The web stores sequenced run events and the TUI renders the same event models locally.
 
-- `GET /capabilities`
-- `GET /`
-- `POST /`
-- `DELETE /{upload_id}`
+## Persistence
 
-Responsibilities: safe upload metadata, storage, validation and RAG ingestion.
+| State | Current store | Notes |
+| --- | --- | --- |
+| Users, sessions, messages, runs/events, workspaces, patches, uploads, preferences | PostgreSQL | Web product state with ownership checks. |
+| Agent thread state | LangGraph PostgreSQL checkpointer for web | Required by web readiness; local TUI may use the fallback without `DB_URI`. |
+| Workspace files | Private filesystem root | Per-user web descendants or the selected local repository. |
+| File recovery checkpoints | Workspace `.compass` data | Preview/restore is ownership- and conflict-aware. |
+| Long-term memory | Lazy PostgreSQL store | Optional capability; project/global namespaces include user identity. |
+| Semantic retrieval | PostgreSQL vector support and configured embeddings | Unavailable when embedding configuration/credentials are absent. |
+| Local settings | User/project TOML | Layered settings with registered consumers. |
 
-### `workspaces.py` — `/workspaces`
+Session deletion is soft deletion. Active runs and sockets are stopped first, but physical workspace, upload, vector, checkpoint, and database retention is an operator concern.
 
-- `POST /{session_id}/upload`
-- `GET /{workspace_id}/tree`
-- `GET /{workspace_id}/file`
-- `GET /{workspace_id}/download`
-- `GET /{workspace_id}/export-json`
-- `POST /{workspace_id}/file`
-- `PUT /{workspace_id}/file`
-- `DELETE /{workspace_id}/file`
-- `POST /{workspace_id}/rename`
-- `GET /`
-- `GET /{workspace_id}/context`
-- `POST /{workspace_id}/context/refresh`
-- `GET /{workspace_id}/search`
-- `POST /create`
-- `GET /{workspace_id}/patches`
-- `POST /{workspace_id}/patches/{patch_id}/apply`
-- `POST /{workspace_id}/patches/{patch_id}/reject`
-- `POST /{workspace_id}/patches/{patch_id}/files/{action}`
-- `POST /{workspace_id}/patches/accept-all`
-- `POST /{workspace_id}/patches/reject-all`
-- `POST /{workspace_id}/patches/{patch_id}/undo`
+## Web API composition
 
-Responsibilities: project storage and identity, browsing, direct file operations, archive download, WebContainer export, context versions, search and patch review.
+FastAPI mounts product routers under `/api` for authentication, sessions/runs/uploads, chat, settings, skills, workspaces/patches/checkpoints, tools, GitHub, and memory. `/health` and `/ready` remain outside the product prefix.
 
-### `github.py` — `/github`
+The browser uses the same `/api` base for HTTP and derives `/api/chat/ws/<session-id>` for WebSocket. It sends the access token through WebSocket subprotocols. Access tokens stay in memory; refresh uses a rotating, single-use HttpOnly cookie scoped to `/api/auth`.
 
-- `GET /status`
-- `GET /oauth/url`
-- `POST /oauth/exchange`
-- `POST /connections/pat`
-- `POST /connection/validate`
-- `DELETE /connection`
-- `GET /repositories`
-- `GET /repositories/{owner}/{repo}/branches`
-- `POST /import`
-- `POST /branches` and compatibility `/publish/branch`
-- `POST /commit` and compatibility `/publish/commit`
-- `POST /pull-requests` and compatibility `/publish/pull-request`
+## Operational constraints
 
-Responsibilities: encrypted GitHub connection, repository discovery/import, branch creation, reviewed commit and pull request publishing.
+- One backend process only. HTTP, WebSocket, active-run, and run-start limits are process-local.
+- Required readiness: database, durable checkpointer, writable workspace root.
+- Optional readiness: memory store, embeddings, MCP.
+- Cloud startup rejects a weak/default JWT secret, a missing or shared credential-encryption key, and insecure cookies.
+- Web skill writes are isolated per user; global installed skills are read-only.
+- Hosted mode does not accept arbitrary local shell or command MCP configuration.
+- Soft deletion does not imply physical erasure.
 
-## 8. Product database tables
+## Verification boundary
 
-These tables are owned by SQLAlchemy/Alembic.
-
-### `users`
-
-Identity and preferences. Key fields: `id`, unique `email`, password/OAuth identity, encrypted OAuth token/scopes, profile fields, `is_active`, JSON `preferences`, timestamps.
-
-Relationships: one user has sessions, uploads and workspaces.
-
-### `chat_sessions`
-
-A user-owned task/conversation. Key fields: `id`, `user_id`, `title`, unique LangGraph `thread_id`, project/git/context identity, soft-delete flag, timestamps.
-
-Relationships: messages, uploads, workspaces and runs cascade with the session.
-
-### `messages`
-
-Persisted transcript entries. Key fields: `session_id`, `role`, `content`, serialized `tool_calls`, `tool_call_id`, `model`, `token_count`, `created_at`.
-
-### `workspaces`
-
-The physical web project boundary. Key fields: `user_id`, `session_id`, `storage_path`, `source_type`, `status`, project/git/context identity, file count, size and timestamps.
-
-### `uploaded_files`
-
-Uploaded context metadata. Key fields: owner/session, name/type/size/path, processing status/error, RAG chunk count and timestamp.
-
-### `agent_runs`
-
-One graph execution. Key fields: session/workspace/project/context identity, `status`, start/end time and JSON token usage.
-
-Status progression includes `running`, `cancelling`, `cancelled`, `completed`, and `error`.
-
-### `run_events`
-
-Structured non-token run events. Key fields: `run_id`, event type, JSON content and timestamp. Token chunks are deliberately not stored individually; this avoids one transaction per generated token.
-
-### `workspace_patches`
-
-Reviewable agent changes. Key fields: workspace/run/project/context identity, status, JSON changes, creation/application timestamps. Status values are `pending`, `applied`, `rejected`, and `reverted`.
-
-### Library-managed PostgreSQL data
-
-LangGraph creates and manages checkpoint tables for thread state. LangGraph PostgresStore creates and manages long-term memory storage/index tables. PGVector manages semantic RAG collections/embeddings. These schemas must be changed through their owning library setup/migrations, not through the product ORM models.
-
-## 9. Frontend architecture
-
-### State boundaries
-
-| Context/hook | Owns |
-| --- | --- |
-| `AuthContext` | Browser identity and token invalidation |
-| `WorkbenchContext` | Active workspace, file, panels, mode, patch counts and refresh versions |
-| `RunContext` | Active run stages, connection state and latency metrics |
-| `useSessions` | Session list and active task |
-| `useWorkspaceTree` | Project tree and refresh behavior |
-
-### Main surfaces
-
-- `ChatPage`: task transcript, stream lifecycle, approvals, cancellation and responsive composition.
-- `AgentPanel`: messages, composer, plan review and run activity.
-- `CenterWorkbench`: file tree, CodeMirror editor, changes and preview. It is dynamically loaded only when a workspace is open.
-- `ContextDrawer`: selected files, tasks and read-compatible memory context.
-- `SettingsModal`: account, model, appearance, memory and advanced skill/MCP controls.
-- `MemoryManager`: global/project memory create, edit, enable/disable and delete.
-- `WebPreview`: dynamically imports WebContainer and starts preview only on demand.
-
-Streaming tokens are buffered for roughly one animation frame before updating React state, preventing full Markdown/code rendering on every network chunk. The WebSocket closes on `done`/`error`. Workspace refreshes occur on actual workspace patch events instead of every chat completion.
-
-## 10. Repository map
-
-```text
-agent/
-  graph/       state, nodes, routing and tool execution
-  runtime/     shared turn input, streaming events, approvals and cancellation
-  skills/      skill loader, registry, manager and ephemeral subgraphs
-  tools/       project/search/web/memory/todo tool implementations
-  rag/         loading, chunking, indexing and PGVector retrieval
-  ui/          local terminal interface
-  llm.py       role-based model factory and optional cache
-  safety.py    deterministic tool approval policy
-  workspace.py execution and project identity boundaries
-
-backend/
-  routers/     one router per product capability
-  services/    orchestration and domain operations
-  models/      SQLAlchemy product tables
-  schemas/     HTTP/WebSocket DTOs
-  auth/        passwords, OAuth, JWT and credential encryption
-  ws/          connection hub and heartbeat
-  alembic/     product database migrations
-
-frontend/src/
-  api/         typed calls grouped by backend capability
-  components/  product surfaces grouped by domain
-  contexts/    auth, workbench and live run state
-  hooks/       reusable data synchronization
-  pages/       route-level composition
-  types/       shared frontend domain types
-
-tests/         fast architecture invariants
-vscode-extension/  deferred, not part of active runtime
-```
-
-## 11. Request lifecycles
-
-### Normal greeting
-
-1. Browser opens session WebSocket and sends the message.
-2. API persists the user message and creates one `agent_run`.
-3. START routing selects `direct_chat`.
-4. One LLM streams user-facing tokens.
-5. Frontend buffers chunks and renders them smoothly.
-6. API batch-persists meaningful run events and stores one final assistant message.
-7. Socket closes after `done`.
-
-No planner, title model, NeMo, evaluator, RAG, MCP, embeddings, memory store or WebContainer is initialized on this path.
-
-### Coding edit
-
-1. START selects `executor`.
-2. Executor receives selected files, workspace identity, summaries and enabled memory.
-3. The model may call project/search/RAG/memory tools.
-4. Safe reads run automatically; risky calls interrupt for approval.
-5. Web writes create reviewable patches.
-6. The browser refreshes the workspace/changes view on patch events.
-7. The user applies, rejects or undoes changes and may publish reviewed files to GitHub.
-
-### Skill/subagent
-
-1. Planner emits a registered skill directive.
-2. Skill manager builds a disposable subgraph.
-3. The subgraph inherits parent configuration and honors the skill model/tool allowlist.
-4. Subagent risky tools use the same deterministic safety node.
-5. The skill result becomes the final branch result; the main executor does not repeat completed work.
-
-## 12. Performance contract
-
-- Workflow modules must not construct embedding clients or connect to vector stores at import time.
-- Redis is probed only when `COMPASS_REDIS_URL` is explicitly configured.
-- Checkpoint pool waits are bounded; workflow compilation is warmed at backend startup.
-- Token chunks are never committed one-by-one to SQL.
-- Only final-answer graph nodes stream assistant text.
-- WebContainer and the full project workbench are code-split.
-- Normal chat should make one model request after startup. Provider queue time remains external to Compass.
-
-Measured during this refactor on the development machine:
-
-- cold `agent.graph.workflow` import: approximately 15 seconds → approximately 2.7 seconds;
-- initial minified frontend JavaScript: approximately 2.30 MB → approximately 0.83 MB, with the workbench and syntax highlighting moved to lazy chunks.
-
-## 13. Safety model
-
-Safety is layered:
-
-1. Authentication and ownership checks protect web resources.
-2. `WorkspaceContext` constrains file operations to the active project.
-3. The hosted product disables shell execution and arbitrary command-based MCP configuration.
-4. System policy rejects malicious, secret-exfiltration and destructive-abuse requests.
-5. `agent/safety.py` classifies tool calls and `check_safety_node` interrupts risky operations.
-6. Web changes are reviewable patches before publication.
-7. GitHub credentials and provider keys are encrypted and never returned to the browser.
-
-Prompt policy is not treated as a substitute for authorization or tool boundaries.
-
-## 14. Configuration
-
-Important environment variables:
-
-| Variable | Purpose |
-| --- | --- |
-| `DB_URI` | Product DB, LangGraph checkpoints, Store and PGVector |
-| `OPENROUTER_API_KEY` | Default LLM and optional semantic embeddings |
-| `COMPASS_EMBEDDING_MODEL` | Override embedding model |
-| `COMPASS_REDIS_URL` | Opt in to Redis LLM cache; absent means in-memory cache |
-| `JWT_SECRET` | Browser authentication signing secret |
-| `CREDENTIAL_ENCRYPTION_KEY` | Encrypt provider/GitHub credentials |
-| `VITE_API_URL` | Public frontend API base |
-| `VITE_WS_URL` | Public frontend WebSocket base |
-| GitHub/Google OAuth variables | Optional identity/repository integrations |
-
-Model, theme, language and safety preferences are stored per user in `users.preferences`.
-
-## 15. Extension recipes
-
-### Add a tool
-
-1. Implement a focused LangChain tool in `agent/tools/`.
-2. Register it in `agent/graph/tools_registry.py`.
-3. Classify it in `agent/safety.py`.
-4. Decide whether Ask mode may use it.
-5. Add a tool test and update this inventory.
-
-### Add a skill
-
-Use the Settings skill manager or add a `.compass/skills/<name>.md` file with YAML frontmatter. Specify description, optional allowed tools/model and maximum turns. Keep the body as the subagent system prompt and use `$ARGUMENTS` where caller arguments belong.
-
-### Add an API capability
-
-Create one router module named for the capability, a service when domain logic is non-trivial, schemas for reusable DTOs, and include the router in `backend/main.py`. Do not recreate a catch-all core router.
-
-### Add a product table
-
-Add a model in `backend/models`, export it from the model package, create an Alembic revision, and document ownership/cascade behavior. LangGraph and PGVector library tables remain outside product ORM migrations.
-
-### Add a frontend capability
-
-Add its typed API module, domain component, and the smallest appropriate context/hook integration. Lazy-load heavy editors, sandboxes, visualization engines and integration SDKs.
-
-## 16. Verification
-
-```powershell
-# Fast Python invariants
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-
-# Python syntax
-.\.venv\Scripts\python.exe -m compileall agent backend tests
-
-# Frontend
-cd frontend
-npx tsc -b
-npm run lint
-npm run build
-
-# API inventory
-cd ..
-.\.venv\Scripts\python.exe -c "from backend.main import app; print('\n'.join(sorted(app.openapi()['paths'])))"
-```
-
-Frontend lint currently reports only the existing Fast Refresh warnings for files that export a component and helper symbols together.
+`tools/verify.py` orchestrates deterministic Python, frontend, Compose, documentation, and migration-head checks with explicit argument arrays, working directories, and timeouts. It does not start models, provision infrastructure, or replace manual end-to-end TUI/web journeys.
