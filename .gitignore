@@ -42,9 +42,8 @@ coverage/
 *.sqlite
 *.sqlite3
 
-# Lock files (large, reproducible from pyproject.toml / package.json)
+# Local-only lock files
 uv.lock
-requirements.lock
 requirements-dev.lock
 package-lock.json
 

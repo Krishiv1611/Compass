@@ -1,4 +1,5 @@
 import tomllib
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,16 @@ class DependencyManifestTests(unittest.TestCase):
             and " @ " not in line
         ]
         self.assertEqual(unlocked, [])
+
+    def test_runtime_lock_is_not_excluded_from_git_build_context(self):
+        # Break caught: Render cannot COPY the frozen runtime lock when
+        # .gitignore excludes it from the repository checkout.
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "requirements.lock"],
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(1, result.returncode)
 
     def test_docker_uses_frozen_lock(self):
         dockerfile = (ROOT / "backend.Dockerfile").read_text(encoding="utf-8")
