@@ -26,6 +26,13 @@ class DependencyManifestTests(unittest.TestCase):
         self.assertIn("ghcr.io/astral-sh/uv:0.9.1", dockerfile)
         self.assertIn("python:3.12.13-slim-bookworm", dockerfile)
 
+    def test_docker_applies_database_migrations_before_starting_api(self):
+        dockerfile = (ROOT / "backend.Dockerfile").read_text(encoding="utf-8")
+        self.assertRegex(
+            dockerfile,
+            r"alembic upgrade head\s+&&\s+exec uvicorn backend\.main:app",
+        )
+
     def test_pyproject_is_the_dependency_source(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertTrue(project["project"]["dependencies"])
