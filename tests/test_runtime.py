@@ -112,6 +112,29 @@ class RuntimeCancellationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(done.data["metrics"]["calls_by_node"], {"executor": 1})
         self.assertIsNone(current_run_metrics())
 
+    async def test_interrupt_update_does_not_abort_streaming(self):
+        class InterruptingWorkflow:
+            async def aget_state(self, _config):
+                return SimpleNamespace(values={"messages": []}, tasks=[])
+
+            async def astream(self, _input, config, stream_mode):
+                yield "updates", {"__interrupt__": ({"value": {}},)}
+
+        with (
+            patch("agent.runtime.runner.get_workflow", return_value=InterruptingWorkflow()),
+            patch("agent.runtime.runner.prepare_turn_context"),
+        ):
+            events = [
+                event
+                async for event in stream_agent_events(
+                    {"messages": []},
+                    {"configurable": {}},
+                )
+            ]
+
+        self.assertFalse(any(event.type == StreamEventType.ERROR for event in events))
+        self.assertEqual(StreamEventType.DONE, events[-1].type)
+
     async def test_error_carries_metrics_collected_before_failure(self):
         class FailingWorkflow:
             async def aget_state(self, _config):

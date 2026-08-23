@@ -461,6 +461,11 @@ async def stream_agent_events(
 
             elif chunk_type == "updates":
                 for node_name, node_output in payload.items():
+                    # LangGraph reserves double-underscore entries such as
+                    # ``__interrupt__`` for transport metadata. Their values
+                    # are tuples, not graph-node update dictionaries.
+                    if node_name.startswith("__"):
+                        continue
                     finished_at = datetime.now(timezone.utc)
                     duration_ms = round(
                         (time.perf_counter() - stage_started_clock) * 1000, 1
