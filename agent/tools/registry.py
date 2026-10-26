@@ -15,6 +15,7 @@ from agent.tools.memory_tool import memory
 from agent.tools.search_tools import grep_search
 from agent.tools.shell_tool import shell_execute
 from agent.tools.todo_tool import todo
+from agent.tools.visual_qa_tool import visual_qa_verify
 from agent.tools.web_tools import web_search
 
 
@@ -123,6 +124,7 @@ def build_builtin_registry() -> ToolRegistry:
             _spec(grep_search),
             _spec(codebase_search),
             _spec(web_search),
+            _spec(visual_qa_verify),
             _spec(
                 shell_execute,
                 risk="always_approval",

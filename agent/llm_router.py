@@ -39,11 +39,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_FAST_MODEL = os.environ.get("COMPASS_FAST_MODEL", "gemini/gemini-3.8-flash")
 DEFAULT_FALLBACK_MODELS = [
     "gemini/gemini-3.8-flash",
+    "openrouter/free",
+    "deepseek/deepseek-r1:free",
+    "qwen/qwen-2.5-coder-32b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-chat:free",
     "deepseek/deepseek-r1",
     "qwen/qwen-2.5-coder-32b-instruct",
     "meta-llama/llama-3.3-70b-instruct",
     "groq/llama-3.3-70b-versatile",
-    "openrouter/google/gemini-2.0-flash-001",
 ]
 
 
@@ -104,7 +108,7 @@ class LiteLLMChatModel(BaseChatModel):
     max_tokens: int | None = Field(default=None)
     timeout: float | None = Field(default=30.0)
     bound_tools: list[dict[str, Any]] = Field(default_factory=list)
-    fallbacks: list[str] = Field(default_factory=list)
+    fallbacks: list[str] = Field(default_factory=lambda: list(DEFAULT_FALLBACK_MODELS))
 
     @property
     def _llm_type(self) -> str:
@@ -130,6 +134,26 @@ class LiteLLMChatModel(BaseChatModel):
         call_kwargs.update(kwargs)
         return call_kwargs
 
+    def _get_execution_models(self) -> list[str]:
+        """Build ordered model sequence including primary, automatic :free tier, and fallbacks."""
+        candidates: list[str] = [self.model]
+        is_openrouter_candidate = (
+            ("/" in self.model or self.model.startswith("openrouter/"))
+            and not any(
+                self.model.startswith(p)
+                for p in ("gemini/", "google/", "openai/", "anthropic/", "groq/")
+            )
+        )
+        if is_openrouter_candidate and not self.model.endswith(":free") and self.model != "openrouter/free":
+            candidates.append(f"{self.model}:free")
+            if "openrouter/free" not in candidates:
+                candidates.append("openrouter/free")
+
+        for fb in self.fallbacks:
+            if fb not in candidates:
+                candidates.append(fb)
+        return candidates
+
     def _mock_result(self, messages: list[BaseMessage]) -> ChatResult:
         content = f"Compass LiteLLM [{self.model}]: Processed {len(messages)} messages."
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
@@ -149,15 +173,27 @@ class LiteLLMChatModel(BaseChatModel):
         if stop:
             call_kwargs["stop"] = stop
 
-        try:
-            response = litellm.completion(
-                messages=litellm_messages,
-                **call_kwargs,
-            )
-            return self._parse_response(response)
-        except Exception as e:
-            logger.warning("LiteLLM completion error on %s: %s", self.model, e)
-            return self._mock_result(messages)
+        models_to_try = self._get_execution_models()
+        last_error = None
+        for attempt_model in models_to_try:
+            current_kwargs = dict(call_kwargs)
+            current_kwargs["model"] = attempt_model
+            try:
+                response = litellm.completion(
+                    messages=litellm_messages,
+                    **current_kwargs,
+                )
+                return self._parse_response(response)
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "LiteLLM completion error on %s: %s (attempting fallback)",
+                    attempt_model,
+                    e,
+                )
+
+        logger.error("All LiteLLM fallback models failed: %s", last_error)
+        return self._mock_result(messages)
 
     async def _agenerate(
         self,
@@ -174,15 +210,27 @@ class LiteLLMChatModel(BaseChatModel):
         if stop:
             call_kwargs["stop"] = stop
 
-        try:
-            response = await litellm.acompletion(
-                messages=litellm_messages,
-                **call_kwargs,
-            )
-            return self._parse_response(response)
-        except Exception as e:
-            logger.warning("LiteLLM acompletion error on %s: %s", self.model, e)
-            return self._mock_result(messages)
+        models_to_try = self._get_execution_models()
+        last_error = None
+        for attempt_model in models_to_try:
+            current_kwargs = dict(call_kwargs)
+            current_kwargs["model"] = attempt_model
+            try:
+                response = await litellm.acompletion(
+                    messages=litellm_messages,
+                    **current_kwargs,
+                )
+                return self._parse_response(response)
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "LiteLLM acompletion error on %s: %s (attempting fallback)",
+                    attempt_model,
+                    e,
+                )
+
+        logger.error("All LiteLLM async fallback models failed: %s", last_error)
+        return self._mock_result(messages)
 
     def _stream(
         self,
@@ -202,25 +250,35 @@ class LiteLLMChatModel(BaseChatModel):
         if stop:
             call_kwargs["stop"] = stop
 
-        try:
-            response = litellm.completion(
-                messages=litellm_messages,
-                stream=True,
-                **call_kwargs,
-            )
-            for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if not delta:
-                    continue
-                content = getattr(delta, "content", "") or ""
-                yield ChatGenerationChunk(message=AIMessageChunk(content=content))
-        except Exception as e:
-            logger.warning("LiteLLM stream error on %s: %s", self.model, e)
-            yield ChatGenerationChunk(
-                message=AIMessageChunk(
-                    content=f"Compass LiteLLM [{self.model}]: Stream response."
+        models_to_try = self._get_execution_models()
+        for attempt_model in models_to_try:
+            current_kwargs = dict(call_kwargs)
+            current_kwargs["model"] = attempt_model
+            try:
+                response = litellm.completion(
+                    messages=litellm_messages,
+                    stream=True,
+                    **current_kwargs,
                 )
+                for chunk in response:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta:
+                        continue
+                    content = getattr(delta, "content", "") or ""
+                    yield ChatGenerationChunk(message=AIMessageChunk(content=content))
+                return
+            except Exception as e:
+                logger.warning(
+                    "LiteLLM stream error on %s: %s (attempting fallback)",
+                    attempt_model,
+                    e,
+                )
+
+        yield ChatGenerationChunk(
+            message=AIMessageChunk(
+                content=f"Compass LiteLLM [{self.model}]: Stream response."
             )
+        )
 
     async def _astream(
         self,
@@ -239,25 +297,35 @@ class LiteLLMChatModel(BaseChatModel):
         if stop:
             call_kwargs["stop"] = stop
 
-        try:
-            response = await litellm.acompletion(
-                messages=litellm_messages,
-                stream=True,
-                **call_kwargs,
-            )
-            async for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if not delta:
-                    continue
-                content = getattr(delta, "content", "") or ""
-                yield ChatGenerationChunk(message=AIMessageChunk(content=content))
-        except Exception as e:
-            logger.warning("LiteLLM astream error on %s: %s", self.model, e)
-            yield ChatGenerationChunk(
-                message=AIMessageChunk(
-                    content=f"Compass LiteLLM [{self.model}]: Stream response."
+        models_to_try = self._get_execution_models()
+        for attempt_model in models_to_try:
+            current_kwargs = dict(call_kwargs)
+            current_kwargs["model"] = attempt_model
+            try:
+                response = await litellm.acompletion(
+                    messages=litellm_messages,
+                    stream=True,
+                    **current_kwargs,
                 )
+                async for chunk in response:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta:
+                        continue
+                    content = getattr(delta, "content", "") or ""
+                    yield ChatGenerationChunk(message=AIMessageChunk(content=content))
+                return
+            except Exception as e:
+                logger.warning(
+                    "LiteLLM astream error on %s: %s (attempting fallback)",
+                    attempt_model,
+                    e,
+                )
+
+        yield ChatGenerationChunk(
+            message=AIMessageChunk(
+                content=f"Compass LiteLLM [{self.model}]: Stream response."
             )
+        )
 
     def _parse_response(self, response: Any) -> ChatResult:
         choice = response.choices[0]

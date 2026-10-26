@@ -185,26 +185,77 @@ export default function SettingsModal({
                       placeholder="Provider model identifier (e.g. qwen/qwen-2.5-coder-32b-instruct)"
                     />
                   </Field>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="text-[11px] text-muted-foreground mr-1 self-center">Presets:</span>
-                    {[
-                      { label: "DeepSeek R1", model: "deepseek/deepseek-r1" },
-                      { label: "Qwen 2.5 Coder", model: "qwen/qwen-2.5-coder-32b-instruct" },
-                      { label: "Gemini 3.8 Flash", model: "gemini/gemini-3.8-flash" },
-                      { label: "Llama 3.3 70B", model: "meta-llama/llama-3.3-70b-instruct" },
-                      { label: "DeepSeek V3", model: "deepseek/deepseek-chat" },
-                      { label: "Codestral", model: "mistralai/codestral-2501" },
-                      { label: "Nemotron 70B", model: "nvidia/llama-3.1-nemotron-70b-instruct" },
-                    ].map((preset) => (
-                      <button
-                        key={preset.model}
-                        type="button"
-                        onClick={() => setPreferences((prev) => ({ ...prev, model: preset.model }))}
-                        className="rounded border border-border/80 bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-sky-500/50 hover:bg-muted hover:text-foreground"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
+                  <div className="mt-3 space-y-2.5">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[11px] font-semibold text-emerald-400">Free Models</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">(Zero credits required on OpenRouter)</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { label: "openrouter/free (Auto)", model: "openrouter/free" },
+                          { label: "DeepSeek R1 :free", model: "deepseek/deepseek-r1:free" },
+                          { label: "Qwen 2.5 Coder :free", model: "qwen/qwen-2.5-coder-32b-instruct:free" },
+                          { label: "Llama 3.3 70B :free", model: "meta-llama/llama-3.3-70b-instruct:free" },
+                          { label: "DeepSeek V3 :free", model: "deepseek/deepseek-chat:free" },
+                        ].map((preset) => (
+                          <button
+                            key={preset.model}
+                            type="button"
+                            onClick={() =>
+                              setPreferences((prev) => ({
+                                ...prev,
+                                llm_provider: "openrouter",
+                                model: preset.model,
+                              }))
+                            }
+                            className={`rounded border px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                              preferences.model === preset.model
+                                ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 font-medium"
+                                : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-500/60 hover:bg-emerald-500/10"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[11px] font-semibold text-muted-foreground">Standard / Direct Models</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { label: "Gemini 3.8 Flash", model: "gemini/gemini-3.8-flash", provider: "google" },
+                          { label: "DeepSeek R1", model: "deepseek/deepseek-r1", provider: "openrouter" },
+                          { label: "Qwen 2.5 Coder", model: "qwen/qwen-2.5-coder-32b-instruct", provider: "openrouter" },
+                          { label: "Llama 3.3 70B", model: "meta-llama/llama-3.3-70b-instruct", provider: "openrouter" },
+                          { label: "DeepSeek V3", model: "deepseek/deepseek-chat", provider: "openrouter" },
+                          { label: "Codestral", model: "mistralai/codestral-2501", provider: "openrouter" },
+                          { label: "Nemotron 70B", model: "nvidia/llama-3.1-nemotron-70b-instruct", provider: "openrouter" },
+                        ].map((preset) => (
+                          <button
+                            key={preset.model}
+                            type="button"
+                            onClick={() =>
+                              setPreferences((prev) => ({
+                                ...prev,
+                                llm_provider: preset.provider || prev.llm_provider,
+                                model: preset.model,
+                              }))
+                            }
+                            className={`rounded border px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                              preferences.model === preset.model
+                                ? "border-primary bg-primary/10 text-primary font-medium"
+                                : "border-border/80 bg-muted/40 text-muted-foreground hover:border-sky-500/50 hover:bg-muted hover:text-foreground"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <Field label={preferences.has_llm_api_key ? "Replace API key" : "API key"} help="Write-only. Compass encrypts this value on the backend and never returns it to the browser."><Input type="password" autoComplete="off" value={newApiKey} onChange={(event) => setNewApiKey(event.target.value)} placeholder={preferences.has_llm_api_key ? "A credential is already stored" : "Enter provider credential"} /></Field>

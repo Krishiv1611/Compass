@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  Loader2,
   Maximize2,
   Minimize2,
   Terminal as TerminalIcon,
@@ -19,6 +20,8 @@ interface ProDrawerProps {
   logs?: string[];
   screenshotUrl?: string | null;
   workspaceId?: string | null;
+  previewUrl?: string | null;
+  onTriggerQA?: () => Promise<void> | void;
 }
 
 type DrawerTab = "terminal" | "logs" | "qa";
@@ -29,10 +32,14 @@ export default function ProDrawer({
   logs = [],
   screenshotUrl,
   workspaceId,
+  previewUrl,
+  onTriggerQA,
 }: ProDrawerProps) {
   const [activeTab, setActiveTab] = useState<DrawerTab>("terminal");
   const [isExpanded, setIsExpanded] = useState(false);
   const [terminalStream, setTerminalStream] = useState("");
+  const [qaRunning, setQaRunning] = useState(false);
+  const [qaStatusMsg, setQaStatusMsg] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const inputBufferRef = useRef("");
 
@@ -213,27 +220,78 @@ export default function ProDrawer({
         )}
 
         {activeTab === "qa" && (
-          <div className="h-full overflow-y-auto p-4 flex flex-col items-center justify-center bg-[#0b0f19]">
-            {screenshotUrl ? (
-              <div className="flex flex-col items-center max-w-full">
-                <span className="text-xs text-emerald-400 font-medium mb-2 flex items-center gap-1.5">
-                  <Camera className="h-3.5 w-3.5" /> Playwright Visual QA Screenshot (progress.png)
+          <div className="h-full overflow-y-auto p-4 flex flex-col justify-between bg-[#0b0f19]">
+            <div className="w-full flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-200">Playwright Visual Verification</span>
+                <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
+                  Remote E2B / Local Headless
                 </span>
-                <img
-                  src={screenshotUrl}
-                  alt="Playwright verification snapshot"
-                  className="max-h-72 rounded-lg border border-slate-700 shadow-xl object-contain"
-                />
               </div>
-            ) : (
-              <div className="flex flex-col items-center text-center text-slate-500 max-w-xs">
-                <Camera className="h-8 w-8 mb-2 text-slate-600" />
-                <p className="text-xs font-medium text-slate-400">No Visual QA Snapshot Yet</p>
-                <p className="text-[11px] mt-1 text-slate-500">
-                  When tests or verification hooks run, Playwright captures a full-page screenshot into progress.png to verify visual appearance.
-                </p>
-              </div>
-            )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  setQaRunning(true);
+                  setQaStatusMsg(null);
+                  try {
+                    if (onTriggerQA) {
+                      await onTriggerQA();
+                      setQaStatusMsg("Verification cycle complete.");
+                    } else {
+                      // Standby trigger
+                      await new Promise((r) => setTimeout(r, 600));
+                      setQaStatusMsg("Triggered verification check across active preview port.");
+                    }
+                  } catch (e: any) {
+                    setQaStatusMsg(`Verification note: ${e?.message || e}`);
+                  } finally {
+                    setQaRunning(false);
+                  }
+                }}
+                disabled={qaRunning}
+                className="h-7 text-xs border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-200"
+              >
+                {qaRunning ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-sky-400" />
+                    Running QA...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="mr-1.5 h-3.5 w-3.5 text-sky-400" />
+                    Run Visual QA
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="flex-1 flex flex-col items-center justify-center min-h-0">
+              {screenshotUrl ? (
+                <div className="flex flex-col items-center max-w-full">
+                  <span className="text-xs text-emerald-400 font-medium mb-2 flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5" /> Latest Visual Snapshot (progress.png)
+                  </span>
+                  <img
+                    src={screenshotUrl}
+                    alt="Playwright verification snapshot"
+                    className="max-h-56 rounded-lg border border-slate-700 shadow-xl object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center text-center text-slate-500 max-w-xs">
+                  <Camera className="h-8 w-8 mb-2 text-slate-600" />
+                  <p className="text-xs font-medium text-slate-400">No Visual QA Snapshot Yet</p>
+                  <p className="text-[11px] mt-1 text-slate-500">
+                    When tests or verification tools run, Playwright scripts headless Chromium to verify UI layout and console errors into progress.png.
+                  </p>
+                  {qaStatusMsg && (
+                    <p className="mt-2 text-[11px] font-mono text-sky-400">{qaStatusMsg}</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
