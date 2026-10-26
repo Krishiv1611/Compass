@@ -135,7 +135,7 @@ def llm(role: str = "executor", api_key: str | None = None, provider: str | None
     elif provider in {"litellm", "fast", "fast_router"}:
         from agent.llm_router import LiteLLMChatModel
         return LiteLLMChatModel(
-            model=model_name or "gemini/gemini-2.0-flash",
+            model=model_name or "gemini/gemini-3.8-flash",
             api_key=api_key,
         )
 

@@ -16,14 +16,14 @@ class LiteLLMRouterTests(unittest.TestCase):
 
     def test_router_initialization_defaults_to_gemini_flash(self):
         router = get_fast_router()
-        self.assertEqual(router.model, "gemini/gemini-2.0-flash")
+        self.assertEqual(router.model, "gemini/gemini-3.8-flash")
         self.assertEqual(router._llm_type, "litellm")
 
     def test_mock_generation_offline(self):
-        router = LiteLLMChatModel(model="gemini/gemini-2.0-flash", api_key="mock_key")
+        router = LiteLLMChatModel(model="gemini/gemini-3.8-flash", api_key="mock_key")
         result = router.invoke([HumanMessage(content="Test prompt")])
         self.assertIsInstance(result, AIMessage)
-        self.assertIn("gemini/gemini-2.0-flash", result.content)
+        self.assertIn("gemini/gemini-3.8-flash", result.content)
 
     def test_bind_tools_formatting(self):
         router = get_fast_router()

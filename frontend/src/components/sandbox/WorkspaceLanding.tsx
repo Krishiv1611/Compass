@@ -340,8 +340,8 @@ export default function WorkspaceLanding({
           <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
             <Sparkles className="h-4 w-4 shrink-0 text-emerald-400" />
             <div>
-              <span className="block font-medium text-foreground">Gemini 2.0 Flash</span>
-              <span className="text-[11px]">Sub-350ms streaming TTFT</span>
+              <span className="block font-medium text-foreground">Gemini 3.8 Flash</span>
+              <span className="text-[11px]">Sub-350ms TTFT · 1M Context Window</span>
             </div>
           </div>
         </div>
