@@ -80,3 +80,30 @@ def find_files(
         "total": len(matches),
         "truncated": len(matches) > 100,
     }
+
+
+@tool
+def make_dir(path: str, config: RunnableConfig = None) -> str:
+    """Create a new directory (and any necessary parent directories) in the workspace.
+
+    Args:
+        path: Workspace-relative path to the directory to create (e.g. 'app' or 'src/components').
+    """
+    try:
+        workspace = get_workspace_for_tool(config)
+        resolved_path = resolve_workspace_path(workspace, path)
+    except PermissionError as e:
+        return str(e)
+    except Exception as e:
+        return f"Error resolving path: {e}"
+
+    if os.path.exists(resolved_path):
+        if os.path.isdir(resolved_path):
+            return f"Directory already exists: {path}"
+        return f"Error: Path exists and is a file, not a directory: {path}"
+
+    try:
+        os.makedirs(resolved_path, exist_ok=True)
+        return f"Successfully created directory: {path}"
+    except Exception as e:
+        return f"Error creating directory {path}: {e}"

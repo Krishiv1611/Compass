@@ -128,5 +128,45 @@ class VisualQAToolTests(unittest.TestCase):
         )
 
 
+class MakeDirToolTests(unittest.TestCase):
+    """Test suite for make_dir tool and registration."""
+
+    def test_make_dir_registered_in_tool_registry(self):
+        from agent.graph.tools_registry import TOOL_REGISTRY
+        spec = TOOL_REGISTRY.get("make_dir")
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec.policy.risk, "safe")
+        self.assertTrue(spec.policy.mutates_workspace)
+        self.assertTrue(spec.policy.web_allowed)
+        self.assertFalse(spec.policy.worker_allowed)
+
+    def test_make_dir_creates_and_detects_existing_dir(self):
+        import tempfile
+        import shutil
+        import os
+        from agent.tools.directory_tools import make_dir
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            config = {
+                "configurable": {
+                    "workspace_context": {
+                        "root": tmp_dir,
+                        "execution_target": "local",
+                    }
+                }
+            }
+            res = make_dir.invoke({"path": "test_app_dir"}, config=config)
+            self.assertIn("Successfully created directory", res)
+            target = os.path.join(tmp_dir, "test_app_dir")
+            self.assertTrue(os.path.isdir(target))
+
+            # Calling again should report directory already exists
+            res2 = make_dir.invoke({"path": "test_app_dir"}, config=config)
+            self.assertIn("already exists", res2)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

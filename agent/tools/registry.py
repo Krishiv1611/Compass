@@ -9,7 +9,7 @@ from langchain_core.tools import BaseTool
 
 from agent.rag.retriever import codebase_search
 from agent.tools.create_skill_tool import create_skill
-from agent.tools.directory_tools import find_files, list_dir
+from agent.tools.directory_tools import find_files, list_dir, make_dir
 from agent.tools.file_tools import edit_file, read_file, write_to_file
 from agent.tools.memory_tool import memory
 from agent.tools.search_tools import grep_search
@@ -120,6 +120,13 @@ def build_builtin_registry() -> ToolRegistry:
                 worker_allowed=False,
             ),
             _spec(list_dir),
+            _spec(
+                make_dir,
+                risk="safe",
+                mutates_workspace=True,
+                web_allowed=True,
+                worker_allowed=False,
+            ),
             _spec(find_files),
             _spec(grep_search),
             _spec(codebase_search),

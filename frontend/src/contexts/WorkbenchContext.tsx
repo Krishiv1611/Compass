@@ -87,7 +87,7 @@ const initialState: WorkbenchState = {
   commandPaletteOpen: false,
   contextDrawerOpen: false,
   publishOpen: false,
-  mode: "ask",
+  mode: "edit",
   refreshWorkspaceVersion: 0,
   patchesVersion: 0,
   checkpointsVersion: 0,

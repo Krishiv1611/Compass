@@ -72,8 +72,8 @@ Your job is to analyze the user's request and create a clear, actionable step-by
 Rules:
 1. Output a numbered list of steps (1, 2, 3, ...).
 2. For each step, specify which tool should be used (if applicable).
-3. Available tools: read_file, write_to_file, edit_file, list_dir, find_files, \
-grep_search, codebase_search, web_search, shell_execute, memory, todo.
+3. Available tools: read_file, write_to_file, edit_file, make_dir, list_dir, find_files, \
+grep_search, codebase_search, web_search, visual_qa_verify, shell_execute, memory, todo.
 4. Do NOT execute anything — only plan.
 5. Keep plans concise (typically 2-6 steps).
 6. If the request is simple (e.g., a question), the plan can be just 1 step: "Respond directly."
@@ -462,14 +462,29 @@ async def call_model(state: AgentState, config: RunnableConfig):
 
         combined_tools = ALL_TOOLS + mcp_tools
         if state.get("mode") in ("ask", "fast"):
-            read_only_tools = {
-                "read_file", "list_dir", "find_files", "grep_search",
-                "codebase_search", "web_search",
-            }
-            combined_tools = [
-                tool for tool in combined_tools
-                if getattr(tool, "name", "") in read_only_tools
-            ]
+            # Check if user message explicitly requests modifications or file/dir creation
+            user_text = ""
+            for m in reversed(messages):
+                if getattr(m, "type", "") == "human":
+                    user_text = str(getattr(m, "content", "")).lower()
+                    break
+            is_explicit_mutation_request = any(
+                keyword in user_text
+                for keyword in (
+                    "create", "mkdir", "make dir", "make a dir", "new dir", "add dir",
+                    "write", "edit", "generate", "build", "fix", "update", "delete",
+                    "install", "scaffold"
+                )
+            )
+            if not is_explicit_mutation_request:
+                read_only_tools = {
+                    "read_file", "list_dir", "find_files", "grep_search",
+                    "codebase_search", "web_search",
+                }
+                combined_tools = [
+                    tool for tool in combined_tools
+                    if getattr(tool, "name", "") in read_only_tools
+                ]
         executor_with_tools = _model_for_turn("executor", config).bind_tools(combined_tools)
 
     # ── Check for Cooperative Cancellation ──────────────────────────────────
