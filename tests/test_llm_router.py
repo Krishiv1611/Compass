@@ -52,49 +52,30 @@ class SelfHealingLoopTests(unittest.TestCase):
     """Test suite for self-healing error recovery loop in executor node."""
 
     def test_self_healing_context_injection_on_tool_failure(self):
-        from agent.graph.nodes import call_model
+        from agent.graph.nodes import build_self_healing_prompt
 
-        state = {
-            "messages": [
-                HumanMessage(content="Run the build"),
-                AIMessage(content="Calling build tool", tool_calls=[{"id": "call_1", "name": "build", "args": {}}]),
-                ToolMessage(content="Error: Command failed with exit code 1: TS2304 Cannot find name 'foo'", tool_call_id="call_1"),
-            ],
-            "mode": "edit",
-        }
+        messages = [
+            HumanMessage(content="Run the build"),
+            AIMessage(content="Calling build tool", tool_calls=[{"id": "call_1", "name": "build", "args": {}}]),
+            ToolMessage(content="Error: Command failed with exit code 1: TS2304 Cannot find name 'foo'", tool_call_id="call_1"),
+        ]
 
-        # Mock turn context and executor invocation to capture injected system message
-        captured_messages = []
+        prompt = build_self_healing_prompt(messages)
+        self.assertIsNotNone(prompt)
+        self.assertIn("SELF-HEALING RECOVERY MODE ACTIVE", prompt)
+        self.assertIn("TS2304 Cannot find name 'foo'", prompt)
 
-        class MockExecutor:
-            def bind_tools(self, tools):
-                return self
+    def test_self_healing_ignores_successful_tools(self):
+        from agent.graph.nodes import build_self_healing_prompt
 
-            async def ainvoke(self, messages):
-                captured_messages.extend(messages)
-                return AIMessage(content="I have diagnosed the error and fixed the missing name.")
+        messages = [
+            HumanMessage(content="List files"),
+            AIMessage(content="Calling list", tool_calls=[{"id": "call_1", "name": "list", "args": {}}]),
+            ToolMessage(content="package.json\nsrc\ntsconfig.json", tool_call_id="call_1"),
+        ]
 
-        mock_config = {
-            "configurable": {
-                "workspace_context": {"execution_target": "web"},
-            }
-        }
-
-        async def mock_invoke(node, m, msgs):
-            return await m.ainvoke(msgs)
-
-        with patch("agent.graph.nodes._model_for_turn", return_value=MockExecutor()), \
-             patch("agent.graph.nodes.get_turn_context", return_value=None), \
-             patch("agent.graph.nodes._invoke_model", side_effect=mock_invoke), \
-             patch("agent.mcp.get_mcp_tools", return_value=[]):
-            import asyncio
-            response = asyncio.run(call_model(state, mock_config))
-
-        self.assertIn("messages", response)
-        # Check that captured messages contain the self-healing instruction
-        system_content = captured_messages[0].content
-        self.assertIn("SELF-HEALING RECOVERY MODE ACTIVE", system_content)
-        self.assertIn("TS2304 Cannot find name 'foo'", system_content)
+        prompt = build_self_healing_prompt(messages)
+        self.assertIsNone(prompt)
 
 
 if __name__ == "__main__":

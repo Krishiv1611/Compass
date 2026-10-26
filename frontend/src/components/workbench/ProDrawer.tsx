@@ -155,7 +155,7 @@ export default function ProDrawer({
               size="icon-sm"
               variant="ghost"
               className="text-slate-400 hover:text-slate-200"
-              onClick={() => setTerminalStream("\x1b[2J\x1b[H\x1b[1;36mCompass Pro Terminal\x1b[0m — Ready.\r\n$ ")}
+              onClick={() => setTerminalStream("\x1b[2J\x1b[H\x1b[1;36mCompass Terminal\x1b[0m — Ready.\r\n$ ")}
               title="Clear terminal"
               aria-label="Clear terminal"
             >

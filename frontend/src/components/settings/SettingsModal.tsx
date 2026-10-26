@@ -171,8 +171,8 @@ export default function SettingsModal({
                     className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
                     <option value="openrouter">OpenRouter (DeepSeek, Qwen, Llama)</option>
-                    <option value="litellm">LiteLLM Fast Router (Zero-Latency Engine)</option>
-                    <option value="google">Google AI Studio (Gemini 3.8 Flash)</option>
+                    <option value="litellm">LiteLLM Proxy Router</option>
+                    <option value="google">Google Gemini</option>
                     <option value="openai">OpenAI</option>
                     <option value="anthropic">Anthropic</option>
                   </select>

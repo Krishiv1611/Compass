@@ -233,15 +233,11 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
         <WorkspaceHeader workspaceId={activeWorkspaceId} projectName={projectName} onRefresh={() => refreshTree(activeWorkspaceId)} />
         <div className="flex items-center gap-2">
-          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-sky-950/40 border border-sky-800/40 text-sky-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Gemini 3.8 Flash &lt; 350ms
-          </span>
           <Button
             variant={state.proDrawerOpen ? "secondary" : "ghost"}
             size="sm"
             onClick={() => dispatch({ type: "setProDrawer", open: !state.proDrawerOpen })}
-            title="Toggle Pro Terminal Drawer (Ctrl + `)"
+            title="Toggle Terminal Drawer (Ctrl + `)"
           >
             <Terminal className="h-4 w-4 mr-1" />
             Terminal

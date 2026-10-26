@@ -56,8 +56,8 @@ export default function TerminalView({ onInput, streamText, className = "" }: Te
     fitAddonRef.current = fitAddon;
 
     // Welcome banner
-    term.writeln("\x1b[1;36mCompass Pro Terminal\x1b[0m — \x1b[32mE2B Cloud microVM & WebContainer PTY\x1b[0m");
-    term.writeln("\x1b[90m$ Ready for interactive commands or live agent execution.\x1b[0m\r\n");
+    term.writeln("\x1b[1;36mCompass Terminal\x1b[0m \x1b[90m— interactive session ready\x1b[0m");
+    term.writeln("\x1b[90m$ Ready for shell commands and background agent execution.\x1b[0m\r\n");
 
     const onDataDisposable = term.onData((data) => {
       onInput?.(data);

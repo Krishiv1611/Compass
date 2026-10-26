@@ -131,20 +131,13 @@ export default function WorkspaceLanding({
   return (
     <div className="h-full overflow-y-auto bg-background px-6 py-10 sm:px-10">
       <div className="mx-auto max-w-3xl space-y-8">
-        {/* Header telemetry badge & title */}
+        {/* Header title */}
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-mono text-sky-400">
-            <Radio className="h-3 w-3 animate-pulse text-sky-400" />
-            <span>Dual-Engine Developer Workbench</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-emerald-400 font-semibold">$0 Cloud / Hardware Cost</span>
-          </div>
-
-          <h1 className="mt-3 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            What do you want to build today?
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            New Workspace
           </h1>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Compass combines an interactive visual preview canvas, real-time click-to-inspect DOM targeting, interactive terminal PTY streaming, remote cloud microVM sandboxes, and automated visual QA.
+          <p className="mt-1 text-sm text-muted-foreground">
+            Start a new project from a template, clone an existing GitHub repository, or open a local folder.
           </p>
         </div>
 
@@ -162,26 +155,26 @@ export default function WorkspaceLanding({
                 <span className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-500/15 text-sky-400 border border-sky-500/30">
                   <Globe className="h-5 w-5" />
                 </span>
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-400 border border-emerald-500/30">
-                  Ready in 2s
+                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-sky-400 border border-sky-500/30">
+                  Template
                 </span>
               </div>
               <h2 className="mt-3 text-sm font-semibold text-foreground group-hover:text-sky-400 transition-colors">
-                Instant React + Vite App
+                React + Vite Starter
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Pre-warmed React 19, Tailwind CSS & Vite starter. Boots directly into in-browser WebContainer Canvas.
+                Standard React application with Vite, Tailwind CSS, and instant live preview.
               </p>
             </div>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-sky-400">
               {busy === "starter" ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Bootstrapping...</span>
+                  <span>Creating workspace...</span>
                 </>
               ) : (
                 <>
-                  <span>Launch Canvas</span>
+                  <span>Launch Template</span>
                   <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
                 </>
               )}
@@ -200,14 +193,14 @@ export default function WorkspaceLanding({
                   <GitFork className="h-5 w-5" />
                 </span>
                 <span className="rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
-                  Git Clone
+                  Git
                 </span>
               </div>
               <h2 className="mt-3 text-sm font-semibold text-foreground group-hover:text-purple-400 transition-colors">
                 Import from GitHub
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Connect your GitHub account or clone public/private repositories with branch switching.
+                Connect your GitHub account or clone public and private repositories with branch tracking.
               </p>
             </div>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-purple-400">
@@ -236,7 +229,7 @@ export default function WorkspaceLanding({
                 Upload Project Folder
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Copy existing source code from your machine into an isolated, sandboxed web workspace.
+                Upload source files from your local machine into an isolated workspace.
               </p>
             </div>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-emerald-400">
@@ -270,14 +263,14 @@ export default function WorkspaceLanding({
                   <Terminal className="h-5 w-5" />
                 </span>
                 <span className="rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
-                  Scratchpad
+                  Blank
                 </span>
               </div>
               <h2 className="mt-3 text-sm font-semibold text-foreground">
-                Custom / Blank Workspace
+                Empty Workspace
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Start from a blank slate for CLI pipelines, Python scripts, or custom microservices.
+                Start from a blank workspace for backend scripts, APIs, or custom workflows.
               </p>
             </div>
 
@@ -321,31 +314,6 @@ export default function WorkspaceLanding({
           </div>
         </div>
 
-        {/* Architectural Pillars Pillbox */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 rounded-lg border border-border/80 bg-muted/20 p-3">
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <Globe className="h-4 w-4 shrink-0 text-sky-400" />
-            <div>
-              <span className="block font-medium text-foreground">StackBlitz WebContainer</span>
-              <span className="text-[11px]">Instant client-side Node.js</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <Cpu className="h-4 w-4 shrink-0 text-purple-400" />
-            <div>
-              <span className="block font-medium text-foreground">E2B Firecracker VMs</span>
-              <span className="text-[11px]">Remote cloud Linux execution</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <Sparkles className="h-4 w-4 shrink-0 text-emerald-400" />
-            <div>
-              <span className="block font-medium text-foreground">Gemini 3.8 Flash</span>
-              <span className="text-[11px]">Sub-350ms TTFT · 1M Context Window</span>
-            </div>
-          </div>
-        </div>
-
         {/* Recent Projects Section */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -363,7 +331,7 @@ export default function WorkspaceLanding({
           {loading ? (
             <div className="flex items-center justify-center gap-2 rounded-lg border border-border p-8 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span>Scanning local database...</span>
+              <span>Loading workspaces...</span>
             </div>
           ) : recent.length ? (
             <div className="overflow-hidden rounded-lg border border-border divide-y divide-border bg-card/40">

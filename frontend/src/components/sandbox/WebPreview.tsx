@@ -156,7 +156,7 @@ export default function WebPreview({
     setLogs([]);
     try {
       const script = previewScript(files);
-      log("Booting WebContainer…\n");
+      log("Booting preview runtime…\n");
       const current = await getContainer();
       if (generation !== generationRef.current) return;
       containerRef.current = current;
@@ -382,8 +382,8 @@ export default function WebPreview({
         {state === "idle" && (
           <Empty
             icon={<Globe className="h-8 w-8 text-primary" />}
-            title="Interactive Preview Canvas"
-            text="Start the in-browser WebContainer preview to see your React app live with real-time DOM inspection."
+            title="Preview Canvas"
+            text="Start the preview server to inspect your web application in real time with interactive element selection."
             action={
               <Button size="sm" onClick={() => void start()} disabled={!files || !Object.keys(files).length}>
                 <Play className="h-4 w-4 mr-1.5" /> Start Preview
@@ -395,7 +395,7 @@ export default function WebPreview({
           <Empty
             icon={<Loader2 className="h-8 w-8 animate-spin text-primary" />}
             title="Starting Development Server"
-            text={state === "installing" ? "Installing packages via WebContainer…" : "Compiling Vite bundle…"}
+            text={state === "installing" ? "Installing dependencies…" : "Starting dev server…"}
           />
         )}
         {state === "error" && (
@@ -467,7 +467,7 @@ export default function WebPreview({
       {showOutput && (
         <div className="h-36 shrink-0 overflow-auto border-t border-border bg-card">
           <div className="flex h-7 items-center border-b border-border bg-muted/40 px-3 text-xs font-medium text-muted-foreground">
-            <Terminal className="mr-1.5 h-3.5 w-3.5" /> WebContainer Output
+            <Terminal className="mr-1.5 h-3.5 w-3.5" /> Console Output
           </div>
           <pre className="whitespace-pre-wrap p-2 font-mono text-xs leading-relaxed text-muted-foreground">
             {logs.length ? logs.join("") : "No output yet."}

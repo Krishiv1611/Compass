@@ -320,6 +320,26 @@ async def plan_approval_node(state: AgentState, config: RunnableConfig):
         return {}
 
 
+def build_self_healing_prompt(messages: list) -> str | None:
+    """Analyze recent tool execution messages and generate targeted self-healing context."""
+    recent_errors = []
+    for msg in reversed(messages[-4:]):
+        if getattr(msg, "type", "") == "tool" or getattr(msg, "tool_call_id", None):
+            content = str(getattr(msg, "content", ""))
+            content_lower = content.lower()
+            if any(indicator in content_lower for indicator in ("error", "exit code", "failed", "traceback", "syntaxerror", "exception")):
+                err_preview = content[:600] if len(content) > 600 else content
+                recent_errors.append(err_preview)
+    if not recent_errors:
+        return None
+    return (
+        "🛠️ SELF-HEALING RECOVERY MODE ACTIVE:\n"
+        "A previous tool or test execution failed:\n"
+        + "\n---\n".join(recent_errors)
+        + "\n\nDiagnose the root cause of this failure. Synthesize a targeted fix or correction rather than repeating the same failing action."
+    )
+
+
 async def call_model(state: AgentState, config: RunnableConfig):
     """
     ⚡ Executor Agent — follow the plan and call tools to accomplish the task.
@@ -417,21 +437,9 @@ async def call_model(state: AgentState, config: RunnableConfig):
         )
 
     # ── Self-Healing Error Recovery ──────────────────────────────────────────
-    recent_errors = []
-    for msg in reversed(messages[-4:]):
-        if getattr(msg, "type", "") == "tool" or getattr(msg, "tool_call_id", None):
-            content = str(getattr(msg, "content", ""))
-            content_lower = content.lower()
-            if any(indicator in content_lower for indicator in ("error", "exit code", "failed", "traceback", "syntaxerror", "exception")):
-                err_preview = content[:600] if len(content) > 600 else content
-                recent_errors.append(err_preview)
-    if recent_errors:
-        context_parts.append(
-            "🛠️ SELF-HEALING RECOVERY MODE ACTIVE:\n"
-            "A previous tool or test execution failed:\n"
-            + "\n---\n".join(recent_errors)
-            + "\n\nDiagnose the root cause of this failure. Synthesize a targeted fix or correction rather than repeating the same failing action."
-        )
+    self_healing_prompt = build_self_healing_prompt(messages)
+    if self_healing_prompt:
+        context_parts.append(self_healing_prompt)
 
     if context_parts:
         context_parts.append(
