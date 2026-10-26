@@ -69,7 +69,7 @@ def _get_model_name(role: str) -> str:
     key = f"model.{role}"
     # Fallback to executor if role not found
     return settings.get(
-        key, settings.get("model.executor", "google/gemma-4-31b-it:free")
+        key, settings.get("model.executor", "qwen/qwen-2.5-coder-32b-instruct")
     )
 
 
@@ -131,7 +131,17 @@ def llm(role: str = "executor", api_key: str | None = None, provider: str | None
             google_api_key=api_key,
             model=model_name.removeprefix("google/"),
         )
-        
+
+    elif provider == "deepseek":
+        if not api_key:
+            api_key = os.environ.get("DEEPSEEK_API_KEY")
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            api_key=api_key,
+            model=model_name.removeprefix("deepseek/"),
+            base_url="https://api.deepseek.com",
+        )
+
     elif provider in {"litellm", "fast", "fast_router"}:
         from agent.llm_router import LiteLLMChatModel
         return LiteLLMChatModel(

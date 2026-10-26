@@ -164,8 +164,47 @@ export default function SettingsModal({
               </TabsContent>
               <TabsContent value="model" className="m-0 space-y-5 p-5">
                 <SectionTitle icon={Bot} title="Model defaults" description="These choices apply to new tasks unless the composer overrides them." />
-                <Field label="Provider"><select value={preferences.llm_provider} onChange={(event) => setPreferences((value) => ({ ...value, llm_provider: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option></select></Field>
-                <Field label="Model"><Input value={preferences.model} onChange={(event) => setPreferences((value) => ({ ...value, model: event.target.value }))} placeholder="Provider model identifier" /></Field>
+                <Field label="Provider">
+                  <select
+                    value={preferences.llm_provider}
+                    onChange={(event) => setPreferences((value) => ({ ...value, llm_provider: event.target.value }))}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="openrouter">OpenRouter (DeepSeek, Qwen, Llama)</option>
+                    <option value="litellm">LiteLLM Fast Router (Zero-Latency Engine)</option>
+                    <option value="google">Google AI Studio (Gemini 3.8 Flash)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                  </select>
+                </Field>
+                <div>
+                  <Field label="Model">
+                    <Input
+                      value={preferences.model}
+                      onChange={(event) => setPreferences((value) => ({ ...value, model: event.target.value }))}
+                      placeholder="Provider model identifier (e.g. qwen/qwen-2.5-coder-32b-instruct)"
+                    />
+                  </Field>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="text-[11px] text-muted-foreground mr-1 self-center">Presets:</span>
+                    {[
+                      { label: "DeepSeek R1", model: "deepseek/deepseek-r1" },
+                      { label: "Qwen 2.5 Coder", model: "qwen/qwen-2.5-coder-32b-instruct" },
+                      { label: "Gemini 3.8 Flash", model: "gemini/gemini-3.8-flash" },
+                      { label: "Llama 3.3 70B", model: "meta-llama/llama-3.3-70b-instruct" },
+                      { label: "DeepSeek V3", model: "deepseek/deepseek-chat" },
+                    ].map((preset) => (
+                      <button
+                        key={preset.model}
+                        type="button"
+                        onClick={() => setPreferences((prev) => ({ ...prev, model: preset.model }))}
+                        className="rounded border border-border/80 bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-sky-500/50 hover:bg-muted hover:text-foreground"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Field label={preferences.has_llm_api_key ? "Replace API key" : "API key"} help="Write-only. Compass encrypts this value on the backend and never returns it to the browser."><Input type="password" autoComplete="off" value={newApiKey} onChange={(event) => setNewApiKey(event.target.value)} placeholder={preferences.has_llm_api_key ? "A credential is already stored" : "Enter provider credential"} /></Field>
                 <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void testProvider()} disabled={!preferences.model.trim() || !!providerBusy}>{providerBusy === "test" && <Loader2 className="h-4 w-4 animate-spin" />} Test provider</Button>{preferences.has_llm_api_key && <Button type="button" variant="outline" size="sm" onClick={() => void removeCredential()} disabled={!!providerBusy}>{providerBusy === "remove" && <Loader2 className="h-4 w-4 animate-spin" />} Remove credential</Button>}</div>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.safe_mode} onChange={(event) => setPreferences((value) => ({ ...value, safe_mode: event.target.checked }))} /> Stage agent file changes for review</label>

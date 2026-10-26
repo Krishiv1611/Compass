@@ -12,12 +12,12 @@ except ImportError:
 DEFAULT_CONFIG = {
     # UI
     "theme": "default",
-    # Models (per-role overrides)
-    "model.planner": "google/gemma-4-31b-it:free",
-    "model.executor": "google/gemma-4-31b-it:free",
-    "model.recovery": "google/gemma-4-31b-it:free",
-    "model.summarizer": "google/gemma-4-31b-it:free",
-    "model.evaluator": "google/gemma-4-31b-it:free",
+    # Models (per-role overrides: State-of-the-art Open Source)
+    "model.planner": "deepseek/deepseek-r1",
+    "model.executor": "qwen/qwen-2.5-coder-32b-instruct",
+    "model.recovery": "deepseek/deepseek-r1",
+    "model.summarizer": "meta-llama/llama-3.3-70b-instruct",
+    "model.evaluator": "qwen/qwen-2.5-coder-32b-instruct",
     # Safety
     "safety.mode": "auto",  # auto | yolo | strict
     "safety.blocked_commands": "",  # extra blocked patterns

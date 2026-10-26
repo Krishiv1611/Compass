@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_FAST_MODEL = os.environ.get("COMPASS_FAST_MODEL", "gemini/gemini-3.8-flash")
 DEFAULT_FALLBACK_MODELS = [
     "gemini/gemini-3.8-flash",
-    "gemini/gemini-2.0-flash",
+    "deepseek/deepseek-r1",
+    "qwen/qwen-2.5-coder-32b-instruct",
+    "meta-llama/llama-3.3-70b-instruct",
     "groq/llama-3.3-70b-versatile",
     "openrouter/google/gemini-2.0-flash-001",
 ]

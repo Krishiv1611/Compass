@@ -33,7 +33,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEFAULT_PROVIDER", "default_provider"),
     )
     default_model: str = Field(
-        default="google/gemma-4-31b-it:free",
+        default="qwen/qwen-2.5-coder-32b-instruct",
         validation_alias=AliasChoices("DEFAULT_MODEL", "default_model"),
     )
     embedding_provider: str | None = Field(
