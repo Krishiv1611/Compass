@@ -31,3 +31,6 @@ def apply_workspace_metadata_delta(workspace, changes: list[FileChange]) -> None
                 f"{change.operation}\0{change.path}\0{change.before_size}\0{change.after_size}".encode()
             )
         workspace.context_version = f"delta:{digest.hexdigest()[:32]}"
+        session = getattr(workspace, "session", None)
+        if session is not None and getattr(session, "active_workspace_id", None) == getattr(workspace, "id", None):
+            session.context_version = workspace.context_version

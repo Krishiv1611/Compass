@@ -49,11 +49,6 @@ class SharedRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(event.type, StreamEventType.APPROVAL_REQUIRED)
 
-    def test_tui_has_no_private_graph_stream_loop(self):
-        source = Path("agent/ui/tui.py").read_text(encoding="utf-8-sig")
-        self.assertNotIn("workflow.astream(", source)
-        self.assertIn("stream_agent_events(", source)
-
 
 class RuntimeCancellationTests(unittest.IsolatedAsyncioTestCase):
     async def test_pre_cancelled_turn_ends_without_loading_the_graph(self):

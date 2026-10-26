@@ -45,7 +45,7 @@ DEFAULT_CONFIG = {
 
 
 PUBLIC_SETTING_CONSUMERS = {
-    "theme": "agent.ui.tui.theme_for_preference",
+    "theme": "agent.ui.theme.theme_for_preference",
     "tools.max_results": "agent.tools.search_tools.grep_search",
     "tools.shell_timeout": "agent.tools.shell_tool.shell_execute",
     "context.summarize_after": "agent.graph.routing.needs_compaction",
@@ -102,7 +102,11 @@ def load_config() -> dict:
 
     # Layer 2: Global (~/.compass/config.toml)
     global_path = Path.home() / ".compass" / "config.toml"
-    if global_path.exists():
+    try:
+        has_global = global_path.exists()
+    except (PermissionError, OSError):
+        has_global = False
+    if has_global:
         try:
             config.update(
                 _flatten(tomllib.loads(global_path.read_text(encoding="utf-8")))
@@ -112,7 +116,11 @@ def load_config() -> dict:
 
     # Layer 3: Project (./.compass/config.toml)
     project_path = Path.cwd() / ".compass" / "config.toml"
-    if project_path.exists():
+    try:
+        has_project = project_path.exists()
+    except (PermissionError, OSError):
+        has_project = False
+    if has_project:
         try:
             config.update(
                 _flatten(tomllib.loads(project_path.read_text(encoding="utf-8")))

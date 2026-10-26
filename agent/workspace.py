@@ -146,13 +146,27 @@ def _is_checkpoint_storage(root: Path, path: Path) -> bool:
     return len(parts) >= 2 and parts[0] == ".compass" and parts[1] == "checkpoints"
 
 
-def discover_local_workspace(start: Path | None = None) -> WorkspaceContext:
+def discover_local_workspace(
+    start: Path | None = None,
+    allow_parent_git: bool = True,
+) -> WorkspaceContext:
     start = (start or Path.cwd()).resolve()
     git_root_value = _git(start, "rev-parse", "--show-toplevel")
-    root = Path(git_root_value).resolve() if git_root_value else start
-    remote = canonical_git_remote(_git(root, "remote", "get-url", "origin"))
-    branch = _git(root, "branch", "--show-current")
-    head = _git(root, "rev-parse", "HEAD")
+    if git_root_value and not allow_parent_git:
+        if Path(git_root_value).resolve() != start:
+            git_root_value = None
+
+    if git_root_value:
+        root = Path(git_root_value).resolve()
+        remote = canonical_git_remote(_git(root, "remote", "get-url", "origin"))
+        branch = _git(root, "branch", "--show-current")
+        head = _git(root, "rev-parse", "HEAD")
+    else:
+        root = start
+        remote = None
+        branch = None
+        head = None
+
     project_id = remote or _content_identity(root)
     return WorkspaceContext(
         root=root,
@@ -163,23 +177,4 @@ def discover_local_workspace(start: Path | None = None) -> WorkspaceContext:
         git_branch=branch,
         git_head=head,
         context_version=head or content_context_version(root),
-    )
-
-
-def web_workspace_context(workspace: object) -> WorkspaceContext:
-    """Build a web boundary only from a server-owned Workspace model."""
-    storage_path = getattr(workspace, "storage_path", None)
-    workspace_id = getattr(workspace, "id", None)
-    if not storage_path or not workspace_id:
-        raise ValueError("Web workspace is missing its server-owned root or ID.")
-    return WorkspaceContext(
-        root=Path(storage_path).resolve(),
-        execution_target="web",
-        workspace_id=str(workspace_id),
-        project_id=getattr(workspace, "project_id", None) or f"workspace:{workspace_id}",
-        source_type=getattr(workspace, "source_type", None) or "upload",
-        git_remote=canonical_git_remote(getattr(workspace, "git_remote", None)),
-        git_branch=getattr(workspace, "git_branch", None),
-        git_head=getattr(workspace, "git_head", None),
-        context_version=getattr(workspace, "context_version", None) or str(workspace_id),
     )

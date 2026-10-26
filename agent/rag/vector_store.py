@@ -110,10 +110,10 @@ def get_vector_store(
         return _vector_stores[store_key]
 
     db_uri = os.environ.get("DB_URI")
-    if not db_uri:
+    if not db_uri or not (db_uri.startswith("postgresql") or db_uri.startswith("postgres")):
         if not create:
             return None
-        raise ValueError("DB_URI is not set. Cannot initialize PGVector.")
+        raise ValueError("DB_URI is not a valid PostgreSQL URI. Cannot initialize PGVector.")
 
     # Convert asyncpg to psycopg if needed (langchain_postgres usually expects psycopg3 standard URI)
     # SQLAlchemy dialect for psycopg3 is postgresql+psycopg://
@@ -137,20 +137,18 @@ def get_vector_store(
     return vector_store
 
 
-def reset_vector_store_cache() -> None:
-    """Clear the cached PGVector instance after writes when needed."""
-    _vector_stores.clear()
-
-
 def delete_chunks_by_filter(
     where: dict,
     provider_config: dict | None = None,
 ) -> int:
     """Delete collection chunks whose JSON metadata contains ``where``."""
-    vector_store = get_vector_store(
-        create=False,
-        provider_config=provider_config,
-    )
+    try:
+        vector_store = get_vector_store(
+            create=False,
+            provider_config=provider_config,
+        )
+    except Exception:
+        return 0
     if vector_store is None:
         return 0
 

@@ -54,17 +54,40 @@ class Settings(BaseSettings):
         default="compass-dev-secret-change-me-in-production",
         validation_alias=AliasChoices("JWT_SECRET", "jwt_secret"),
     )
-    jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
-    access_token_expire_minutes: int = Field(
-        default=15, env="ACCESS_TOKEN_EXPIRE_MINUTES"
+    jwt_algorithm: str = Field(
+        default="HS256",
+        validation_alias=AliasChoices("JWT_ALGORITHM", "jwt_algorithm"),
     )
-    refresh_token_expire_days: int = Field(default=7, env="REFRESH_TOKEN_EXPIRE_DAYS")
+    access_token_expire_minutes: int = Field(
+        default=15,
+        validation_alias=AliasChoices(
+            "ACCESS_TOKEN_EXPIRE_MINUTES", "access_token_expire_minutes"
+        ),
+    )
+    refresh_token_expire_days: int = Field(
+        default=7,
+        validation_alias=AliasChoices(
+            "REFRESH_TOKEN_EXPIRE_DAYS", "refresh_token_expire_days"
+        ),
+    )
 
     # ── OAuth (optional — endpoints degrade gracefully if unset) ──
-    google_client_id: str | None = Field(default=None, env="GOOGLE_CLIENT_ID")
-    google_client_secret: str | None = Field(default=None, env="GOOGLE_CLIENT_SECRET")
-    github_client_id: str | None = Field(default=None, env="GITHUB_CLIENT_ID")
-    github_client_secret: str | None = Field(default=None, env="GITHUB_CLIENT_SECRET")
+    google_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CLIENT_ID", "google_client_id"),
+    )
+    google_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CLIENT_SECRET", "google_client_secret"),
+    )
+    github_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GITHUB_CLIENT_ID", "github_client_id"),
+    )
+    github_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GITHUB_CLIENT_SECRET", "github_client_secret"),
+    )
     credential_encryption_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

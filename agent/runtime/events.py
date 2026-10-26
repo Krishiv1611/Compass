@@ -14,7 +14,6 @@ class StreamEventType(str, Enum):
     APPROVAL_REQUIRED = "approval_required"
     CLARIFICATION_REQUIRED = "clarification_required"
     RUN_WAITING = "run_waiting"
-    RPC_CALL = "rpc_call"
     WORKSPACE_PATCH = "workspace_patch"
     CHECKPOINT_CREATED = "checkpoint_created"
     CHECKPOINT_RESTORED = "checkpoint_restored"

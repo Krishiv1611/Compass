@@ -5,6 +5,7 @@ import {
   Command,
   FileCode2,
   FolderTree,
+  GitFork,
   GitPullRequest,
   MessageSquare,
   PanelRight,
@@ -134,6 +135,11 @@ export default function ChatPage() {
       if (type === "workspace_patch") {
         setStreamStatus("Changes ready for review");
         void refreshWorkspace(handle.sessionId);
+        dispatch({ type: "refreshWorkspace" });
+        dispatch({ type: "patchesChanged" });
+      }
+      if (type === "checkpoint_created" || type === "checkpoint_restored") {
+        dispatch({ type: "checkpointsChanged" });
       }
       if (type === "error") {
         toast.error(String(event.content || "The run failed"));
@@ -272,6 +278,18 @@ export default function ChatPage() {
     setStreamStatus("Stopped");
   };
 
+  const handleForkSession = async () => {
+    if (!sessionId) return;
+    try {
+      const forked = await sessionsApi.forkSession(sessionId);
+      toast.success("Session branched into a new task");
+      setSearchParams({ session: forked.id });
+      dispatch({ type: "sessionsChanged" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to fork session");
+    }
+  };
+
   const centerPanel = state.activeWorkspaceId ? (
     <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-muted-foreground">Opening project workbench…</div>}>
       <CenterWorkbench activeWorkspaceId={state.activeWorkspaceId} />
@@ -315,6 +333,9 @@ export default function ChatPage() {
     <>
       <Button variant="ghost" size="icon-sm" onClick={() => dispatch({ type: "setCommandPalette", open: true })} aria-label="Open command palette" title="Command palette"><Command className="h-4 w-4" /></Button>
       <Button variant="ghost" size="icon-sm" onClick={() => dispatch({ type: "setContextDrawer", open: true })} aria-label="Inspect context" title="Context"><PanelRight className="h-4 w-4" /></Button>
+      {sessionId && (
+        <Button variant="ghost" size="icon-sm" onClick={() => void handleForkSession()} aria-label="Fork session" title="Branch into new session"><GitFork className="h-4 w-4" /></Button>
+      )}
       <Button variant="ghost" size="sm" onClick={() => dispatch({ type: "setPublish", open: true })} disabled={!state.activeWorkspaceId}><GitPullRequest className="h-4 w-4" /> Publish</Button>
     </>
   );

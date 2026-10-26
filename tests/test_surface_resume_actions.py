@@ -4,12 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent.runtime.protocol import ResumeAction
-from agent.ui.tui import (
+from agent.runtime.protocol import (
     CLARIFICATION_RESUME_ACTIONS,
     PLAN_RESUME_ACTIONS,
     TOOL_RESUME_ACTIONS,
-    _prompt_runtime_approval,
+    ResumeAction,
 )
 from agent.runtime.events import StreamEvent
 from agent.ui.event_renderer import EventRenderer, artifact_summary_for_event
@@ -59,29 +58,6 @@ class SurfaceResumeActionTests(unittest.TestCase):
             {"execute_plan", "revise_plan", "cancel"},
         )
         self.assertEqual(set(CLARIFICATION_RESUME_ACTIONS), {"answer"})
-
-    def test_tui_clarification_preserves_answer(self):
-        compass = SimpleNamespace(console=SimpleNamespace(print=lambda *_: None))
-        with patch("agent.ui.tui.click.prompt", return_value="Use PostgreSQL"):
-            result = _prompt_runtime_approval(
-                compass,
-                {
-                    "reason": "clarification_required",
-                    "prompt": "Which database?",
-                },
-            )
-
-        self.assertEqual(result, {"action": "answer", "feedback": "Use PostgreSQL"})
-
-    def test_tui_tool_prompt_can_skip(self):
-        compass = SimpleNamespace(console=SimpleNamespace(print=lambda *_: None))
-        with patch("agent.ui.tui.click.prompt", return_value="skip"):
-            result = _prompt_runtime_approval(
-                compass,
-                {"reason": "approval_required", "tool_calls": []},
-            )
-
-        self.assertEqual(result, {"action": "skip"})
 
 
 if __name__ == "__main__":

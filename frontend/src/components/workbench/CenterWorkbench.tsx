@@ -1,22 +1,25 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { lazy, Suspense, useRef } from "react";
-import { Code2, GitPullRequest, Globe, Loader2, Save } from "lucide-react";
+import { Code2, GitPullRequest, Globe, History, Loader2, Save, Terminal } from "lucide-react";
 import { toast } from "react-toastify";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { workspaceApi } from "@/api";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
+import type { CenterTab } from "@/contexts/WorkbenchContext";
 import { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
 import type { FileNode } from "@/components/sandbox/FileExplorer";
 import FileExplorer from "@/components/sandbox/FileExplorer";
 import WorkspaceHeader from "@/components/sandbox/WorkspaceHeader";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ProDrawer from "@/components/workbench/ProDrawer";
 import { beginLoad, editFile, emptyEditorState, invalidateWorkspace, isDirty as entryIsDirty, markSaved, selectEntry, shouldReloadEntry, storeLoadedFile } from "./editorState";
 
 const DiffReviewPanel = lazy(() => import("@/components/sandbox/DiffReviewPanel"));
 const WebPreview = lazy(() => import("@/components/sandbox/WebPreview"));
 const CodeMirrorEditor = lazy(() => import("@/components/sandbox/CodeMirrorEditor"));
+const CheckpointsPanel = lazy(() => import("@/components/sandbox/CheckpointsPanel"));
 const panelFallback = <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading panel</div>;
 
 const languageFromName = (name: string) => {
@@ -92,6 +95,10 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
         event.preventDefault();
         void saveFile();
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "`") {
+        event.preventDefault();
+        dispatch({ type: "setProDrawer", open: !state.proDrawerOpen });
+      }
     };
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!isDirty) return;
@@ -106,6 +113,23 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
   useEffect(() => {
     if (activeWorkspaceId) setEditorState(value => invalidateWorkspace(value, activeWorkspaceId));
   }, [activeWorkspaceId, state.patchesVersion]);
+
+  // Pre-load preview files whenever workspace or patches change (Lovable live sync)
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setPreviewFiles(null);
+      return;
+    }
+    let cancelled = false;
+    workspaceApi.exportWorkspaceJson(activeWorkspaceId)
+      .then((data) => {
+        if (!cancelled) setPreviewFiles(data as Record<string, { file?: { contents: string } }>);
+      })
+      .catch(() => {
+        // Workspace may still be bootstrapping
+      });
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, state.patchesVersion, state.refreshWorkspaceVersion]);
 
   useEffect(() => {
     if (activeWorkspaceId) dispatch({ type: "setWorkspaceDirty", workspaceId: activeWorkspaceId, dirty: isDirty });
@@ -159,12 +183,32 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
 
   const explorer = <FileExplorer files={files} onFileSelect={(file) => void loadFile(file)} activePath={activeFile?.path} projectName={projectName} onCreate={(parent, type) => void createPath(parent, type)} onRename={(path) => void renamePath(path)} onDelete={(path) => void deletePath(path)} />;
   const mainPanel = (
-    <Tabs value={state.centerTab} onValueChange={(tab) => dispatch({ type: "setCenterTab", tab: tab as "editor" | "changes" | "preview" })} className="flex h-full flex-col">
+    <Tabs value={state.centerTab} onValueChange={(tab) => dispatch({ type: "setCenterTab", tab: tab as CenterTab })} className="flex h-full flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
-        <TabsList>
-          <TabsTrigger value="editor"><Code2 className="h-4 w-4" /> Editor</TabsTrigger>
-          <TabsTrigger value="changes"><GitPullRequest className="h-4 w-4" /> Changes</TabsTrigger>
-          <TabsTrigger value="preview"><Globe className="h-4 w-4" /> Preview</TabsTrigger>
+        <TabsList className="bg-muted/40 p-0.5">
+          <TabsTrigger value="preview" className="data-[state=active]:bg-background">
+            <Globe className="h-4 w-4 mr-1.5 text-sky-400" />
+            <span>Canvas</span>
+            {previewFiles && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" title="Live Preview Active" />}
+          </TabsTrigger>
+          <TabsTrigger value="editor" className="data-[state=active]:bg-background">
+            <Code2 className="h-4 w-4 mr-1.5" />
+            <span>Editor</span>
+            {activeFile && <span className="ml-1 text-[11px] text-muted-foreground font-mono">({activeFile.name})</span>}
+          </TabsTrigger>
+          <TabsTrigger value="changes" className="data-[state=active]:bg-background">
+            <GitPullRequest className="h-4 w-4 mr-1.5" />
+            <span>Changes</span>
+            {state.pendingPatchCount > 0 && (
+              <span className="ml-1 rounded-full bg-sky-500/20 px-1.5 py-0.2 text-[10px] text-sky-400 font-mono font-semibold">
+                {state.pendingPatchCount}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="checkpoints" className="data-[state=active]:bg-background">
+            <History className="h-4 w-4 mr-1.5" />
+            <span>Snapshots</span>
+          </TabsTrigger>
         </TabsList>
         {state.centerTab === "editor" && <Button size="sm" variant="ghost" onClick={() => void saveFile()} disabled={!isDirty || !activeFile}>{isDirty && <span className="h-2 w-2 rounded-full bg-warning" aria-label="Unsaved changes" />}<Save className="h-4 w-4" /> Save</Button>}
       </div>
@@ -177,6 +221,9 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
           {state.centerTab === "changes" && <Suspense fallback={panelFallback}><DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => { notifyPatchesChanged(); refreshWorkspace(); }} onOpenFile={(path) => { const name = path.split("/").pop() || path; void loadFile({ path, name, type: "file" }); }} /></Suspense>}
         </TabsContent>
         <TabsContent value="preview" className="m-0 h-full">{state.centerTab === "preview" && <Suspense fallback={panelFallback}><WebPreview files={previewFiles || undefined} visible onClose={() => dispatch({ type: "setCenterTab", tab: "editor" })} /></Suspense>}</TabsContent>
+        <TabsContent value="checkpoints" className="m-0 h-full">
+          {state.centerTab === "checkpoints" && <Suspense fallback={panelFallback}><CheckpointsPanel workspaceId={activeWorkspaceId} /></Suspense>}
+        </TabsContent>
       </div>
     </Tabs>
   );
@@ -185,7 +232,22 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
     <div className="flex h-full min-w-0 flex-col bg-background">
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
         <WorkspaceHeader workspaceId={activeWorkspaceId} projectName={projectName} onRefresh={() => refreshTree(activeWorkspaceId)} />
-        <Button variant="ghost" size="sm" onClick={() => void preparePreview()}><Globe className="h-4 w-4" /> Preview</Button>
+        <div className="flex items-center gap-2">
+          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-sky-950/40 border border-sky-800/40 text-sky-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Gemini 2.0 Flash &lt; 350ms
+          </span>
+          <Button
+            variant={state.proDrawerOpen ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => dispatch({ type: "setProDrawer", open: !state.proDrawerOpen })}
+            title="Toggle Devin Pro Drawer (Ctrl + `)"
+          >
+            <Terminal className="h-4 w-4 mr-1" />
+            Terminal
+            <kbd className="hidden sm:inline-block ml-1 px-1 py-0.2 text-[10px] font-mono bg-muted/60 rounded border border-border/80">Ctrl+`</kbd>
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1">
         {isDesktop ? (
@@ -195,6 +257,11 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
           </Allotment>
         ) : state.mobileDestination === "files" ? explorer : mainPanel}
       </div>
+      <ProDrawer
+        open={state.proDrawerOpen}
+        onClose={() => dispatch({ type: "setProDrawer", open: false })}
+        workspaceId={activeWorkspaceId}
+      />
     </div>
   );
 }

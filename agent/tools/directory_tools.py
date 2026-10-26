@@ -44,8 +44,11 @@ def list_dir(path: str = ".", max_depth: int = 2, config: RunnableConfig = None)
                 size = os.path.getsize(full)
                 results.append(f"{indent}{entry}  ({size}B)")
 
-    _walk(path, 0)
-    header = f"Directory: {os.path.abspath(path)}\n"
+    try:
+        rel_header = Path(path).resolve().relative_to(Path(workspace.root).resolve()).as_posix()
+        header = f"Directory: {rel_header or '.'}\n"
+    except Exception:
+        header = f"Directory: {path}\n"
     return header + "\n".join(results)
 
 

@@ -1,15 +1,17 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
   Bot,
   Boxes,
   BrainCircuit,
+  Download,
   FileCode2,
   FileSearch,
   FolderSearch,
   GitPullRequest,
   HelpCircle,
+  History,
   Layers3,
   ListTree,
   Search,
@@ -84,6 +86,8 @@ export default function CommandPalette({
     { id: "open", label: "Open file", hint: "Find a project file by name or path", icon: FileSearch, run: () => showView("files") },
     { id: "search", label: "Browse project", hint: "Open the workspace file tree", icon: FolderSearch, run: () => dispatch({ type: "setMobileDestination", destination: "files" }) },
     { id: "review", label: "Review changes", hint: "Open consolidated patch review", icon: GitPullRequest, run: () => openChanges() },
+    { id: "checkpoints", label: "Snapshots & rollback", hint: "Browse and restore workspace checkpoints", icon: History, run: () => dispatch({ type: "setCenterTab", tab: "checkpoints" }) },
+    { id: "download", label: "Export project (ZIP)", hint: "Download current project files as an archive", icon: Download, run: () => { if (workspaceId) void workspaceApi.downloadWorkspace(workspaceId); } },
     { id: "mode", label: "Change mode", hint: "Choose Ask, Edit, Plan, or Goal", icon: ListTree, run: () => showView("modes") },
     { id: "model", label: "Change model", hint: "Open model preferences", icon: Bot, run: () => openSettings("model") },
     { id: "index", label: "Refresh project index", hint: "Update revision and retrieval context", icon: Layers3, run: () => { if (workspaceId) void refreshBackendContext(workspaceId); } },

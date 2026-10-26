@@ -15,7 +15,6 @@ from agent.runtime.events import StreamEvent, StreamEventType
 from agent.skills.loader import SkillScope, discover_skills
 from agent.skills.registry import skill_registry, skill_scope
 from agent.tools.create_skill_tool import create_skill
-from agent.ui.tui import _stream_runtime_turn
 from backend.routers import skills
 
 
@@ -111,39 +110,6 @@ class SkillIsolationTests(unittest.TestCase):
 
         self.assertIn("user skills", result)
         self.assertNotIn(str(self.root), result)
-
-    def test_tui_runtime_scopes_the_registry_freshly_for_each_run(self) -> None:
-        """A TUI run must not retain another workspace's default registry."""
-        workspace_a = Path(self.temp_directory.name) / "workspace-a"
-        workspace_b = Path(self.temp_directory.name) / "workspace-b"
-        _skill_file(workspace_a / ".compass" / "skills", "review")
-        observed: list[bool] = []
-
-        async def stream(_input_value, _config):
-            observed.append(skill_registry.get("review") is not None)
-            yield StreamEvent(type=StreamEventType.DONE, data={"status": "completed"})
-
-        compass = MagicMock()
-        compass.console = MagicMock()
-        with patch("agent.runtime.runner.stream_agent_events", stream):
-            asyncio.run(
-                _stream_runtime_turn(
-                    compass,
-                    {"messages": []},
-                    {"configurable": {"workspace_context": {"root": str(workspace_a)}}},
-                    1,
-                )
-            )
-            asyncio.run(
-                _stream_runtime_turn(
-                    compass,
-                    {"messages": []},
-                    {"configurable": {"workspace_context": {"root": str(workspace_b)}}},
-                    2,
-                )
-            )
-
-        self.assertEqual(observed, [True, False])
 
 
 if __name__ == "__main__":

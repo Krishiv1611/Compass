@@ -1,3 +1,5 @@
+import asyncio
+import json
 import os
 import shutil
 import tempfile
@@ -6,18 +8,19 @@ from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
-from backend.db import get_db
+from backend.db import SessionLocal, get_db
 from backend.models.user import User
 from backend.services.workspace import (
     attach_active_workspace,
     create_workspace_record,
     get_workspace,
+    seed_starter_template,
     update_workspace_stats,
 )
 from backend.services.workspace_changes import FileChange, apply_workspace_metadata_delta
@@ -530,11 +533,12 @@ def create_workspace(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create an empty workspace for a session."""
+    """Create a new workspace initialized with a ready-to-run React/Vite starter template."""
     owned_session(db, body.session_id, current_user.id)
     workspace = create_workspace_record(
         db, current_user.id, body.session_id, body.name
     )
+    seed_starter_template(Path(workspace.storage_path), body.name)
     update_workspace_stats(db, workspace)
     return workspace
 
@@ -677,5 +681,90 @@ def undo_workspace_patch(
     )
     _notify_patch_event(db, workspace_id, background_tasks)
     return {"message": "Patch undone successfully", "patch": patch}
+
+
+@router.websocket("/{workspace_id}/terminal")
+async def workspace_terminal_websocket(
+    websocket: WebSocket,
+    workspace_id: str,
+):
+    """Interactive bidirectional terminal WebSocket relay for Devin Pro Drawer."""
+    db = SessionLocal()
+    user_id = None
+    try:
+        from backend.routers.chat import authenticate_websocket_user
+        user_id = authenticate_websocket_user(
+            websocket.headers.get("sec-websocket-protocol"),
+            websocket.query_params.get("token"),
+            db,
+        )
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+    await websocket.accept()
+
+    with SessionLocal() as db_session:
+        try:
+            workspace_dir = _get_active_workspace_path(db_session, user_id or "default", workspace_id)
+        except Exception:
+            from backend.config import settings
+            workspace_dir = Path(settings.workspace_root) / workspace_id
+
+    await websocket.send_json({
+        "type": "output",
+        "data": "\x1b[1;36mCompass Pro Terminal\x1b[0m — Connected.\r\n$ ",
+    })
+
+    try:
+        while True:
+            raw_msg = await websocket.receive_text()
+            try:
+                msg = json.loads(raw_msg)
+                cmd = msg.get("cmd") or msg.get("command") or ""
+            except Exception:
+                cmd = raw_msg.strip()
+
+            if not cmd:
+                continue
+
+            if cmd.lower() in ("clear", "cls"):
+                await websocket.send_json({"type": "output", "data": "\x1b[2J\x1b[H$ "})
+                continue
+
+            await websocket.send_json({"type": "output", "data": f"\x1b[90m> {cmd}\x1b[0m\r\n"})
+
+            e2b_key = os.environ.get("E2B_API_KEY")
+            if e2b_key:
+                from agent.sandbox.e2b_adapter import E2BCloudSandbox
+                try:
+                    with E2BCloudSandbox(api_key=e2b_key) as cloud_sb:
+                        res = cloud_sb.run_command(cmd)
+                        out = res.get("stdout", "") + res.get("stderr", "")
+                        await websocket.send_json({"type": "output", "data": out + f"\r\n\x1b[90m[E2B Firecracker exit={res.get('exit_code', 0)}]\x1b[0m\r\n$ "})
+                        continue
+                except Exception as e:
+                    await websocket.send_json({"type": "output", "data": f"\x1b[33mE2B unavailable ({e}), falling back to local runner...\x1b[0m\r\n"})
+
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    cwd=str(workspace_dir) if workspace_dir.exists() else None,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                stdout_data, _ = await asyncio.wait_for(proc.communicate(), timeout=60.0)
+                output = stdout_data.decode("utf-8", errors="replace") if stdout_data else ""
+                await websocket.send_json({"type": "output", "data": output + f"\r\n\x1b[90m[Process finished: exit code {proc.returncode}]\x1b[0m\r\n$ "})
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "output", "data": "\r\n\x1b[31m[Process timed out after 60s]\x1b[0m\r\n$ "})
+            except Exception as e:
+                await websocket.send_json({"type": "output", "data": f"\r\n\x1b[31mCommand error: {e}\x1b[0m\r\n$ "})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
 
 

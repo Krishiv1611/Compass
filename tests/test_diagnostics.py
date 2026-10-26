@@ -67,7 +67,7 @@ class RouteReportTests(unittest.TestCase):
             "messages": [HumanMessage(content="Redesign authentication across the codebase")],
         })
         self.assertEqual(report["route"], "context-planner")
-        self.assertEqual(report["path"], ["context_injector", "planner", "executor"])
+        self.assertEqual(report["path"], ["planner", "executor"])
 
 
 class TimingReportTests(unittest.TestCase):

@@ -40,7 +40,7 @@ class WorkflowRoutingTests(unittest.TestCase):
             "mode": "edit",
         }
         self.assertTrue(_needs_planning(state["messages"][0].content))
-        self.assertEqual(_route_start(state), "context_injector")
+        self.assertEqual(_route_start(state), "planner")
 
     def test_ask_mode_does_not_force_planning(self):
         state = {
@@ -68,7 +68,7 @@ class WorkflowRoutingTests(unittest.TestCase):
         for mode in ("plan", "goal"):
             with self.subTest(mode=mode):
                 state = {"messages": [HumanMessage(content="Change the API")], "mode": mode}
-                self.assertEqual(_route_start(state), "context_injector")
+                self.assertEqual(_route_start(state), "planner")
 
 
 class LongTermMemoryTests(unittest.TestCase):

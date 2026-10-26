@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Bot, ChevronRight, Menu, Settings, UserCircle } from "lucide-react";
+import { Compass, ChevronRight, Menu, Settings, UserCircle } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import type { AuthUser } from "@/types/auth";
@@ -47,7 +47,7 @@ export default function TopBar({
         </button>
 
         <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
-          <Bot className="h-4 w-4 text-primary opacity-80" />
+          <Compass className="h-4 w-4 text-sky-400" />
           <span className="truncate">{title}</span>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-50" />
           <span className="hidden truncate text-muted-foreground opacity-50 sm:inline">Workspace</span>

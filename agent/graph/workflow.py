@@ -23,25 +23,15 @@ from agent.graph.nodes import (
     planner_node,
     plan_approval_node,
     call_model,
-    loop_recovery_node,
     check_safety_node,
     direct_chat_node,
-    evaluator_node,
-    clarifier_node,
-    context_injector_node,
-    linter_node,
-    goal_limit_node,
-    loop_limit_node,
     summary_node,
-    verification_hooks_node,
-    verification_hooks_finalize_node,
     coordinator_node,
-    synthesis_node,
 )
 
 # Tools are now managed in agent.graph.tools_registry
 
-# â”€â”€â”€ Load Skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Load Skills ───────────────────────────────────────────────────────────────
 
 from agent.skills import skill_registry, SubAgentFactory, SkillManagerAgent
 
@@ -53,25 +43,13 @@ _skill_factory = SubAgentFactory(ALL_TOOLS)
 _skill_manager = SkillManagerAgent(_skill_factory, skill_registry)
 
 
-# â”€â”€â”€ Threshold for context compaction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Threshold for context compaction ───────────────────────────────────────────
 _SUMMARIZE_AFTER = 10  # number of messages before triggering compaction
 
 
 def _normalise_mode(state: AgentState) -> str:
     mode = state.get("mode", "edit")
     return {"normal": "edit", "fast": "ask"}.get(mode, mode)
-
-
-def _turn_modified_files(state: AgentState) -> bool:
-    for message in reversed(state.get("messages", [])):
-        if getattr(message, "type", "") == "human":
-            return False
-        if (
-            getattr(message, "type", "") == "tool"
-            and getattr(message, "name", "") in ("write_to_file", "edit_file")
-        ):
-            return True
-    return False
 
 
 def _executor_scope_expanded(state: AgentState) -> bool:
@@ -103,20 +81,6 @@ async def _route_after_linter(state: AgentState) -> str:
     return "evaluator"
 
 
-async def _route_after_evaluator(state: AgentState) -> str:
-    """Route after evaluator node."""
-    if needs_compaction(state):
-        return "summary_node"
-    if not state.get("is_done", True):
-        return "executor"
-    if not state.get("verification_hooks_scheduled"):
-        from agent.hooks import changed_files_from_messages
-
-        if changed_files_from_messages(state.get("messages", [])):
-            return "verification_hooks"
-    return END
-
-
 async def _route_after_summary(state: AgentState) -> str:
     """Continue unfinished work after compaction; otherwise finish the turn."""
 
@@ -126,30 +90,8 @@ async def _route_after_summary(state: AgentState) -> str:
 async def _route_after_safety(state: AgentState) -> str:
     """Route after check_safety node. Denied and skipped go back to executor."""
     if state.get("approval_status") in ("denied", "skipped"):
-        messages = state.get("messages", [])
-        if messages and str(getattr(messages[-1], "tool_call_id", "")).startswith("hook-"):
-            return "verification_hooks_finalize"
         return "executor"
     return "tools"
-
-
-async def _route_after_verification_hooks(state: AgentState) -> str:
-    return "check_safety" if state.get("pending_tool_calls") else END
-
-
-async def _route_after_tools(state: AgentState) -> str:
-    messages = state.get("messages", [])
-    trailing = []
-    for message in reversed(messages):
-        if getattr(message, "type", "") != "tool":
-            break
-        trailing.append(message)
-    if trailing and all(
-        str(getattr(message, "tool_call_id", "")).startswith("hook-")
-        for message in trailing
-    ):
-        return "verification_hooks_finalize"
-    return "executor"
 
 
 async def _route_after_planner(state: AgentState) -> str:
@@ -225,66 +167,47 @@ def _route_start(state: AgentState) -> str:
 
 
 
-# â”€â”€â”€ Build the graph â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Build the graph ────────────────────────────────────────────────────────────
 builder = StateGraph(AgentState)  # type: ignore
 
-builder.add_node("context_injector", context_injector_node)
 builder.add_node("planner", planner_node)
 builder.add_node("plan_approval", plan_approval_node)
-builder.add_node("clarifier", clarifier_node)
 builder.add_node("skill_manager", _skill_manager)
+builder.add_node("coordinator", coordinator_node)
 builder.add_node("executor", call_model)
 builder.add_node("direct_chat", direct_chat_node)
 builder.add_node("check_safety", check_safety_node)
 builder.add_node("tools", CompassToolNode(TOOL_REGISTRY))
-builder.add_node("loop_recovery", loop_recovery_node)
-builder.add_node("goal_limit", goal_limit_node)
-builder.add_node("loop_limit", loop_limit_node)
-builder.add_node("evaluator", evaluator_node)
-builder.add_node("linter_node", linter_node)
 builder.add_node("summary_node", summary_node)
-builder.add_node("verification_hooks", verification_hooks_node)
-builder.add_node("verification_hooks_finalize", verification_hooks_finalize_node)
-builder.add_node("coordinator", coordinator_node)
-builder.add_node("synthesis", synthesis_node)
 
 builder.add_conditional_edges(START, _route_start)
 builder.add_conditional_edges("planner", _route_after_planner)
 builder.add_conditional_edges("plan_approval", _route_after_plan_approval)
 builder.add_conditional_edges("skill_manager", _route_after_skill_manager)
+builder.add_edge("coordinator", "executor")
 builder.add_conditional_edges(
     "executor",
     route_after_executor,
     {
         "check_safety": "check_safety",
-        "goal_limit": "goal_limit",
-        "loop_recovery": "loop_recovery",
-        "loop_limit": "loop_limit",
-        "context_injector": "context_injector",
-        "linter_node": "linter_node",
+        "goal_limit": END,
+        "loop_recovery": "executor",
+        "loop_limit": END,
+        "context_injector": "planner",
+        "planner": "planner",
+        "linter_node": END,
         "summary_node": "summary_node",
-        "verification_hooks": "verification_hooks",
+        "verification_hooks": END,
         "executor": "executor",
         "end": END,
     },
 )
 builder.add_conditional_edges("check_safety", _route_after_safety)
-builder.add_conditional_edges("tools", _route_after_tools)
-builder.add_conditional_edges("verification_hooks", _route_after_verification_hooks)
-builder.add_edge("verification_hooks_finalize", END)
-builder.add_conditional_edges("linter_node", _route_after_linter)
-builder.add_edge("clarifier", "executor")
-builder.add_edge("context_injector", "planner")
-builder.add_edge("loop_recovery", "executor")
-builder.add_edge("goal_limit", END)
-builder.add_edge("loop_limit", END)
-builder.add_conditional_edges("evaluator", _route_after_evaluator)
+builder.add_edge("tools", "executor")
 builder.add_conditional_edges("summary_node", _route_after_summary)
 builder.add_edge("direct_chat", END)
-builder.add_edge("coordinator", "synthesis")
-builder.add_edge("synthesis", "executor")
 
-# â”€â”€â”€ Async Workflow Factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── Async Workflow Factory ────────────────────────────────────────────────────
 # AsyncPostgresSaver requires async initialization, so we expose an async factory
 # function instead of a module-level `workflow` object.
 

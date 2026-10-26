@@ -141,7 +141,7 @@ def route_report(state: dict[str, Any]) -> dict[str, Any]:
         return {"route": "skill", "entry_node": "skill_manager", "path": ["skill_manager"], "reason": "an active skill was selected"}
     mode = {"normal": "edit", "fast": "ask"}.get(str(state.get("mode", "edit")), str(state.get("mode", "edit")))
     if mode in {"plan", "goal"}:
-        return {"route": "context-planner", "entry_node": "context_injector", "path": ["context_injector", "planner", "executor"], "reason": f"{mode} mode requires an explicit plan"}
+        return {"route": "context-planner", "entry_node": "planner", "path": ["planner", "executor"], "reason": f"{mode} mode requires an explicit plan"}
     messages = state.get("messages") or []
     if not messages:
         return {"route": "executor", "entry_node": "executor", "path": ["executor"], "reason": "no user message was available"}
@@ -149,7 +149,7 @@ def route_report(state: dict[str, Any]) -> dict[str, Any]:
     if len(text) < 50 and any(text.strip().startswith(prefix) for prefix in _CHAT_PREFIXES):
         return {"route": "direct-chat", "entry_node": "direct_chat", "path": ["direct_chat"], "reason": "short conversational request"}
     if mode == "edit" and _needs_planning(text):
-        return {"route": "context-planner", "entry_node": "context_injector", "path": ["context_injector", "planner", "executor"], "reason": "cross-cutting edit benefits from planning"}
+        return {"route": "context-planner", "entry_node": "planner", "path": ["planner", "executor"], "reason": "cross-cutting edit benefits from planning"}
     return {"route": "executor", "entry_node": "executor", "path": ["executor"], "reason": "request can enter the executor directly"}
 
 

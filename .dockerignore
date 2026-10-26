@@ -11,8 +11,6 @@ __pycache__
 backend/.env
 frontend/node_modules
 frontend/dist
-vscode-extension/node_modules
-vscode-extension/out
 artifacts
 *.docx
 *.db

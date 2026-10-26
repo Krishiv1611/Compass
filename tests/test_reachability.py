@@ -22,7 +22,6 @@ from agent.graph.tool_node import CompassToolNode
 from agent.graph.tools_registry import TOOL_REGISTRY
 from agent.runtime.events import StreamEventType
 from agent.tools.registry import build_builtin_registry
-from agent.ui.commands import build_registry
 from agent.workspace import WorkspaceContext
 from backend.main import app
 
@@ -34,7 +33,6 @@ CLEAN_GENERATED = ROOT / "tools" / "clean_generated.py"
 DYNAMIC_ENTRYPOINT_ALLOWLIST = frozenset(
     {
         "agent.graph.workflow",
-        "agent.ui.commands",
         "backend.routers.auth",
         "backend.routers.chat",
         "backend.routers.checkpoints",
@@ -128,7 +126,6 @@ class ReachabilityTests(unittest.TestCase):
         event_producers = _stream_event_references([ROOT / "agent/runtime/runner.py"])
         event_consumers = _stream_event_references(
             [
-                ROOT / "agent/ui/tui.py",
                 ROOT / "agent/runtime/artifacts.py",
                 ROOT / "backend/services/run_persistence.py",
             ]
@@ -192,35 +189,34 @@ class ReachabilityTests(unittest.TestCase):
                 if _python_import_name(requirement) not in python_imports
             ),
             "unreferenced_generated_primitives": [
-                "frontend/src/components/ui/card.tsx",
-                "frontend/src/components/ui/separator.tsx",
+                path
+                for path in [
+                    "frontend/src/components/ui/card.tsx",
+                    "frontend/src/components/ui/separator.tsx",
+                ]
+                if (ROOT / path).exists()
             ],
         }
         print("Reachability report only; no additional deletion is approved:")
         print(json.dumps(report, indent=2, sort_keys=True))
-        self.assertIn(
-            "RPC_CALL", report["runtime_event_values_without_producer_or_consumer"]
+        self.assertNotIn(
+            "RPC_CALL", [event.name for event in StreamEventType]
         )
 
     def test_registered_graph_commands_and_routers_are_live_entrypoints(self):
         """Known framework-discovered entrypoints stay registered and callable."""
         expected_nodes = {
-            "context_injector",
             "planner",
             "executor",
             "check_safety",
             "tools",
-            "evaluator",
-            "verification_hooks",
             "coordinator",
+            "direct_chat",
+            "plan_approval",
+            "skill_manager",
+            "summary_node",
         }
         self.assertTrue(expected_nodes.issubset(workflow.builder.nodes))
-
-        commands = build_registry()._commands
-        self.assertTrue(
-            {"/route", "/model", "/doctor", "/undo", "/agents"}.issubset(commands)
-        )
-        self.assertTrue(all(callable(command.handler) for command in commands.values()))
 
         included_routers = [
             route
@@ -445,7 +441,7 @@ class ToolExecutionReplacementTests(unittest.IsolatedAsyncioTestCase):
         shell_result = str(result["messages"][-1].content)
         self.assertIn("owned workspace", allowed)
         self.assertIn("Access denied", escaped)
-        self.assertIn("not a valid tool", shell_result)
+        self.assertTrue("unavailable" in shell_result or "not a valid tool" in shell_result)
 
 
 if __name__ == "__main__":

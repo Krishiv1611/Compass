@@ -1,5 +1,5 @@
-﻿"""
-Auth router â€” registration, login, token refresh, profile, OAuth.
+"""
+Auth router — registration, login, token refresh, profile, OAuth.
 """
 
 from urllib.parse import urlencode
@@ -175,7 +175,7 @@ def logout(
     response.delete_cookie("compass_refresh", path="/api/auth")
 
 
-# â”€â”€ OAuth Endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── OAuth Endpoints ──────────────────────────────────────────────────────────────
 
 
 @router.get("/oauth/google/url")

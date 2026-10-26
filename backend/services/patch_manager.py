@@ -247,42 +247,6 @@ def _assert_change_matches(
         )
 
 
-def _write_change(workspace_dir: Path, change: dict, *, use_before: bool = False) -> None:
-    target = _target_for_change(workspace_dir, change.get("path", ""))
-    change_type = change.get("type")
-    if use_before:
-        before_exists = bool(change.get("before_exists", change_type != "create"))
-        if not before_exists:
-            if target.is_file():
-                target.unlink()
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(change.get("before", ""), encoding="utf-8")
-        return
-
-    after_exists = bool(change.get("after_exists", change_type != "delete"))
-    content = change.get("after")
-    if content is None:
-        content = change.get("content", "")
-    if after_exists:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-    elif target.is_file():
-        target.unlink()
-
-
-def _update_patch_status(patch: WorkspacePatch) -> None:
-    statuses = [change.get("status", "pending") for change in patch.changes]
-    if any(value == "pending" for value in statuses):
-        patch.status = "pending"
-    elif any(value == "applied" for value in statuses):
-        patch.status = "applied"
-    elif any(value == "reverted" for value in statuses):
-        patch.status = "reverted"
-    else:
-        patch.status = "rejected"
-
-
 def create_patch(db: Session, workspace_id: str, run_id: str | None, changes: list) -> WorkspacePatch:
     """Create a new WorkspacePatch with proposed changes.
 

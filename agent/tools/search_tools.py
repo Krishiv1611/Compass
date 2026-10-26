@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import re
 from langchain_core.tools import tool
 from agent.config import settings
@@ -46,7 +47,11 @@ def grep_search(
             with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                 for line_num, line in enumerate(f, 1):
                     if pattern.search(line):
-                        matches.append(f"{filepath}:{line_num}: {line.rstrip()}")
+                        try:
+                            rel_path = Path(filepath).resolve().relative_to(Path(workspace.root).resolve()).as_posix()
+                        except Exception:
+                            rel_path = filepath.replace("\\", "/")
+                        matches.append(f"{rel_path}:{line_num}: {line.rstrip()}")
                         if len(matches) >= max_results:
                             return True
         except (PermissionError, OSError):

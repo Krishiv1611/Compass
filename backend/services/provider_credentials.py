@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 from backend.auth.credentials import decrypt_credential, encrypt_credential
 
-VALID_PROVIDERS = frozenset({"openrouter", "openai", "anthropic", "google"})
-EMBEDDING_PROVIDERS = frozenset({"openrouter", "openai", "google"})
+VALID_PROVIDERS = frozenset({"openrouter", "openai", "anthropic", "google", "litellm"})
+EMBEDDING_PROVIDERS = frozenset({"openrouter", "openai", "google", "litellm"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +50,7 @@ def validate_provider_model(provider: str, model: str) -> tuple[str, str]:
         "openai": unqualified.startswith(("gpt-", "o1", "o3", "o4")),
         "anthropic": unqualified.startswith("claude-"),
         "google": unqualified.startswith(("gemini-", "gemma-")),
+        "litellm": True,
     }[normalized]
     if not valid:
         raise ValueError(

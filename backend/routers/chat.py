@@ -1,7 +1,8 @@
-﻿"""
+"""
 Chat router -- non-streaming POST endpoint + WebSocket streaming.
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -251,7 +252,7 @@ async def _stream_agent_turn(
             event.session_id = snapshot.session_id
             batch = batcher.add(event)
             if batch:
-                _persist_run_event_batch(run_id, batch)
+                await asyncio.to_thread(_persist_run_event_batch, run_id, batch)
             if event.type in {
                 StreamEventType.RUN_WAITING,
                 StreamEventType.DONE,
@@ -260,9 +261,9 @@ async def _stream_agent_turn(
                 terminal_events.append(event)
             yield event
 
-        _persist_run_event_batch(run_id, batcher.flush())
+        await asyncio.to_thread(_persist_run_event_batch, run_id, batcher.flush())
         terminal = terminal_from_events(terminal_events)
-        _end_run_record(run_id, terminal.status, terminal.token_usage)
+        await asyncio.to_thread(_end_run_record, run_id, terminal.status, terminal.token_usage)
         final_metrics = metrics.snapshot().model_dump(mode="json")
         # Persist one final snapshot after the terminal batch and run row are measured.
         # Do not time this diagnostic write into itself.
@@ -273,7 +274,7 @@ async def _stream_agent_turn(
                 [("usage", StreamEvent(type=StreamEventType.USAGE, data=final_metrics).model_dump(mode="json", exclude_none=True))],
             )
     except Exception:
-        _end_run_record(run_id, "failed")
+        await asyncio.to_thread(_end_run_record, run_id, "failed")
         raise
     finally:
         end_run_metrics(metrics_token)
@@ -491,38 +492,22 @@ async def websocket_chat(
         )
         if not connected:
             return
-        while True:
-            # Wait for client message
-            raw = await websocket.receive_json()
+        stream_task: asyncio.Task | None = None
 
-            # Handle pong (heartbeat response)
-            if raw.get("type") == "pong":
-                continue
+        async def _run_stream(msg: WsClientMessage) -> None:
+            nonlocal current_run_id
+            if msg.type == "message" and msg.content:
+                with SessionLocal() as db:
+                    _persist_message(
+                        db, session_id, role="user", content=msg.content
+                    )
 
-            if not await ws_limits.validate_message(websocket, raw.get("content")):
-                return
-
-            client_msg = WsClientMessage(**raw)
-
-            if client_msg.type == "tool_result" and client_msg.call_id:
-                # Handle RPC response from EDGE client
-                manager.resolve_call(
-                    client_msg.call_id, client_msg.result, client_msg.error
-                )
-                continue
-
-            if client_msg.type in ("message", "resume"):
-                if client_msg.type == "message" and client_msg.content:
-                    with SessionLocal() as db:
-                        _persist_message(
-                            db, session_id, role="user", content=client_msg.content
-                        )
-
-                if client_msg.type == "resume" and not client_msg.run_id:
-                    client_msg.run_id = current_run_id
-                snapshot = load_run_context(session_id, user_id)
-                assistant_text: str | None = None
-                async for event in _stream_agent_turn(snapshot, client_msg):
+            if msg.type == "resume" and not msg.run_id:
+                msg.run_id = current_run_id
+            snapshot = load_run_context(session_id, user_id)
+            assistant_text: str | None = None
+            try:
+                async for event in _stream_agent_turn(snapshot, msg):
                     if event.run_id:
                         current_run_id = event.run_id
                     await manager.send_event(websocket, event)
@@ -537,9 +522,50 @@ async def websocket_chat(
                 if assistant_text:
                     _persist_assistant_turn(
                         snapshot,
-                        client_msg.content,
+                        msg.content,
                         assistant_text,
                     )
+            except asyncio.CancelledError:
+                if current_run_id:
+                    cancel_agent_run(current_run_id)
+                raise
+            except Exception as stream_err:
+                logger.exception("Error in agent stream task")
+                await manager.send_event(
+                    websocket,
+                    StreamEvent(type=StreamEventType.ERROR, content=str(stream_err)[:500]),
+                )
+
+        while True:
+            # Wait for client message
+            raw = await websocket.receive_json()
+
+            # Handle pong (heartbeat response)
+            if raw.get("type") == "pong":
+                continue
+
+            # Handle in-band cancel
+            if raw.get("type") == "cancel":
+                target_run = raw.get("run_id") or current_run_id
+                if target_run:
+                    cancel_agent_run(target_run)
+                if stream_task and not stream_task.done():
+                    stream_task.cancel()
+                continue
+
+            if not await ws_limits.validate_message(websocket, raw.get("content")):
+                return
+
+            client_msg = WsClientMessage(**raw)
+
+            if client_msg.type in ("message", "resume"):
+                if stream_task and not stream_task.done():
+                    stream_task.cancel()
+                    try:
+                        await stream_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                stream_task = asyncio.create_task(_run_stream(client_msg))
 
     except WebSocketDisconnect:
         pass

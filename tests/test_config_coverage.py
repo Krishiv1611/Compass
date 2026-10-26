@@ -22,7 +22,7 @@ import agent.config as config
 
 # Keep this table as the single inventory of documented public local settings.
 PUBLIC_SETTINGS = {
-    "theme": "agent.ui.tui.theme_for_preference",
+    "theme": "agent.ui.theme.theme_for_preference",
     "tools.max_results": "agent.tools.search_tools.grep_search",
     "tools.shell_timeout": "agent.tools.shell_tool.shell_execute",
     "context.summarize_after": "agent.graph.routing.needs_compaction",
@@ -58,7 +58,7 @@ class ConfigCoverageTests(unittest.TestCase):
                 self.assertEqual(config.settings.get(key), report[key]["value"])
 
     def test_theme_preference_changes_console_theme(self):
-        from agent.ui import tui
+        from agent.ui import theme as tui
 
         with configured(theme="default"):
             default_theme = tui.theme_for_preference()
@@ -215,18 +215,6 @@ class ConfigAsyncCoverageTests(unittest.IsolatedAsyncioTestCase):
             await Coordinator(Worker()).run(execution_plan, {}, __import__("asyncio").Event())
         self.assertEqual(maximum, 1)
 
-    async def test_schedule_and_grill_commands_return_truthful_statuses(self):
-        from agent.ui.commands import build_registry
-        from agent.ui.commands.models import CommandContext
-
-        context = CommandContext(None, None, {}, None, None, {})
-        schedule = await build_registry().execute("/schedule nightly", context)
-        grill = await build_registry().execute("/grill-me", context)
-        self.assertEqual(schedule.status, "unavailable")
-        self.assertEqual(schedule.state_updates, {})
-        self.assertEqual(grill.status, "performed")
-        self.assertEqual(grill.state_updates, {"mode": "plan"})
-        self.assertIn("Plan mode", grill.message)
 
 
 if __name__ == "__main__":

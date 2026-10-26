@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, FilePenLine, Folder, HelpCircle, ListTree, Loader2, Paperclip, Send, Target, X } from "lucide-react";
+import { File as FileIcon, FilePenLine, Folder, HelpCircle, ListTree, Loader2, MousePointerClick, Paperclip, Send, Target, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { workspaceApi } from "@/api";
 import type { ChatMode } from "@/types/chat";
@@ -60,10 +60,17 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
 
   const handleSend = async () => {
     if (isLoading || submitting) return;
-    if (input.trim() || attachedFiles.length > 0 || referencedPaths.length > 0) {
+    if (input.trim() || attachedFiles.length > 0 || referencedPaths.length > 0 || state.inspectedElement) {
       setSubmitting(true);
       try {
-        await onSend(input.trim(), attachedFiles, mode, referencedPaths.map((item) => item.path));
+        let messageText = input.trim();
+        if (state.inspectedElement) {
+          const el = state.inspectedElement;
+          const contextBanner = `[Inspecting Element: <${el.tag}${el.id ? ` id="${el.id}"` : ""}${el.classes ? ` class="${el.classes}"` : ""}> selector="${el.selector}"${el.text ? ` text="${el.text}"` : ""}]\n`;
+          messageText = contextBanner + messageText;
+          dispatch({ type: "setInspectedElement", element: null });
+        }
+        await onSend(messageText, attachedFiles, mode, referencedPaths.map((item) => item.path));
         setInput("");
         setAttachedFiles([]);
         setReferencedPaths([]);
@@ -194,14 +201,44 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
             ? "border-accent ring-1 ring-accent"
             : isDragging
               ? "border-accent ring-1 ring-accent"
-              : "focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/50"
+              : state.inspectedElement
+                ? "border-sky-500 ring-1 ring-sky-500/60 shadow-[0_0_12px_rgba(56,189,248,0.18)]"
+                : "focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/50"
         } ${isLoading ? "opacity-80" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {(attachedFiles.length > 0 || referencedPaths.length > 0) && (
+        {(attachedFiles.length > 0 || referencedPaths.length > 0 || state.inspectedElement) && (
           <div className="flex flex-wrap gap-2 border-b border-border bg-background/60 p-2">
+            {state.inspectedElement && (
+              <div
+                className="flex h-7 max-w-full items-center gap-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 px-2 text-xs font-mono text-blue-400"
+                title={`Selector: ${state.inspectedElement.selector}`}
+              >
+                <MousePointerClick className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                <span className="font-semibold text-blue-300">
+                  &lt;{state.inspectedElement.tag}
+                  {state.inspectedElement.classes
+                    ? `.${state.inspectedElement.classes.split(" ")[0]}`
+                    : ""}
+                  &gt;
+                </span>
+                {state.inspectedElement.text && (
+                  <span className="max-w-[140px] truncate text-muted-foreground font-sans text-[11px]">
+                    "{state.inspectedElement.text}"
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label="Remove inspected element context"
+                  className="text-blue-400/70 hover:text-blue-300 ml-0.5"
+                  onClick={() => dispatch({ type: "setInspectedElement", element: null })}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             {referencedPaths.map((ref, index) => (
               <div key={`${ref.path}-${index}`} className="flex h-7 max-w-full items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 text-xs text-primary" title={ref.path}>
                 {ref.type === "folder" ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FileIcon className="h-3.5 w-3.5 shrink-0" />}
@@ -231,7 +268,15 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
             aria-autocomplete="list"
             aria-controls={mentionResults.length > 0 ? "project-file-mentions" : undefined}
             aria-activedescendant={mentionResults.length > 0 ? `project-file-mention-${activeMentionIndex}` : undefined}
-            placeholder={isDraggingPath ? "Drop to reference path" : isDragging ? "Drop files here" : "Describe the task or ask about this project"}
+            placeholder={
+              state.inspectedElement
+                ? `Describe what you want to change on this <${state.inspectedElement.tag}> element…`
+                : isDraggingPath
+                ? "Drop to reference path"
+                : isDragging
+                ? "Drop files here"
+                : "Describe the task or ask about this project"
+            }
             className="max-h-44 min-h-20 w-full resize-none bg-transparent text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
             disabled={isLoading}
           />
@@ -305,7 +350,7 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
               </button>
             </div>
 
-            <div role="radiogroup" aria-label="Conversation mode" className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-background p-0.5">
+            <div role="radiogroup" aria-label="Conversation mode" className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-background/80 p-0.5 shadow-sm">
               <button
                 ref={(element) => { if (element) modeButtonRefs.current.set("ask", element); else modeButtonRefs.current.delete("ask"); }}
                 type="button"
@@ -315,9 +360,9 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("ask")}
                 onKeyDown={(event) => handleModeKeyDown(event, "ask")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
                   mode === "ask"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-sky-500/20 text-sky-400 border border-sky-500/30 shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
                 title="Ask uses read-only project tools"
@@ -333,9 +378,9 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("edit")}
                 onKeyDown={(event) => handleModeKeyDown(event, "edit")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
                   mode === "edit"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
                 title="Edit works directly with project tools"
@@ -351,9 +396,9 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("plan")}
                 onKeyDown={(event) => handleModeKeyDown(event, "plan")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
                   mode === "plan"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
                 title="Plan requires approval before editing"
@@ -369,9 +414,9 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("goal")}
                 onKeyDown={(event) => handleModeKeyDown(event, "goal")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 ${
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
                   mode === "goal"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
                 title="Goal works autonomously; risky actions still require approval"
@@ -381,7 +426,7 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
             </div>
           </div>
 
-          <Button size="icon" className="h-9 w-9" onClick={() => void handleSend()} disabled={(!input.trim() && attachedFiles.length === 0 && referencedPaths.length === 0) || isLoading || submitting} title="Send message" aria-label="Send message">
+          <Button size="icon" className="h-9 w-9" onClick={() => void handleSend()} disabled={(!input.trim() && attachedFiles.length === 0 && referencedPaths.length === 0 && !state.inspectedElement) || isLoading || submitting} title="Send message" aria-label="Send message">
             {isLoading || submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>

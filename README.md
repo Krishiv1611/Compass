@@ -101,7 +101,6 @@ Copy [.env.example](.env.example) and review every value. Backend settings are r
 | `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY` | Model-provider credentials consumed by the local/runtime provider adapter. |
 | `TAVILY_API_KEY` | Optional Tavily web search; the tool falls back when it is absent. |
 | `COMPASS_REDIS_URL` | Optional LLM response cache. |
-| `COMPASS_WEB_URL` | Optional URL used by the TUI `/ui` command. |
 | `VITE_API_URL` | Public frontend API base; defaults to `/api`. Never place secrets in Vite variables. |
 
 Local agent preferences merge built-in defaults, `~/.compass/config.toml`, project `.compass/config.toml`, then derived `COMPASS_*` environment overrides. Retained public keys have runtime consumers for theme, tool result limit, shell timeout, compaction threshold, loop limit, RAG auto-index/chunk size, HITL policy, blocked commands, and orchestration controls.

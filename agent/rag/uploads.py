@@ -171,8 +171,3 @@ def delete_uploaded_file(path: str | None) -> None:
         pass
 
 
-def delete_session_upload_dir(user_id: str, session_id: str) -> None:
-    """Best-effort deletion of all raw uploads for a session."""
-    target = UPLOAD_ROOT / user_id / session_id
-    if target.exists():
-        shutil.rmtree(target, ignore_errors=True)

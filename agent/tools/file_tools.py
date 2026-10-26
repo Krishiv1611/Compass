@@ -4,8 +4,28 @@ Compass File Tools — Read, write, and edit files.
 Includes change tracking hooks so the TUI can display diffs and support undo.
 """
 
+import ast
 import os
+from pathlib import Path
 from langchain_core.tools import tool
+
+
+def _format_relative_path(workspace, path: str | Path) -> str:
+    try:
+        return Path(path).resolve().relative_to(Path(workspace.root).resolve()).as_posix()
+    except Exception:
+        return str(path).replace("\\", "/")
+
+
+def _check_python_syntax(path: str, content: str) -> str:
+    if str(path).lower().endswith(".py"):
+        try:
+            ast.parse(content.encode("utf-8-sig").decode("utf-8-sig"), filename=str(path))
+        except SyntaxError as e:
+            return f"\nWarning: Python SyntaxError at line {e.lineno}: {e.msg}"
+        except Exception:
+            pass
+    return ""
 
 
 # ─── Global Change Tracker Hook ────────────────────────────────────────────────
@@ -99,12 +119,14 @@ def read_file(path: str, offset: int = 1, limit: int | None = None, config: Runn
     end_idx = len(lines) if limit is None else min(len(lines), start_idx + limit)
     if start_idx >= len(lines) and len(lines) > 0:
         return f"Error: Offset {offset} is beyond file length {len(lines)}"
+    rel_display = _format_relative_path(workspace, path)
     result_lines = [
-        f"Showing lines {start_idx + 1} to {end_idx} of {len(lines)} in {path}:\n"
+        f"Showing lines {start_idx + 1} to {end_idx} of {len(lines)} in {rel_display}:\n"
     ]
     for i in range(start_idx, end_idx):
         line_num = i + 1
-        result_lines.append(f"{line_num:4d}| {lines[i].strip('\\n')}")
+        line_text = lines[i].rstrip("\r\n")
+        result_lines.append(f"{line_num:4d}| {line_text}")
     return "\n".join(result_lines)
 
 
@@ -140,8 +162,9 @@ def write_to_file(path: str, content: str, config: RunnableConfig = None):
                 "content": content
             }
         )
+        rel_display = _format_relative_path(workspace, path)
         return (
-            f"Proposed write to {path} (pending review in Safe Mode, "
+            f"Proposed write to {rel_display} (pending review in Safe Mode, "
             f"patch {patch.id})"
         )
 
@@ -163,7 +186,9 @@ def write_to_file(path: str, content: str, config: RunnableConfig = None):
     if _change_tracker is not None and old_content is not None:
         _change_tracker.record_change(path, old_content, content, "write_to_file")
 
-    return f"Successfully wrote {len(content)} characters to {path}"
+    rel_display = _format_relative_path(workspace, path)
+    syntax_warning = _check_python_syntax(path, content)
+    return f"Successfully wrote {len(content)} characters to {rel_display}{syntax_warning}"
 
 
 @tool
@@ -235,8 +260,9 @@ def edit_file(path: str, old_content: str, new_content: str, config: RunnableCon
                 "content": updated_content
             }
         )
+        rel_display = _format_relative_path(workspace, path)
         return (
-            f"Proposed edit to {path} (pending review in Safe Mode, "
+            f"Proposed edit to {rel_display} (pending review in Safe Mode, "
             f"patch {patch.id})"
         )
 
@@ -252,7 +278,9 @@ def edit_file(path: str, old_content: str, new_content: str, config: RunnableCon
 
     old_lines = old_content.count("\n") + 1
     new_lines = new_content.count("\n") + 1
+    rel_display = _format_relative_path(workspace, path)
+    syntax_warning = _check_python_syntax(path, updated_content)
     return (
-        f"Successfully edited {path}: "
-        f"replaced {old_lines} lines with {new_lines} lines."
+        f"Successfully edited {rel_display}: "
+        f"replaced {old_lines} lines with {new_lines} lines.{syntax_warning}"
     )

@@ -132,6 +132,13 @@ def llm(role: str = "executor", api_key: str | None = None, provider: str | None
             model=model_name.removeprefix("google/"),
         )
         
+    elif provider in {"litellm", "fast", "fast_router"}:
+        from agent.llm_router import LiteLLMChatModel
+        return LiteLLMChatModel(
+            model=model_name or "gemini/gemini-2.0-flash",
+            api_key=api_key,
+        )
+
     if provider == "openrouter":
         if not api_key:
             api_key = os.environ.get("OPENROUTER_API_KEY")

@@ -28,25 +28,9 @@ class ConnectionManager:
         # session_id -> set of WebSocket connections
         self._connections: dict[str, set[WebSocket]] = defaultdict(set)
         self._heartbeat_tasks: dict[WebSocket, asyncio.Task] = {}
-        # call_id -> asyncio.Future for bidirectional RPC
-        self.pending_calls: dict[str, asyncio.Future] = {}
         # Track last run_id and message_id per connection
         self._connection_states: dict[WebSocket, dict] = defaultdict(dict)
         self._connection_users: dict[WebSocket, str] = {}
-
-    def resolve_call(
-        self,
-        call_id: str,
-        result: Any,
-        error: str | None = None,
-    ) -> None:
-        """Resolve a pending RPC call from the client."""
-        future = self.pending_calls.pop(call_id, None)
-        if future and not future.done():
-            if error:
-                future.set_exception(Exception(error))
-            else:
-                future.set_result(result)
 
     async def connect(
         self,

@@ -111,11 +111,30 @@
   }
 }
 
-.glass-header { background: var(--surface); border-bottom: 1px solid var(--border); }
+.glass-header {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.glass-card {
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.pulse-glow {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--primary) 35%, transparent);
+}
 
 button, a, [role="button"] {
-  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease,
-    border-color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+  transition: color var(--motion-fast) cubic-bezier(0.16, 1, 0.3, 1),
+    background-color var(--motion-fast) cubic-bezier(0.16, 1, 0.3, 1),
+    border-color var(--motion-fast) cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow var(--motion-fast) cubic-bezier(0.16, 1, 0.3, 1),
+    opacity var(--motion-fast) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .Toastify__toast {

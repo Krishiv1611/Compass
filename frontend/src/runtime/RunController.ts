@@ -51,18 +51,22 @@ export class RunController {
   start(input: StartRunInput): RunHandle {
     const generation = ++this.generation;
     this.clearTokenBuffer();
-    this.active?.socket.close();
 
     const handle: RunHandle = {
       sessionId: input.sessionId,
       runId: crypto.randomUUID(),
       generation,
     };
-    const socket = this.options.createSocket(input.sessionId);
-    this.active = { handle, socket };
 
-    socket.onopen = () => {
-      if (!this.isCurrent(handle)) return;
+    const isSameSessionSocket =
+      this.active !== null &&
+      this.active.handle.sessionId === input.sessionId &&
+      this.active.socket.readyState === 1;
+
+    let socket: RunSocket;
+    if (isSameSessionSocket && this.active) {
+      socket = this.active.socket;
+      this.active = { handle, socket };
       socket.send(JSON.stringify({
         type: "message",
         run_id: handle.runId,
@@ -72,7 +76,25 @@ export class RunController {
         ...(input.activeSkill ? { active_skill: input.activeSkill } : {}),
       }));
       this.options.onOpen?.(handle);
-    };
+    } else {
+      this.active?.socket.close();
+      socket = this.options.createSocket(input.sessionId);
+      this.active = { handle, socket };
+
+      socket.onopen = () => {
+        if (!this.isCurrent(handle)) return;
+        socket.send(JSON.stringify({
+          type: "message",
+          run_id: handle.runId,
+          content: input.content,
+          mode: input.mode,
+          context_files: input.contextFiles,
+          ...(input.activeSkill ? { active_skill: input.activeSkill } : {}),
+        }));
+        this.options.onOpen?.(handle);
+      };
+    }
+
     socket.onmessage = event => {
       if (!this.isCurrent(handle)) return;
       let parsed: RunEvent;
@@ -88,7 +110,6 @@ export class RunController {
       const terminal = parsed.type === "done" || parsed.type === "error";
       if (terminal) this.flushText(handle);
       this.options.onEvent(parsed, handle);
-      if (terminal && this.isCurrent(handle)) socket.close();
     };
     socket.onerror = () => {
       if (this.isCurrent(handle)) this.options.onError?.(handle);

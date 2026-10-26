@@ -25,11 +25,8 @@ class ChatRequest(BaseModel):
 class WsClientMessage(BaseModel):
     """Message sent by the client over WebSocket."""
 
-    type: str = "message"  # "message" | "cancel" | "tool_result"
+    type: str = "message"  # "message" | "cancel" | "resume"
     content: str | None = Field(default=None, max_length=MAX_WS_CONTENT_BYTES)
-    call_id: str | None = None
-    result: Any | None = None
-    error: str | None = None
     mode: Literal["ask", "edit", "plan", "goal", "normal", "fast"] = "edit"
     context_files: list[str] = Field(default_factory=list)
     active_skill: str | None = None

@@ -22,8 +22,6 @@ README = ROOT / "README.md"
 DEPLOYMENT = ROOT / "DEPLOYMENT.md"
 ARCHITECTURE = ROOT / "docs" / "COMPASS_ARCHITECTURE.md"
 WORKFLOW = ROOT / "langgraph_workflow.md"
-ROADMAP = ROOT / "roadmap.md"
-REPORT = ROOT / "Compass_Product_and_Technical_Report.docx"
 
 
 def _section(text: str, heading: str) -> str:
@@ -122,13 +120,6 @@ def _documented_api_bases(text: str) -> set[str]:
     return {value.rstrip("/") for value in values}
 
 
-def _report_text() -> str:
-    with zipfile.ZipFile(REPORT) as archive:
-        document_xml = archive.read("word/document.xml")
-    root = ElementTree.fromstring(document_xml)
-    return "\n".join(text for text in root.itertext() if text.strip())
-
-
 class DocumentationTruthTests(unittest.TestCase):
     """Each test names a public claim that can drift from working code."""
 
@@ -138,21 +129,6 @@ class DocumentationTruthTests(unittest.TestCase):
             "DB_URI", "postgresql://compass:compass@127.0.0.1:5432/compass"
         )
 
-    def test_every_readme_slash_command_is_registered(self):
-        # Break caught: README advertises a command the TUI cannot dispatch.
-        from agent.ui.commands import build_registry
-        from agent.ui.tui import SLASH_COMMANDS
-
-        section = _section(README.read_text(encoding="utf-8"), "Terminal UI")
-        documented = set(re.findall(r"`(/[a-z][a-z-]*)`", section))
-        registry_commands = {
-            line.split(maxsplit=1)[0]
-            for line in build_registry().help_text().splitlines()
-        }
-        self.assertTrue(documented, "Terminal UI section must list its public commands")
-        self.assertEqual(
-            set(), documented - (set(SLASH_COMMANDS) | registry_commands)
-        )
 
     def test_documented_environment_keys_have_runtime_consumers(self):
         # Break caught: setup instructions expose a no-op or misspelled variable.
@@ -279,24 +255,6 @@ class DocumentationTruthTests(unittest.TestCase):
         self.assertNotIn("Vite development does not define a proxy", readme)
         self.assertIn("Vite development proxies `/api`", readme)
 
-    def test_schedule_claim_matches_handler_result_and_side_effects(self):
-        from agent.ui.commands.models import CommandContext
-        from agent.ui.commands.system import schedule
-
-        context = CommandContext(None, None, {}, None, None, {})
-        result = asyncio.run(schedule("tomorrow", context))
-        self.assertTrue(result.consumed)
-        self.assertEqual("unavailable", result.status)
-        self.assertEqual({}, result.state_updates)
-        self.assertIn("no task was created", result.message.casefold())
-        self.assertRegex(
-            README.read_text(encoding="utf-8").casefold(),
-            r"/schedule[^\n]*unavailable[^\n]*does not create",
-        )
-        self.assertIn(
-            "/schedule` reports unavailable and creates nothing",
-            ROADMAP.read_text(encoding="utf-8"),
-        )
 
     def test_refresh_claims_match_token_cookie_rotation_and_frontend_storage(self):
         from fastapi import Response
@@ -329,22 +287,6 @@ class DocumentationTruthTests(unittest.TestCase):
         for claim in ("rotating, single-use HttpOnly cookie", "Access tokens stay in browser memory"):
             self.assertIn(claim.casefold(), readme_deploy.casefold())
 
-    def test_report_artifact_contains_generator_claims_backed_by_code(self):
-        generator = ROOT / "tools" / "build_compass_report.py"
-        module = ast.parse(generator.read_text(encoding="utf-8"))
-        assignment = next(
-            node
-            for node in module.body
-            if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "REPORT_TRUTH_CLAIMS" for target in node.targets)
-        )
-        REPORT_TRUTH_CLAIMS = ast.literal_eval(assignment.value)
-
-        report = re.sub(r"\s+", " ", _report_text())
-        self.assertEqual({"workflow", "refresh"}, set(REPORT_TRUTH_CLAIMS))
-        for claim in REPORT_TRUTH_CLAIMS.values():
-            self.assertIn(re.sub(r"\s+", " ", claim), report)
-
     def test_docs_and_report_do_not_make_known_stale_claims(self):
         # Break caught: removed or unavailable technology is presented as shipped.
         corpus = "\n".join(
@@ -353,8 +295,6 @@ class DocumentationTruthTests(unittest.TestCase):
                 DEPLOYMENT.read_text(encoding="utf-8"),
                 ARCHITECTURE.read_text(encoding="utf-8"),
                 WORKFLOW.read_text(encoding="utf-8"),
-                ROADMAP.read_text(encoding="utf-8"),
-                _report_text(),
             )
         )
         lowered = corpus.casefold()

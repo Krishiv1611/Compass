@@ -127,25 +127,6 @@ class ChangeTracker:
                 result.append(change.path)
         return result
 
-    def get_original_content(self, path: str) -> str | None:
-        """Get the original content of a file before any modifications."""
-        abs_path = os.path.abspath(path)
-        return self._original_snapshots.get(abs_path)
-
-    def get_current_content(self, path: str) -> str | None:
-        """Read the current content of a file from disk."""
-        abs_path = os.path.abspath(path)
-        try:
-            with open(abs_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except (FileNotFoundError, UnicodeDecodeError, OSError):
-            return None
-
-    @property
-    def change_count(self) -> int:
-        """Number of active (non-undone) changes."""
-        return sum(1 for c in self._changes if not c.undone)
-
     @property
     def files_modified_count(self) -> int:
         """Number of unique files modified."""

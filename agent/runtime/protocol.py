@@ -17,6 +17,11 @@ class ResumeAction(str, Enum):
     ANSWER = "answer"
 
 
+TOOL_RESUME_ACTIONS = ("approve", "always", "skip", "deny")
+PLAN_RESUME_ACTIONS = ("execute_plan", "revise_plan", "cancel")
+CLARIFICATION_RESUME_ACTIONS = ("answer",)
+
+
 class InterruptKind(str, Enum):
     TOOL_APPROVAL = "tool_approval"
     PLAN_APPROVAL = "plan_approval"

@@ -47,10 +47,17 @@ dependencies = [
     "tomli",
     "tomli-w",
     "uvicorn[standard]",
+    "e2b-code-interpreter>=2.11.4",
+    "litellm>=1.106.2",
 ]
 
 [dependency-groups]
-dev = ["pyright", "ruff"]
+dev = [
+    "pyright",
+    "pytest",
+    "pytest-subtests",
+    "ruff",
+]
 
 [tool.pyright]
 venvPath = "."

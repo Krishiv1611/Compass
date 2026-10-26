@@ -95,7 +95,10 @@ def codebase_search(
             provider_config=configurable,
         )
         if vstore is None:
-            return "Error: RAG index is not available. Index the workspace or upload files first."
+            return (
+                "Semantic search (RAG) is unavailable (RAG index is not available or embeddings offline). "
+                "Fallback: Use 'grep_search' for keyword/regex pattern search or 'find_files' to locate files."
+            )
         scope_token = set_rag_scope(
             user_id=configurable.get("user_id"),
             session_id=configurable.get("session_id"),
@@ -121,9 +124,15 @@ def codebase_search(
         return "\n".join(formatted_results)
 
     except EmbeddingCapabilityError as exc:
-        return f"Error: {exc}"
+        return (
+            f"Semantic search (RAG) is unavailable ({exc}). "
+            "Fallback: Use 'grep_search' for keyword/regex pattern search or 'find_files' to locate files."
+        )
     except Exception as e:
-        return f"Error performing semantic search: {str(e)}"
+        return (
+            f"Semantic search (RAG) is unavailable (Error performing semantic search: {str(e)}). "
+            "Fallback: Use 'grep_search' for keyword/regex pattern search or 'find_files' to locate files."
+        )
     finally:
         if "scope_token" in locals():
             reset_rag_scope(scope_token)

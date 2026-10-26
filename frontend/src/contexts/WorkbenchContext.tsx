@@ -10,9 +10,18 @@ import {
 import type { ChatMode } from "@/types/chat";
 import { workspaceApi } from "@/api";
 
-export type CenterTab = "editor" | "preview" | "changes";
+export type CenterTab = "editor" | "preview" | "changes" | "checkpoints";
 export type MobileDestination = "agent" | "files" | "editor" | "changes" | "activity";
 export type WorkbenchFile = { path: string; name: string; type: "file" };
+export type ViewportMode = "desktop" | "tablet" | "mobile";
+
+export interface InspectedElement {
+  tag: string;
+  id?: string;
+  classes?: string;
+  text?: string;
+  selector: string;
+}
 
 export interface WorkbenchState {
   activeWorkspaceId: string | null;
@@ -30,10 +39,15 @@ export interface WorkbenchState {
   mode: ChatMode;
   refreshWorkspaceVersion: number;
   patchesVersion: number;
+  checkpointsVersion: number;
   sessionsVersion: number;
   settingsRequest: { version: number; section?: string };
   dirtyWorkspaceIds: string[];
   activeSkill: string | null;
+  inspectedElement: InspectedElement | null;
+  viewportMode: ViewportMode;
+  inspectActive: boolean;
+  proDrawerOpen: boolean;
 }
 
 export type WorkbenchAction =
@@ -50,17 +64,22 @@ export type WorkbenchAction =
   | { type: "setMode"; mode: ChatMode }
   | { type: "refreshWorkspace" }
   | { type: "patchesChanged" }
+  | { type: "checkpointsChanged" }
   | { type: "sessionsChanged" }
   | { type: "openSettings"; section?: string }
   | { type: "setWorkspaceDirty"; workspaceId: string; dirty: boolean }
-  | { type: "setActiveSkill"; skill: string | null };
+  | { type: "setActiveSkill"; skill: string | null }
+  | { type: "setInspectedElement"; element: InspectedElement | null }
+  | { type: "setViewportMode"; mode: ViewportMode }
+  | { type: "setInspectActive"; active: boolean }
+  | { type: "setProDrawer"; open: boolean };
 
 const initialState: WorkbenchState = {
   activeWorkspaceId: null,
   projectName: "No project open",
   activeFile: null,
   openFiles: [],
-  centerTab: "editor",
+  centerTab: "preview",
   mobileDestination: "agent",
   pendingPatchCount: 0,
   selectedContextFiles: [],
@@ -71,10 +90,15 @@ const initialState: WorkbenchState = {
   mode: "ask",
   refreshWorkspaceVersion: 0,
   patchesVersion: 0,
+  checkpointsVersion: 0,
   sessionsVersion: 0,
   settingsRequest: { version: 0 },
   dirtyWorkspaceIds: [],
   activeSkill: null,
+  inspectedElement: null,
+  viewportMode: "desktop",
+  inspectActive: false,
+  proDrawerOpen: false,
 };
 
 function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState {
@@ -108,6 +132,8 @@ function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState
     case "refreshWorkspace": return { ...state, refreshWorkspaceVersion: state.refreshWorkspaceVersion + 1 };
     case "patchesChanged":
       return { ...state, patchesVersion: state.patchesVersion + 1, refreshWorkspaceVersion: state.refreshWorkspaceVersion + 1 };
+    case "checkpointsChanged":
+      return { ...state, checkpointsVersion: state.checkpointsVersion + 1 };
     case "sessionsChanged": return { ...state, sessionsVersion: state.sessionsVersion + 1 };
     case "openSettings":
       return { ...state, settingsRequest: { version: state.settingsRequest.version + 1, section: action.section } };
@@ -119,6 +145,10 @@ function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState
           : state.dirtyWorkspaceIds.filter(id => id !== action.workspaceId),
       };
     case "setActiveSkill": return { ...state, activeSkill: action.skill };
+    case "setInspectedElement": return { ...state, inspectedElement: action.element };
+    case "setViewportMode": return { ...state, viewportMode: action.mode };
+    case "setInspectActive": return { ...state, inspectActive: action.active };
+    case "setProDrawer": return { ...state, proDrawerOpen: action.open };
   }
 }
 
@@ -136,11 +166,12 @@ interface WorkbenchContextValue {
   reviewPatches: () => void;
   openSettings: (section?: string) => void;
   notifyPatchesChanged: () => void;
+  notifyCheckpointsChanged: () => void;
   setContextFiles: (files: string[]) => void;
   removeContextFile: (path: string) => void;
 }
 
-const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
+export const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
 
 export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -166,6 +197,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const reviewPatches = useCallback(() => openChanges(), [openChanges]);
   const openSettings = useCallback((section?: string) => dispatch({ type: "openSettings", section }), []);
   const notifyPatchesChanged = useCallback(() => dispatch({ type: "patchesChanged" }), []);
+  const notifyCheckpointsChanged = useCallback(() => dispatch({ type: "checkpointsChanged" }), []);
   const setContextFiles = useCallback((files: string[]) => dispatch({ type: "setContextFiles", files }), []);
   const removeContextFile = useCallback((path: string) => {
     dispatch({ type: "setContextFiles", files: state.selectedContextFiles.filter((item) => item !== path) });
@@ -173,11 +205,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<WorkbenchContextValue>(() => ({
     state, dispatch, openFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
-    setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged,
+    setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged, notifyCheckpointsChanged,
     setContextFiles, removeContextFile,
   }), [
     state, openFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
-    setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged,
+    setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged, notifyCheckpointsChanged,
     setContextFiles, removeContextFile,
   ]);
 

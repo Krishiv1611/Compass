@@ -50,6 +50,10 @@ package-lock.json
 # Binary documents and generated reports
 *.docx
 artifacts/
+web_artifacts/
+devin_cloud.html
+devin_js/
+emergent_js/
 
 # JavaScript and TypeScript generated output
 node_modules/
@@ -60,7 +64,3 @@ dist-ssr/
 # Generated frontend build artifacts
 frontend/dist/
 frontend/.vite/
-
-# VSCode extension build outputs
-vscode-extension/dist/
-vscode-extension/out/

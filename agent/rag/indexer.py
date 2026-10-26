@@ -263,8 +263,13 @@ def index_workspace(
             except Exception as e:
                 stats.errors.append(f"{filepath}: {e}")
 
-    # Phase 2: Update ChromaDB
-    vector_store = get_vector_store(create=True, provider_config=provider_config)
+    # Phase 2: Update ChromaDB / PGVector
+    try:
+        vector_store = get_vector_store(create=True, provider_config=provider_config)
+    except Exception as exc:
+        stats.errors.append(f"Vector store unavailable: {exc}")
+        stats.elapsed_seconds = time.time() - start_time
+        return stats
     if vector_store is None:
         stats.errors.append("Vector store could not be initialized.")
         stats.elapsed_seconds = time.time() - start_time

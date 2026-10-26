@@ -181,12 +181,20 @@ async def planner_node(state: AgentState, config: RunnableConfig):
             separator = "\n" if planner_request else ""
             planner_request += f"{separator}Planner feedback: {feedback}"
             break
-    execution_plan = await create_execution_plan(
-        planner_request,
-        turn_context,
-        planner_model,
-    )
-    plan_text = f"{plan_text.rstrip()}\n\n{render_execution_plan(execution_plan)}"
+
+    orchestration_setting = bool(settings.get("orchestration.enabled", True))
+    if orchestration_setting:
+        execution_plan = await create_execution_plan(
+            planner_request,
+            turn_context,
+            planner_model,
+        )
+        plan_text = f"{plan_text.rstrip()}\n\n{render_execution_plan(execution_plan)}"
+        execution_plan_dump = execution_plan.model_dump(mode="json")
+        orch_enabled = not is_fallback_plan(execution_plan)
+    else:
+        execution_plan_dump = None
+        orch_enabled = False
 
     # Parse SKILL: directive from the plan
     active_skill = _parse_skill_directive(plan_text)
@@ -198,10 +206,9 @@ async def planner_node(state: AgentState, config: RunnableConfig):
         "loop_detected": False,
         "needs_replan": False,
         "recovery_guidance": "",
-        "execution_plan": execution_plan.model_dump(mode="json"),
+        "execution_plan": execution_plan_dump,
         "worker_artifacts": [],
-        "orchestration_enabled": settings.get("orchestration.enabled", True)
-        and not is_fallback_plan(execution_plan),
+        "orchestration_enabled": orch_enabled,
         "messages": [response],
     }
 
@@ -240,9 +247,14 @@ async def coordinator_node(state: AgentState, config: RunnableConfig):
         cancel_event,
         max_workers=settings.get("orchestration.max_workers", 2),
     )
+    from agent.orchestration.synthesis import synthesize_artifacts
+
+    model = _model_for_turn("synthesizer", config)
+    synthesis = await synthesize_artifacts(artifacts, model=model)
     return {
         "worker_artifacts": [item.model_dump(mode="json") for item in artifacts],
         "worker_events": [event.model_dump(mode="json") for event in events],
+        "synthesis": synthesis.model_dump(mode="json"),
     }
 
 
@@ -404,6 +416,23 @@ async def call_model(state: AgentState, config: RunnableConfig):
             )
         )
 
+    # ── Self-Healing Error Recovery ──────────────────────────────────────────
+    recent_errors = []
+    for msg in reversed(messages[-4:]):
+        if getattr(msg, "type", "") == "tool" or getattr(msg, "tool_call_id", None):
+            content = str(getattr(msg, "content", ""))
+            content_lower = content.lower()
+            if any(indicator in content_lower for indicator in ("error", "exit code", "failed", "traceback", "syntaxerror", "exception")):
+                err_preview = content[:600] if len(content) > 600 else content
+                recent_errors.append(err_preview)
+    if recent_errors:
+        context_parts.append(
+            "🛠️ SELF-HEALING RECOVERY MODE ACTIVE:\n"
+            "A previous tool or test execution failed:\n"
+            + "\n---\n".join(recent_errors)
+            + "\n\nDiagnose the root cause of this failure. Synthesize a targeted fix or correction rather than repeating the same failing action."
+        )
+
     if context_parts:
         context_parts.append(
             "IMPORTANT RULES:\n"
@@ -526,6 +555,10 @@ async def call_model(state: AgentState, config: RunnableConfig):
     new_state["loop_detected"] = loop
 
     if loop:
+        new_state["pending_tool_calls"] = []
+        new_state["is_done"] = False
+        if hasattr(response, "tool_calls"):
+            response.tool_calls = []
         # Keep existing loop_count (will be incremented by loop_recovery_node)
         new_state["loop_count"] = state.get("loop_count", 0)
 
@@ -756,7 +789,7 @@ async def check_safety_node(state: AgentState, config: RunnableConfig = None):
                 )
             )
 
-        return {"approval_status": status, "messages": tool_msgs}
+        return {"approval_status": status, "messages": tool_msgs, "pending_tool_calls": []}
 
 
 async def direct_chat_node(state: AgentState, config: RunnableConfig):
@@ -836,7 +869,8 @@ async def linter_node(state: AgentState, config: RunnableConfig):
         }
 
     if (
-        (workspace.root / "tsconfig.json").exists()
+        getattr(workspace, "execution_target", "") != "web"
+        and (workspace.root / "tsconfig.json").exists()
         and not state.get("syntax_checked", False)
     ):
         import uuid

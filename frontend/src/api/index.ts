@@ -12,3 +12,4 @@ export * from "./patches";
 export * from "./uploads";
 export * from "./memory";
 export * from "./tools";
+export * from "./checkpoints";

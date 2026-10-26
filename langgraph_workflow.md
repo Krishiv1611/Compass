@@ -13,64 +13,45 @@ flowchart TD
   node_end(["END"])
   node_start(["START"])
   node_check_safety["check_safety"]
-  node_clarifier["clarifier"]
-  node_context_injector["context_injector"]
   node_coordinator["coordinator"]
   node_direct_chat["direct_chat"]
-  node_evaluator["evaluator"]
   node_executor["executor"]
-  node_goal_limit["goal_limit"]
-  node_linter_node["linter_node"]
-  node_loop_limit["loop_limit"]
-  node_loop_recovery["loop_recovery"]
   node_plan_approval["plan_approval"]
   node_planner["planner"]
   node_skill_manager["skill_manager"]
   node_summary_node["summary_node"]
-  node_synthesis["synthesis"]
   node_tools["tools"]
-  node_verification_hooks["verification_hooks"]
-  node_verification_hooks_finalize["verification_hooks_finalize"]
-  node_clarifier --> node_executor
-  node_context_injector --> node_planner
-  node_coordinator --> node_synthesis
+  node_coordinator --> node_executor
   node_direct_chat --> node_end
   node_executor -.->|end| node_end
+  node_executor -.->|goal_limit| node_end
+  node_executor -.->|linter_node| node_end
+  node_executor -.->|loop_limit| node_end
+  node_executor -.->|verification_hooks| node_end
   node_executor -.->|check_safety| node_check_safety
-  node_executor -.->|context_injector| node_context_injector
   node_executor -.->|executor| node_executor
-  node_executor -.->|goal_limit| node_goal_limit
-  node_executor -.->|linter_node| node_linter_node
-  node_executor -.->|loop_limit| node_loop_limit
-  node_executor -.->|loop_recovery| node_loop_recovery
+  node_executor -.->|loop_recovery| node_executor
+  node_executor -.->|context_injector| node_planner
+  node_executor -.->|planner| node_planner
   node_executor -.->|summary_node| node_summary_node
-  node_executor -.->|verification_hooks| node_verification_hooks
-  node_goal_limit --> node_end
-  node_loop_limit --> node_end
-  node_loop_recovery --> node_executor
-  node_synthesis --> node_executor
-  node_verification_hooks_finalize --> node_end
+  node_tools --> node_executor
 ```
 
 ## Registered descriptor
 
-- Nodes: 19 runtime nodes, plus START and END.
-- Fixed edges: 9.
-- Explicit conditional destinations: 10.
-- Runtime-selected conditional routers: 10.
+- Nodes: 9 runtime nodes, plus START and END.
+- Fixed edges: 3.
+- Explicit conditional destinations: 11.
+- Runtime-selected conditional routers: 6.
 
 | Conditional source | Registered route function |
 | --- | --- |
 | `__start__` | `_route_start` |
 | `check_safety` | `_route_after_safety` |
-| `evaluator` | `_route_after_evaluator` |
-| `linter_node` | `_route_after_linter` |
 | `plan_approval` | `_route_after_plan_approval` |
 | `planner` | `_route_after_planner` |
 | `skill_manager` | `_route_after_skill_manager` |
 | `summary_node` | `_route_after_summary` |
-| `tools` | `_route_after_tools` |
-| `verification_hooks` | `_route_after_verification_hooks` |
 
 ## Operational reading
 

@@ -1,4 +1,4 @@
-﻿import { Bot, Check, X, PencilLine, AlertTriangle } from "lucide-react";
+import { Bot, Check, X, PencilLine, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";

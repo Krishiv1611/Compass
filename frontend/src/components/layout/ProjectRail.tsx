@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { Compass, Copy, FolderOpen, Loader2, MoreHorizontal, Pencil, Plus, Sparkles, Plug, Settings, Trash2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";

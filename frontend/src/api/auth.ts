@@ -1,4 +1,4 @@
-﻿import api, { clearAuthTokens, notifyAuthInvalidated } from "./client";
+import api, { clearAuthTokens, notifyAuthInvalidated } from "./client";
 import type { AuthTokens, AuthUser, EmailCredentials, RegistrationDetails } from "@/types/auth";
 
 export const authApi = {

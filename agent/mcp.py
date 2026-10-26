@@ -47,12 +47,17 @@ def load_mcp_config() -> dict:
 connections = load_mcp_config()
 
 # 2. Initialize the MultiServerMCPClient
-# We use tool_name_prefix=True to avoid tool name collisions (e.g. "github_search" vs "local_search")
-mcp_client = MultiServerMCPClient(connections=connections, tool_name_prefix=True)
+# We use tool_name_prefix=True to avoid tool name collisions and handle_tool_errors=True
+mcp_client = MultiServerMCPClient(
+    connections=connections,
+    tool_name_prefix=True,
+    handle_tool_errors=True,
+)
 
 _mcp_tools_cache = None
 _mcp_tools_expires_at = 0.0
 _mcp_cache_lock = asyncio.Lock()
+MCP_SERVER_TIMEOUT_SECONDS = 2.0
 
 
 def reset_mcp_cache() -> None:
@@ -63,7 +68,7 @@ def reset_mcp_cache() -> None:
 async def get_mcp_tools() -> List[BaseTool]:
     """
     Asynchronously retrieve all available tools from the configured MCP servers.
-    The client automatically handles session lifecycle per tool call.
+    Each server is bounded by a timeout and isolated so offline servers do not block or crash the turn.
     """
     global _mcp_tools_cache, _mcp_tools_expires_at
     from agent.runtime.metrics import current_run_metrics
@@ -87,15 +92,36 @@ async def get_mcp_tools() -> List[BaseTool]:
             _mcp_tools_cache = []
             _mcp_tools_expires_at = now + 300
             return []
+
+        async def _load_from_server(server_name: str) -> list[BaseTool]:
+            try:
+                try:
+                    call = mcp_client.get_tools(server_name=server_name)
+                except TypeError:
+                    call = mcp_client.get_tools()
+                server_tools = await asyncio.wait_for(
+                    call,
+                    timeout=MCP_SERVER_TIMEOUT_SECONDS,
+                )
+                return list(server_tools)
+            except Exception as exc:
+                print(f"[mcp] Server '{server_name}' is offline or timed out: {exc}")
+                return []
+
         try:
             print(
                 f"[mcp] Fetching tools from {len(connections)} configured MCP server(s)..."
             )
-            tools = await mcp_client.get_tools()
-            print(f"[mcp] Successfully loaded {len(tools)} MCP tools.")
-            _mcp_tools_cache = tools
-            _mcp_tools_expires_at = time.monotonic() + 300
-            return tools
+            tasks = [_load_from_server(name) for name in connections]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            all_tools: list[BaseTool] = []
+            for r in results:
+                if isinstance(r, list):
+                    all_tools.extend(r)
+            print(f"[mcp] Successfully loaded {len(all_tools)} MCP tools.")
+            _mcp_tools_cache = all_tools
+            _mcp_tools_expires_at = time.monotonic() + (300 if all_tools or not connections else 30)
+            return all_tools
         except Exception as e:
             print(f"[mcp] Error loading MCP tools: {e}")
             _mcp_tools_cache = []

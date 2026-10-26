@@ -42,14 +42,49 @@ interface MessageListProps {
 export default function MessageList({ messages, isLoading, onRetry, pendingApproval, onResume }: MessageListProps) {
   if (messages.length === 0) {
     return (
-      <div className="flex h-[70vh] flex-col items-center justify-center text-center">
-        <div className="mb-6 flex size-16 items-center justify-center border border-accent/30 bg-accent/10 text-accent rounded-md">
-          <Compass className="h-8 w-8" />
+      <div className="flex h-[70vh] flex-col items-center justify-center text-center px-4">
+        <div className="mb-4 flex size-14 items-center justify-center border border-sky-500/30 bg-sky-500/10 text-sky-400 rounded-lg shadow-sm">
+          <Compass className="h-7 w-7" />
         </div>
-        <h1 className="mb-3 text-2xl font-semibold text-foreground">How can I help you today?</h1>
-        <p className="max-w-md text-sm leading-6 text-muted-foreground">
-          I am Compass, your AI coding assistant.
+        <h1 className="mb-2 text-2xl font-bold tracking-tight text-foreground">How can I help you today?</h1>
+        <p className="max-w-md text-sm text-muted-foreground mb-6">
+          I am Compass, your AI coding assistant. Ask questions, generate UI components, or edit full-stack code.
         </p>
+
+        <div className="grid w-full max-w-md grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+          <button
+            type="button"
+            onClick={() => onRetry("Build a modern hero section with call-to-action buttons and responsive layout")}
+            className="rounded-md border border-border bg-card/60 p-2.5 text-xs text-muted-foreground transition-colors hover:border-sky-500/50 hover:bg-card hover:text-foreground"
+          >
+            <span className="block font-medium text-foreground">✨ Hero Section</span>
+            <span>Create responsive hero with CTA</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onRetry("Add a dark mode theme toggle with persistent state in localStorage")}
+            className="rounded-md border border-border bg-card/60 p-2.5 text-xs text-muted-foreground transition-colors hover:border-sky-500/50 hover:bg-card hover:text-foreground"
+          >
+            <span className="block font-medium text-foreground">🌙 Dark Mode Toggle</span>
+            <span>Stateful theme switcher</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onRetry("Inspect element styling and polish typography and spacing")}
+            className="rounded-md border border-border bg-card/60 p-2.5 text-xs text-muted-foreground transition-colors hover:border-sky-500/50 hover:bg-card hover:text-foreground"
+          >
+            <span className="block font-medium text-foreground">🎯 Polish Styling</span>
+            <span>Refine layout and typography</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onRetry("Run tests, identify any errors or broken code, and propose a fix")}
+            className="rounded-md border border-border bg-card/60 p-2.5 text-xs text-muted-foreground transition-colors hover:border-sky-500/50 hover:bg-card hover:text-foreground"
+          >
+            <span className="block font-medium text-foreground">🧪 Test & Self-Heal</span>
+            <span>Execute tests & fix bugs</span>
+          </button>
+        </div>
       </div>
     );
   }

@@ -263,20 +263,10 @@ def memory(
     configurable = (config or {}).get("configurable", {})
     store = get_memory_store(configurable)
     if store is None:
-        return f"Memory unavailable: {_store_error or 'database not configured'}."
+        return f"Memory unavailable ({_store_error or 'database not configured'}). Proceed with current conversation context."
 
     action = action.strip().lower()
     ns, resolved_scope, project_id = _scope_from_config(config, scope, namespace)
-
-    if (
-        action == "search"
-        and configurable.get("execution_target") == "web"
-        and not configurable.get("embedding_api_key")
-    ):
-        return (
-            "Memory semantic search is disabled. "
-            "Configure an embedding provider credential."
-        )
 
     if action == "save":
         value = save_memory(
@@ -292,13 +282,20 @@ def memory(
     if action == "search":
         if not content.strip():
             return "Error: content is required for search."
-        try:
-            results = store.search(ns, query=content.strip(), limit=limit)
-        except Exception:
-            results = [
-                item for item in store.search(ns, limit=100)
-                if content.lower() in str(item.value.get("content", "")).lower()
-            ][:limit]
+        results = []
+        if configurable.get("embedding_api_key"):
+            try:
+                results = store.search(ns, query=content.strip(), limit=limit)
+            except Exception:
+                results = []
+        if not results:
+            try:
+                results = [
+                    item for item in store.search(ns, limit=100)
+                    if content.lower() in str(item.value.get("content", "")).lower()
+                ][:limit]
+            except Exception:
+                results = []
         enabled_results = [item for item in results if item.value.get("enabled", True)]
         if not enabled_results:
             return "No matching memories found."

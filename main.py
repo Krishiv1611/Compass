@@ -1,90 +1,110 @@
-﻿import asyncio
+import asyncio
+import os
 import sys
+import click
+from dotenv import load_dotenv
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 """
-Compass â€” AI Coding Agent CLI Entry Point.
+Compass — AI Developer Workbench Entry Point.
 
 Usage:
-    python main.py              â†’ Interactive REPL (new session)
-    python main.py -r           â†’ Resume last session
-    python main.py -s abc123    â†’ Resume session by ID prefix
-    python main.py -m "query"   â†’ Single-shot mode (new session)
-    python main.py -r -m "msg"  â†’ Single-shot, resume last session
+    python main.py                      → Start Compass Web backend on port 8000
+    python main.py -p 8080              → Start Compass Web backend on custom port
+    python main.py -m "Write a tests"   → Run single-shot headless query
+    python main.py serve --reload       → Run dev server with auto-reload
 """
 
-import os
-import click
-from dotenv import load_dotenv
+
+async def run_headless_message(message: str, workspace: str | None = None):
+    """Execute a single prompt headless through the shared agent runtime."""
+    from agent.runtime.runner import run_agent_stream
+    from agent.runtime.events import StreamEventType
+    from agent.workspace import WorkspaceContext
+
+    ws_ctx = WorkspaceContext(root=workspace or os.getcwd())
+    click.echo(f"Running Compass in: {ws_ctx.root}\nPrompt: {message}\n")
+
+    async for event in run_agent_stream(
+        message=message,
+        workspace_context=ws_ctx,
+        execution_target="web",
+    ):
+        if event.type == StreamEventType.TOKEN:
+            click.echo(event.content, nl=False)
+        elif event.type == StreamEventType.STATUS:
+            click.echo(f"\n[status: {event.content}]")
+        elif event.type == StreamEventType.ERROR:
+            click.echo(f"\n[error: {event.content}]", err=True)
+    click.echo("\n")
 
 
-@click.command()
+@click.group(invoke_without_command=True)
+@click.pass_context
 @click.option(
     "-m",
     "--message",
     type=str,
     default=None,
-    help="Run a single message and exit (non-interactive mode).",
-)
-@click.option(
-    "-r",
-    "--resume",
-    is_flag=True,
-    default=False,
-    help="Resume the most recent session.",
+    help="Run a single message and exit (headless mode).",
 )
 @click.option(
     "-w",
     "--workspace",
-    "workspace",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
     default=None,
     help="Workspace directory to run Compass from.",
 )
 @click.option(
-    "-s",
-    "--session",
-    "session_id",
+    "--host",
     type=str,
-    default=None,
-    help="Resume a specific session by thread_id or prefix.",
+    default="127.0.0.1",
+    help="Host to bind the web server to.",
 )
-def cli(message: str | None, resume: bool, workspace: str | None, session_id: str | None):
-    """Compass - AI Coding Agent powered by LangGraph."""
+@click.option(
+    "-p",
+    "--port",
+    type=int,
+    default=8000,
+    help="Port to bind the web server to.",
+)
+@click.option(
+    "--reload",
+    is_flag=True,
+    default=False,
+    help="Enable auto-reload for development.",
+)
+def cli(ctx, message: str | None, workspace: str | None, host: str, port: int, reload: bool):
+    """Compass - AI Developer Workbench powered by FastAPI & LangGraph."""
+    if ctx.invoked_subcommand is not None:
+        return
 
     if workspace:
         os.chdir(workspace)
 
     load_dotenv()
-    from agent.sessions import SessionManager
-    from agent.ui.tui import compass_repl, run_single
-
-    sm = SessionManager()
-    resume_thread_id = None
-
-    # Resolve which session to resume
-    if session_id:
-        sess = sm.get_session(session_id)
-        if sess:
-            resume_thread_id = sess["thread_id"]
-        else:
-            click.echo(f"Error: No session found matching '{session_id}'.")
-            raise SystemExit(1)
-    elif resume:
-        sess = sm.get_last_session()
-        if sess:
-            resume_thread_id = sess["thread_id"]
-        else:
-            click.echo("No previous sessions found. Starting a new session.")
 
     if message:
-        asyncio.run(run_single(message, resume_thread_id=resume_thread_id))
+        asyncio.run(run_headless_message(message, workspace=workspace))
     else:
-        asyncio.run(compass_repl(resume_thread_id=resume_thread_id))
+        import uvicorn
+        click.echo(f"Starting Compass Web Server on http://{host}:{port} ...")
+        uvicorn.run("backend.main:app", host=host, port=port, reload=reload)
+
+
+@cli.command("serve")
+@click.option("--host", type=str, default="127.0.0.1", help="Host to bind to.")
+@click.option("-p", "--port", type=int, default=8000, help="Port to bind to.")
+@click.option("--reload", is_flag=True, default=False, help="Enable auto-reload.")
+def serve_command(host: str, port: int, reload: bool):
+    """Start the Compass Web Server."""
+    import uvicorn
+    load_dotenv()
+    click.echo(f"Starting Compass Web Server on http://{host}:{port} ...")
+    uvicorn.run("backend.main:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":
     cli()
-
