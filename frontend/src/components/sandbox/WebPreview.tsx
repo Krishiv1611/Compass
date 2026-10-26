@@ -275,7 +275,7 @@ export default function WebPreview({
                   ? "bg-sky-500 text-white shadow-sm ring-2 ring-sky-400/50"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
-              title="Click-to-Inspect DOM Element (Lovable style)"
+              title="Click-to-Inspect DOM Element"
             >
               <MousePointerClick className="h-3.5 w-3.5" />
               <span>Inspect</span>

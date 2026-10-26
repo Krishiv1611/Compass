@@ -1,5 +1,5 @@
 /**
- * Compass DOM Inspector for WebPreview Canvas (Lovable-style Click-to-Inspect).
+ * Compass DOM Inspector for WebPreview Canvas (Interactive Click-to-Inspect).
  *
  * Injected into the preview environment or mounted in HTML to allow developers
  * to click any rendered UI component and pass its context directly to the Agent Chat.

@@ -144,7 +144,7 @@ export default function WorkspaceLanding({
             What do you want to build today?
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Compass bridges <span className="text-foreground font-medium">Lovable</span> (0-to-1 visual preview canvas with click-to-inspect) and <span className="text-foreground font-medium">Devin</span> (1-to-N autonomous terminal, remote sandboxes & Playwright QA).
+            Compass combines an interactive visual preview canvas, real-time click-to-inspect DOM targeting, interactive terminal PTY streaming, remote cloud microVM sandboxes, and automated visual QA.
           </p>
         </div>
 

@@ -114,7 +114,7 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
     if (activeWorkspaceId) setEditorState(value => invalidateWorkspace(value, activeWorkspaceId));
   }, [activeWorkspaceId, state.patchesVersion]);
 
-  // Pre-load preview files whenever workspace or patches change (Lovable live sync)
+  // Pre-load preview files whenever workspace or patches change (Live Canvas sync)
   useEffect(() => {
     if (!activeWorkspaceId) {
       setPreviewFiles(null);
@@ -241,7 +241,7 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
             variant={state.proDrawerOpen ? "secondary" : "ghost"}
             size="sm"
             onClick={() => dispatch({ type: "setProDrawer", open: !state.proDrawerOpen })}
-            title="Toggle Devin Pro Drawer (Ctrl + `)"
+            title="Toggle Pro Terminal Drawer (Ctrl + `)"
           >
             <Terminal className="h-4 w-4 mr-1" />
             Terminal

@@ -193,6 +193,8 @@ export default function SettingsModal({
                       { label: "Gemini 3.8 Flash", model: "gemini/gemini-3.8-flash" },
                       { label: "Llama 3.3 70B", model: "meta-llama/llama-3.3-70b-instruct" },
                       { label: "DeepSeek V3", model: "deepseek/deepseek-chat" },
+                      { label: "Codestral", model: "mistralai/codestral-2501" },
+                      { label: "Nemotron 70B", model: "nvidia/llama-3.1-nemotron-70b-instruct" },
                     ].map((preset) => (
                       <button
                         key={preset.model}
