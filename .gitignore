@@ -34,6 +34,7 @@ coverage/
 *.pid
 
 # App specific
+.superpowers/
 .antigravitycli/
 .compass/
 *.db
