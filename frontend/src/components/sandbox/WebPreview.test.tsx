@@ -63,10 +63,66 @@ describe("WebPreview lifecycle", () => {
   });
 
   it("explains unsupported projects without booting a container", async () => {
-    render(<WebPreview visible files={{ "index.html": file("hello") }} onClose={vi.fn()} />);
+    render(<WebPreview visible files={{ "notes.txt": file("hello") }} onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /start preview/i }));
 
     expect(await screen.findByText(/package\.json/i)).toBeTruthy();
+    expect(runtime.boot).not.toHaveBeenCalled();
+  });
+
+  it("renders live static preview iframe when index.html exists without package.json", async () => {
+    const staticFiles = {
+      "index.html": {
+        file: { contents: "<html><body><h1>Static Live Preview</h1></body></html>" },
+      },
+      "style.css": {
+        file: { contents: "h1 { color: blue; }" },
+      },
+    };
+
+    render(<WebPreview visible={true} onClose={vi.fn()} files={staticFiles} />);
+    expect(screen.getByTitle(/preview/i)).toBeTruthy();
+  });
+
+  it("assembles static HTML with injected CSS and DOM inspector script", async () => {
+    const staticFiles = {
+      "index.html": {
+        file: { contents: "<html><body><h1>Static Live Preview</h1></body></html>" },
+      },
+      "style.css": {
+        file: { contents: "h1 { color: blue; }" },
+      },
+    };
+
+    render(<WebPreview visible={true} onClose={vi.fn()} files={staticFiles} />);
+    const iframe = screen.getByTitle(/preview/i) as HTMLIFrameElement;
+    expect(iframe).toBeTruthy();
+    const srcDocContent = iframe.getAttribute("srcdoc") ?? iframe.srcdoc;
+    expect(srcDocContent).toContain("h1 { color: blue; }");
+    expect(srcDocContent).toContain("__COMPASS_INSPECTOR_INITIALIZED__");
+  });
+
+  it("renders friendly empty state instead of throwing when no web entry point exists", async () => {
+    const pythonFiles = {
+      "main.py": {
+        file: { contents: "print('backend service')" },
+      },
+    };
+
+    render(<WebPreview visible={true} onClose={vi.fn()} files={pythonFiles} />);
+    expect(screen.queryByText(/Preview requires a package.json file/i)).toBeNull();
+    expect(screen.getByText(/Terminal-only project/i)).toBeTruthy();
+  });
+
+  it("detects backend project with server.go without booting WebContainer", async () => {
+    const goFiles = {
+      "server.go": {
+        file: { contents: "package main\nfunc main() {}" },
+      },
+    };
+
+    render(<WebPreview visible={true} onClose={vi.fn()} files={goFiles} />);
+    expect(screen.getByText(/Terminal-only project/i)).toBeTruthy();
     expect(runtime.boot).not.toHaveBeenCalled();
   });
 

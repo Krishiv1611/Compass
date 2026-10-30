@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { WebContainer as WebContainerInstance, WebContainerProcess } from "@webcontainer/api";
 import {
   ExternalLink,
@@ -8,6 +8,7 @@ import {
   MousePointerClick,
   Play,
   RefreshCcw,
+  Server,
   Smartphone,
   Square,
   Tablet,
@@ -19,8 +20,121 @@ import { toast } from "react-toastify";
 import { WorkbenchContext } from "@/contexts/WorkbenchContext";
 import { DOM_INSPECTOR_SCRIPT } from "@/components/preview/domInspector";
 
-type PreviewFiles = Record<string, { file?: { contents: string } }>;
-type PreviewState = "idle" | "booting" | "installing" | "running" | "ready" | "error";
+export type PreviewFiles = Record<string, { file?: { contents: string } }>;
+export type PreviewState = "idle" | "booting" | "installing" | "running" | "ready" | "error";
+export type ProjectKind = "node" | "static" | "backend" | "unsupported";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function findFile(
+  files: PreviewFiles,
+  targets: string[]
+): { path: string; contents: string } | null {
+  const lowerTargets = targets.map((t) => t.toLowerCase());
+  for (const target of targets) {
+    if (files[target]?.file?.contents !== undefined) {
+      return { path: target, contents: files[target].file!.contents };
+    }
+  }
+  for (const [key, val] of Object.entries(files)) {
+    const normalized = key.replace(/^\.?\//, "").toLowerCase();
+    if (lowerTargets.includes(normalized) && val?.file?.contents !== undefined) {
+      return { path: key, contents: val.file!.contents };
+    }
+  }
+  return null;
+}
+
+export function detectProjectKind(files?: PreviewFiles): ProjectKind {
+  if (!files || Object.keys(files).length === 0) return "unsupported";
+  if (findFile(files, ["package.json"])) return "node";
+  if (findFile(files, ["index.html", "index.htm", "public/index.html"])) return "static";
+  if (findFile(files, ["main.py", "app.py", "server.py", "server.go"])) return "backend";
+  return "unsupported";
+}
+
+function findAnyHtmlFile(files: PreviewFiles): { path: string; contents: string } | null {
+  for (const [key, val] of Object.entries(files)) {
+    if ((key.endsWith(".html") || key.endsWith(".htm")) && val?.file?.contents !== undefined) {
+      return { path: key, contents: val.file!.contents };
+    }
+  }
+  return null;
+}
+
+export function assembleStaticHtml(files: PreviewFiles): string {
+  const htmlEntry =
+    findFile(files, ["index.html", "index.htm", "public/index.html"]) ??
+    findAnyHtmlFile(files);
+
+  let html = htmlEntry ? htmlEntry.contents : "<!DOCTYPE html><html><head></head><body></body></html>";
+
+  const extraCss: string[] = [];
+  const extraJs: string[] = [];
+
+  for (const [rawKey, entry] of Object.entries(files)) {
+    const content = entry?.file?.contents;
+    if (typeof content !== "string" || !content.trim()) continue;
+    const key = rawKey.replace(/^\.?\//, "");
+    if (htmlEntry && key === htmlEntry.path.replace(/^\.?\//, "")) continue;
+
+    if (key.endsWith(".css")) {
+      const fileName = key.split("/").pop() || key;
+      const linkRegex = new RegExp(`<link[^>]+href=["'][^"']*${escapeRegExp(fileName)}["'][^>]*>`, "i");
+      if (linkRegex.test(html)) {
+        html = html.replace(linkRegex, () => `<style data-compass-file="${key}">\n${content}\n</style>`);
+      } else {
+        extraCss.push(`<style data-compass-file="${key}">\n${content}\n</style>`);
+      }
+    } else if (key.endsWith(".js") && !key.endsWith(".config.js") && key !== "package.json") {
+      const fileName = key.split("/").pop() || key;
+      const scriptRegex = new RegExp(`<script[^>]+src=["'][^"']*${escapeRegExp(fileName)}["'][^>]*>\\s*</script>`, "i");
+      if (scriptRegex.test(html)) {
+        html = html.replace(scriptRegex, () => `<script data-compass-file="${key}">\n${content}\n</script>`);
+      } else {
+        extraJs.push(`<script data-compass-file="${key}">\n${content}\n</script>`);
+      }
+    } else if (key.endsWith(".svg")) {
+      const fileName = key.split("/").pop() || key;
+      const svgDataUri = `data:image/svg+xml;utf8,${encodeURIComponent(content)}`;
+      const imgRegex = new RegExp(`src=["'][^"']*${escapeRegExp(fileName)}["']`, "g");
+      html = html.replace(imgRegex, () => `src="${svgDataUri}"`);
+    }
+  }
+
+  if (extraCss.length > 0) {
+    const combinedCss = extraCss.join("\n");
+    if (html.includes("</head>")) {
+      html = html.replace("</head>", () => `${combinedCss}\n</head>`);
+    } else if (/<body/i.test(html)) {
+      html = html.replace(/<body/i, () => `<head>\n${combinedCss}\n</head>\n<body`);
+    } else {
+      html = `<head>\n${combinedCss}\n</head>\n${html}`;
+    }
+  }
+
+  if (extraJs.length > 0) {
+    const combinedJs = extraJs.join("\n");
+    if (html.includes("</body>")) {
+      html = html.replace("</body>", () => `${combinedJs}\n</body>`);
+    } else {
+      html = `${html}\n${combinedJs}`;
+    }
+  }
+
+  if (!html.includes("__COMPASS_INSPECTOR_INITIALIZED__")) {
+    const scriptTag = `<script>\n${DOM_INSPECTOR_SCRIPT}\n</script>`;
+    if (html.includes("</body>")) {
+      html = html.replace("</body>", () => `${scriptTag}\n</body>`);
+    } else {
+      html = `${html}\n${scriptTag}`;
+    }
+  }
+
+  return html;
+}
 
 let container: WebContainerInstance | null = null;
 let bootPromise: Promise<WebContainerInstance> | null = null;
@@ -52,8 +166,9 @@ async function disposeContainer() {
 }
 
 function previewScript(files: PreviewFiles): string {
-  const source = files["package.json"]?.file?.contents;
-  if (!source) throw new Error("Preview requires a package.json file.");
+  const packageFile = findFile(files, ["package.json"]);
+  const source = packageFile?.contents;
+  if (!source) throw new Error("Preview requires a package.json file or an index.html web entry point.");
   let parsed: { scripts?: Record<string, string> };
   try {
     parsed = JSON.parse(source) as { scripts?: Record<string, string> };
@@ -80,6 +195,8 @@ export default function WebPreview({
   const isInspectActive = workbench?.state?.inspectActive ?? false;
   const dispatch = workbench?.dispatch;
 
+  const projectKind = detectProjectKind(files);
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<WebContainerInstance | null>(null);
   const processRef = useRef<WebContainerProcess | null>(null);
@@ -87,11 +204,49 @@ export default function WebPreview({
   const generationRef = useRef(0);
   const logBufferRef = useRef<string[]>([]);
   const logTimerRef = useRef<number | null>(null);
-  const [state, setState] = useState<PreviewState>("idle");
+  const [state, setState] = useState<PreviewState>(() =>
+    detectProjectKind(files) === "static" ? "ready" : "idle"
+  );
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [showOutput, setShowOutput] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const prevKindRef = useRef<ProjectKind>(projectKind);
+
+  useEffect(() => {
+    if (projectKind === "static" && prevKindRef.current !== "static") {
+      setState("ready");
+      setError(null);
+    } else if (projectKind !== "static" && prevKindRef.current === "static") {
+      setState("idle");
+    }
+    prevKindRef.current = projectKind;
+  }, [projectKind]);
+
+  const compiledHtml = useMemo(() => {
+    if (projectKind !== "static" || !files) return "";
+    return assembleStaticHtml(files);
+  }, [projectKind, files]);
+
+  useEffect(() => {
+    if (projectKind === "static" && compiledHtml) {
+      if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+        try {
+          const blob = new Blob([compiledHtml], { type: "text/html" });
+          const url = URL.createObjectURL(blob);
+          setPreviewUrl(url);
+          return () => {
+            URL.revokeObjectURL(url);
+          };
+        } catch {
+          setPreviewUrl(null);
+        }
+      }
+    } else if (projectKind !== "node") {
+      setPreviewUrl(null);
+    }
+  }, [projectKind, compiledHtml]);
 
   const flushLogs = useCallback(() => {
     logTimerRef.current = null;
@@ -149,6 +304,17 @@ export default function WebPreview({
 
   const start = useCallback(async () => {
     if (!files || !Object.keys(files).length) return;
+    const kind = detectProjectKind(files);
+    if (kind === "backend") {
+      workbench?.dispatch?.({ type: "setProDrawer", open: true });
+      return;
+    }
+    if (kind === "static") {
+      setState("ready");
+      setError(null);
+      return;
+    }
+
     cleanExecution();
     const generation = ++generationRef.current;
     setState("booting");
@@ -164,16 +330,17 @@ export default function WebPreview({
       log("Mounting workspace files with DOM Inspector…\n");
       // Inject the DOM inspector script into index.html if present
       const preparedFiles: PreviewFiles = { ...files };
-      if (preparedFiles["index.html"]?.file?.contents) {
-        let html = preparedFiles["index.html"].file.contents;
+      const indexEntry = findFile(preparedFiles, ["index.html", "index.htm", "public/index.html"]);
+      if (indexEntry) {
+        let html = indexEntry.contents;
         if (!html.includes("__COMPASS_INSPECTOR_INITIALIZED__")) {
           const scriptTag = `<script>\n${DOM_INSPECTOR_SCRIPT}\n</script>`;
           if (html.includes("</body>")) {
-            html = html.replace("</body>", `${scriptTag}\n</body>`);
+            html = html.replace("</body>", () => `${scriptTag}\n</body>`);
           } else {
             html = `${html}\n${scriptTag}`;
           }
-          preparedFiles["index.html"] = { file: { contents: html } };
+          preparedFiles[indexEntry.path] = { file: { contents: html } };
         }
       }
       await current.mount(preparedFiles as never);
@@ -236,7 +403,7 @@ export default function WebPreview({
       setState("error");
       log(`Error: ${message}\n`);
     }
-  }, [cleanExecution, files, log]);
+  }, [cleanExecution, files, log, workbench]);
 
   useEffect(() => () => { void stop(); }, [stop]);
 
@@ -251,7 +418,12 @@ export default function WebPreview({
         <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
           <Globe className="h-4 w-4 text-primary" />
           <span className="font-semibold">Canvas</span>
-          {state === "ready" && (
+          {projectKind === "backend" && (
+            <span className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              Terminal Only
+            </span>
+          )}
+          {projectKind !== "backend" && state === "ready" && (
             <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-500">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Live
@@ -265,7 +437,7 @@ export default function WebPreview({
         </div>
 
         {/* Center: Viewport & Click-to-Inspect controls */}
-        {state === "ready" && (
+        {state === "ready" && projectKind !== "backend" && (
           <div className="flex items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
             <button
               type="button"
@@ -323,45 +495,63 @@ export default function WebPreview({
 
         {/* Right side: Actions */}
         <div className="flex items-center gap-1">
-          {state === "idle" && (
+          {projectKind === "backend" ? (
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => void start()}
-              disabled={!files || !Object.keys(files).length}
+              onClick={() => workbench?.dispatch?.({ type: "setProDrawer", open: true })}
             >
-              <Play className="h-3.5 w-3.5 mr-1" /> Run
+              <Terminal className="h-3.5 w-3.5 mr-1" /> Terminal
             </Button>
-          )}
-          {state === "ready" && (
+          ) : (
             <>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => {
-                  if (previewUrl && iframeRef.current) iframeRef.current.src = previewUrl;
-                }}
-                aria-label="Refresh preview"
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </Button>
-              {previewUrl && (
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label="Open preview in a new tab"
+              {state === "idle" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void start()}
+                  disabled={!files || !Object.keys(files).length}
                 >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
+                  <Play className="h-3.5 w-3.5 mr-1" /> Run
+                </Button>
+              )}
+              {state === "ready" && (
+                <>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (projectKind === "static") {
+                        if (iframeRef.current) {
+                          iframeRef.current.srcdoc = compiledHtml;
+                        }
+                      } else if (previewUrl && iframeRef.current) {
+                        iframeRef.current.src = previewUrl;
+                      }
+                    }}
+                    aria-label="Refresh preview"
+                  >
+                    <RefreshCcw className="h-4 w-4" />
+                  </Button>
+                  {previewUrl && (
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label="Open preview in a new tab"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                </>
+              )}
+              {state !== "idle" && (
+                <Button size="icon-sm" variant="ghost" onClick={() => void stop()} aria-label="Stop preview">
+                  <Square className="h-4 w-4" />
+                </Button>
               )}
             </>
-          )}
-          {state !== "idle" && (
-            <Button size="icon-sm" variant="ghost" onClick={() => void stop()} aria-label="Stop preview">
-              <Square className="h-4 w-4" />
-            </Button>
           )}
           <Button
             size="icon-sm"
@@ -379,87 +569,115 @@ export default function WebPreview({
 
       {/* Main Preview Canvas Area */}
       <div className="relative min-h-0 flex-1 overflow-auto bg-muted/20 flex flex-col items-center justify-center p-2">
-        {state === "idle" && (
+        {projectKind === "backend" ? (
           <Empty
-            icon={<Globe className="h-8 w-8 text-primary" />}
-            title="Preview Canvas"
-            text="Start the preview server to inspect your web application in real time with interactive element selection."
-            action={
-              <Button size="sm" onClick={() => void start()} disabled={!files || !Object.keys(files).length}>
-                <Play className="h-4 w-4 mr-1.5" /> Start Preview
-              </Button>
-            }
-          />
-        )}
-        {working && (
-          <Empty
-            icon={<Loader2 className="h-8 w-8 animate-spin text-primary" />}
-            title="Starting Development Server"
-            text={state === "installing" ? "Installing dependencies…" : "Starting dev server…"}
-          />
-        )}
-        {state === "error" && (
-          <Empty
-            icon={<X className="h-8 w-8 text-destructive" />}
-            title="Preview could not start"
-            text={error || "Review the output logs and try again."}
+            icon={<Server className="h-8 w-8 text-primary" />}
+            title="Backend Service Detected"
+            text="Backend Service Detected (Terminal-only project). This service does not have an HTML web entry point. Use the terminal to run and interact with the service."
             action={
               <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => void start()}>
-                  <RefreshCcw className="h-4 w-4 mr-1.5" /> Retry
+                <Button
+                  size="sm"
+                  onClick={() => workbench?.dispatch?.({ type: "setProDrawer", open: true })}
+                >
+                  <Terminal className="h-4 w-4 mr-1.5" /> Open Terminal
                 </Button>
-                {error?.includes("package.json") && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => workbench?.dispatch?.({ type: "setCenterTab", tab: "editor" })}
-                    >
-                      Open Editor
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => workbench?.dispatch?.({ type: "setProDrawer", open: true })}
-                    >
-                      Open Terminal
-                    </Button>
-                  </>
-                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => workbench?.dispatch?.({ type: "setCenterTab", tab: "editor" })}
+                >
+                  Open Editor
+                </Button>
               </div>
             }
           />
-        )}
-        {state === "ready" && (
-          <div
-            className={`h-full transition-all duration-200 flex flex-col ${
-              viewportMode === "desktop"
-                ? "w-full"
-                : viewportMode === "tablet"
-                ? "w-[768px] max-w-full my-auto rounded-lg shadow-2xl border border-border/80 overflow-hidden bg-background"
-                : "w-[375px] max-w-full h-[667px] my-auto rounded-3xl shadow-2xl border-4 border-muted-foreground/30 overflow-hidden bg-background"
-            }`}
-          >
-            {viewportMode !== "desktop" && (
-              <div className="flex h-6 shrink-0 items-center justify-center bg-muted/60 border-b border-border text-[10px] font-mono text-muted-foreground">
-                {viewportMode === "tablet" ? "iPad / Tablet (768px)" : "Mobile Device (375 × 667)"}
+        ) : (
+          <>
+            {state === "idle" && (
+              <Empty
+                icon={<Globe className="h-8 w-8 text-primary" />}
+                title="Preview Canvas"
+                text="Start the preview server to inspect your web application in real time with interactive element selection."
+                action={
+                  <Button size="sm" onClick={() => void start()} disabled={!files || !Object.keys(files).length}>
+                    <Play className="h-4 w-4 mr-1.5" /> Start Preview
+                  </Button>
+                }
+              />
+            )}
+            {working && (
+              <Empty
+                icon={<Loader2 className="h-8 w-8 animate-spin text-primary" />}
+                title="Starting Development Server"
+                text={state === "installing" ? "Installing dependencies…" : "Starting dev server…"}
+              />
+            )}
+            {state === "error" && (
+              <Empty
+                icon={<X className="h-8 w-8 text-destructive" />}
+                title="Preview could not start"
+                text={error || "Review the output logs and try again."}
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => void start()}>
+                      <RefreshCcw className="h-4 w-4 mr-1.5" /> Retry
+                    </Button>
+                    {(error?.includes("package.json") || projectKind === "unsupported") && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => workbench?.dispatch?.({ type: "setCenterTab", tab: "editor" })}
+                        >
+                          Open Editor
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => workbench?.dispatch?.({ type: "setProDrawer", open: true })}
+                        >
+                          Open Terminal
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                }
+              />
+            )}
+            {state === "ready" && (
+              <div
+                className={`h-full transition-all duration-200 flex flex-col ${
+                  viewportMode === "desktop"
+                    ? "w-full"
+                    : viewportMode === "tablet"
+                    ? "w-[768px] max-w-full my-auto rounded-lg shadow-2xl border border-border/80 overflow-hidden bg-background"
+                    : "w-[375px] max-w-full h-[667px] my-auto rounded-3xl shadow-2xl border-4 border-muted-foreground/30 overflow-hidden bg-background"
+                }`}
+              >
+                {viewportMode !== "desktop" && (
+                  <div className="flex h-6 shrink-0 items-center justify-center bg-muted/60 border-b border-border text-[10px] font-mono text-muted-foreground">
+                    {viewportMode === "tablet" ? "iPad / Tablet (768px)" : "Mobile Device (375 × 667)"}
+                  </div>
+                )}
+                <iframe
+                  ref={iframeRef}
+                  title="Workspace preview"
+                  srcDoc={projectKind === "static" ? compiledHtml : undefined}
+                  className="h-full w-full border-0 bg-card"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                  onLoad={() => {
+                    if (isInspectActive && iframeRef.current?.contentWindow) {
+                      iframeRef.current.contentWindow.postMessage(
+                        { type: "COMPASS_INSPECT_MODE", active: true },
+                        "*"
+                      );
+                    }
+                  }}
+                />
               </div>
             )}
-            <iframe
-              ref={iframeRef}
-              title="Workspace preview"
-              className="h-full w-full border-0 bg-card"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-              onLoad={() => {
-                if (isInspectActive && iframeRef.current?.contentWindow) {
-                  iframeRef.current.contentWindow.postMessage(
-                    { type: "COMPASS_INSPECT_MODE", active: true },
-                    "*"
-                  );
-                }
-              }}
-            />
-          </div>
+          </>
         )}
       </div>
 
