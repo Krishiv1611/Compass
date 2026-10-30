@@ -82,9 +82,6 @@ def shell_execute(
     except ValueError as exc:
         return f"Error: {exc}"
 
-    if workspace.execution_target == "web" and not verification_hook:
-        return "Error: Shell execution is disabled for web users for security reasons. Only file and directory tools are allowed."
-
     if not command or not command.strip():
         return "Error: No command provided."
 

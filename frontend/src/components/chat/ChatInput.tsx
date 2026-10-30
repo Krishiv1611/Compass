@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { File as FileIcon, FilePenLine, Folder, HelpCircle, ListTree, Loader2, MousePointerClick, Paperclip, Send, Target, X } from "lucide-react";
+import { File as FileIcon, FilePenLine, Folder, HelpCircle, ListTree, Loader2, MousePointerClick, Paperclip, Send, SlidersHorizontal, Target, X } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { workspaceApi } from "@/api";
 import type { ChatMode } from "@/types/chat";
@@ -320,37 +321,18 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
             <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" onClick={() => fileInputRef.current?.click()} disabled={isLoading} title="Attach files" aria-label="Attach files">
               <Paperclip className="h-4 w-4" />
             </Button>
-            <div className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-background p-0.5 mr-2">
-              <button
-                type="button"
-                onClick={() => dispatch({ type: "setContextDrawer", open: true })}
-                disabled={isLoading}
-                className="flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
-                title="Manage skills"
-              >
-                Skills
-              </button>
-              <button
-                type="button"
-                onClick={() => dispatch({ type: "setContextDrawer", open: true })}
-                disabled={isLoading}
-                className="flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
-                title="Available tools"
-              >
-                Tools
-              </button>
-              <button
-                type="button"
-                onClick={() => dispatch({ type: "setContextDrawer", open: true })}
-                disabled={isLoading}
-                className="flex items-center gap-1 rounded px-1.5 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
-                title="Project memory"
-              >
-                Memory
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "setContextDrawer", open: true })}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 rounded-md border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all mr-1.5 shadow-sm"
+              title="Manage skills, tools, and project memory"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 text-sky-400" />
+              <span className="hidden sm:inline">Context</span>
+            </button>
 
-            <div role="radiogroup" aria-label="Conversation mode" className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-background/80 p-0.5 shadow-sm">
+            <div role="radiogroup" aria-label="Conversation mode" className="flex max-w-[calc(100vw-7rem)] items-center overflow-x-auto rounded-md border border-border bg-[#0D1117]/80 p-0.5 shadow-sm">
               <button
                 ref={(element) => { if (element) modeButtonRefs.current.set("ask", element); else modeButtonRefs.current.delete("ask"); }}
                 type="button"
@@ -360,14 +342,19 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("ask")}
                 onKeyDown={(event) => handleModeKeyDown(event, "ask")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
-                  mode === "ask"
-                    ? "bg-sky-500/20 text-sky-400 border border-sky-500/30 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                className={`relative flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors sm:gap-1.5 ${
+                  mode === "ask" ? "text-sky-300" : "text-muted-foreground hover:text-foreground"
                 }`}
                 title="Ask uses read-only project tools"
               >
-                <HelpCircle className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Ask</span>
+                {mode === "ask" && (
+                  <motion.span
+                    layoutId="activeModePill"
+                    className="absolute inset-0 rounded bg-sky-500/20 border border-sky-500/40 shadow-[0_0_10px_rgba(56,189,248,0.2)]"
+                    transition={{ type: "spring", stiffness: 450, damping: 32 }}
+                  />
+                )}
+                <HelpCircle className="relative z-10 h-3.5 w-3.5" /> <span className="relative z-10 hidden sm:inline">Ask</span>
               </button>
               <button
                 ref={(element) => { if (element) modeButtonRefs.current.set("edit", element); else modeButtonRefs.current.delete("edit"); }}
@@ -378,14 +365,19 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("edit")}
                 onKeyDown={(event) => handleModeKeyDown(event, "edit")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
-                  mode === "edit"
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                className={`relative flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors sm:gap-1.5 ${
+                  mode === "edit" ? "text-emerald-300" : "text-muted-foreground hover:text-foreground"
                 }`}
                 title="Edit works directly with project tools"
               >
-                <FilePenLine className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Edit</span>
+                {mode === "edit" && (
+                  <motion.span
+                    layoutId="activeModePill"
+                    className="absolute inset-0 rounded bg-emerald-500/20 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+                    transition={{ type: "spring", stiffness: 450, damping: 32 }}
+                  />
+                )}
+                <FilePenLine className="relative z-10 h-3.5 w-3.5" /> <span className="relative z-10 hidden sm:inline">Edit</span>
               </button>
               <button
                 ref={(element) => { if (element) modeButtonRefs.current.set("plan", element); else modeButtonRefs.current.delete("plan"); }}
@@ -396,14 +388,19 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("plan")}
                 onKeyDown={(event) => handleModeKeyDown(event, "plan")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
-                  mode === "plan"
-                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                className={`relative flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors sm:gap-1.5 ${
+                  mode === "plan" ? "text-amber-300" : "text-muted-foreground hover:text-foreground"
                 }`}
                 title="Plan requires approval before editing"
               >
-                <ListTree className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Plan</span>
+                {mode === "plan" && (
+                  <motion.span
+                    layoutId="activeModePill"
+                    className="absolute inset-0 rounded bg-amber-500/20 border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                    transition={{ type: "spring", stiffness: 450, damping: 32 }}
+                  />
+                )}
+                <ListTree className="relative z-10 h-3.5 w-3.5" /> <span className="relative z-10 hidden sm:inline">Plan</span>
               </button>
               <button
                 ref={(element) => { if (element) modeButtonRefs.current.set("goal", element); else modeButtonRefs.current.delete("goal"); }}
@@ -414,14 +411,19 @@ export default function ChatInput({ onSend, isLoading = false, workspaceId, onCo
                 onClick={() => selectMode("goal")}
                 onKeyDown={(event) => handleModeKeyDown(event, "goal")}
                 disabled={isLoading}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-all sm:gap-1.5 ${
-                  mode === "goal"
-                    ? "bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                className={`relative flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors sm:gap-1.5 ${
+                  mode === "goal" ? "text-purple-300" : "text-muted-foreground hover:text-foreground"
                 }`}
                 title="Goal works autonomously; risky actions still require approval"
               >
-                <Target className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Goal</span>
+                {mode === "goal" && (
+                  <motion.span
+                    layoutId="activeModePill"
+                    className="absolute inset-0 rounded bg-purple-500/20 border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]"
+                    transition={{ type: "spring", stiffness: 450, damping: 32 }}
+                  />
+                )}
+                <Target className="relative z-10 h-3.5 w-3.5" /> <span className="relative z-10 hidden sm:inline">Goal</span>
               </button>
             </div>
           </div>

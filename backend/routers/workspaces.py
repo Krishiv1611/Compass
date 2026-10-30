@@ -739,10 +739,10 @@ async def workspace_terminal_websocket(
             if e2b_key:
                 from agent.sandbox.e2b_adapter import E2BCloudSandbox
                 try:
-                    with E2BCloudSandbox(api_key=e2b_key) as cloud_sb:
-                        res = cloud_sb.run_command(cmd)
-                        out = res.get("stdout", "") + res.get("stderr", "")
-                        await websocket.send_json({"type": "output", "data": out + f"\r\n\x1b[90m[E2B Firecracker exit={res.get('exit_code', 0)}]\x1b[0m\r\n$ "})
+                    async with E2BCloudSandbox(api_key=e2b_key) as cloud_sb:
+                        res = await cloud_sb.run_command(cmd, cwd=str(workspace_dir) if workspace_dir.exists() else None)
+                        out = res.stdout + res.stderr
+                        await websocket.send_json({"type": "output", "data": out + f"\r\n\x1b[90m[E2B Firecracker exit={res.exit_code}]\x1b[0m\r\n$ "})
                         continue
                 except Exception as e:
                     await websocket.send_json({"type": "output", "data": f"\x1b[33mE2B unavailable ({e}), falling back to local runner...\x1b[0m\r\n"})

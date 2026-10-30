@@ -52,12 +52,10 @@ DEFAULT_FALLBACK_MODELS = [
 
 
 def _is_mock_mode(api_key: str | None) -> bool:
-    """Determine whether to use the offline mock adapter."""
+    """Determine whether to use the offline mock adapter (strictly for CI/unit tests)."""
     if os.environ.get("COMPASS_MOCK_LLM", "").lower() in ("1", "true", "yes"):
         return True
-    if not api_key:
-        return True
-    if api_key.lower().startswith(("mock", "dummy", "test")):
+    if api_key and api_key.lower().startswith(("mock", "dummy", "test")):
         return True
     return False
 
@@ -193,7 +191,11 @@ class LiteLLMChatModel(BaseChatModel):
                 )
 
         logger.error("All LiteLLM fallback models failed: %s", last_error)
-        return self._mock_result(messages)
+        if _is_mock_mode(self.api_key):
+            return self._mock_result(messages)
+        raise RuntimeError(
+            f"All LLM fallback models failed ({last_error}). Please configure your API key in Settings or check model availability."
+        )
 
     async def _agenerate(
         self,
@@ -230,7 +232,11 @@ class LiteLLMChatModel(BaseChatModel):
                 )
 
         logger.error("All LiteLLM async fallback models failed: %s", last_error)
-        return self._mock_result(messages)
+        if _is_mock_mode(self.api_key):
+            return self._mock_result(messages)
+        raise RuntimeError(
+            f"All LLM fallback models failed ({last_error}). Please configure your API key in Settings or check model availability."
+        )
 
     def _stream(
         self,
@@ -274,10 +280,15 @@ class LiteLLMChatModel(BaseChatModel):
                     e,
                 )
 
-        yield ChatGenerationChunk(
-            message=AIMessageChunk(
-                content=f"Compass LiteLLM [{self.model}]: Stream response."
+        if _is_mock_mode(self.api_key):
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=f"Compass LiteLLM [{self.model}]: Stream response."
+                )
             )
+            return
+        raise RuntimeError(
+            f"All LLM streaming fallback models failed. Please check your API key in Settings."
         )
 
     async def _astream(
@@ -321,10 +332,15 @@ class LiteLLMChatModel(BaseChatModel):
                     e,
                 )
 
-        yield ChatGenerationChunk(
-            message=AIMessageChunk(
-                content=f"Compass LiteLLM [{self.model}]: Stream response."
+        if _is_mock_mode(self.api_key):
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=f"Compass LiteLLM [{self.model}]: Stream response."
+                )
             )
+            return
+        raise RuntimeError(
+            f"All LLM streaming fallback models failed. Please check your API key in Settings."
         )
 
     def _parse_response(self, response: Any) -> ChatResult:

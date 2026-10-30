@@ -24,23 +24,65 @@ export default function StatusBar() {
   }, []);
 
   return (
-    <footer className="flex h-6 w-full shrink-0 items-center justify-between border-t border-border bg-card px-3 text-xs text-muted-foreground">
-      <div className="flex min-w-0 items-center gap-4">
+    <footer className="flex h-6 w-full shrink-0 items-center justify-between border-t border-border bg-[#080A0E] px-3 text-[11px] font-mono text-muted-foreground select-none">
+      <div className="flex min-w-0 items-center gap-3">
         <span className="flex items-center gap-1.5">
-          {connection === "offline" ? <WifiOff className="h-3 w-3 text-destructive" /> : <Radio className={`h-3 w-3 ${connection === "streaming" ? "text-success" : ""}`} />}
-          {connection}
+          {connection === "offline" ? (
+            <span className="flex items-center gap-1 text-destructive font-medium">
+              <WifiOff className="h-3 w-3" /> Offline
+            </span>
+          ) : connection === "streaming" ? (
+            <span className="flex items-center gap-1 text-sky-400 font-medium">
+              <Radio className="h-3 w-3 animate-pulse" /> Live Stream
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-emerald-400">
+              <Radio className="h-3 w-3" /> Connected
+            </span>
+          )}
         </span>
-        <button type="button" onClick={reviewPatches} className="flex items-center gap-1.5 hover:text-foreground">
-          <Activity className="h-3 w-3" /> {state.pendingPatchCount} changed
+
+        <span className="text-border">|</span>
+
+        <button
+          type="button"
+          onClick={reviewPatches}
+          className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded transition-colors ${
+            state.pendingPatchCount > 0
+              ? "bg-sky-500/15 text-sky-400 border border-sky-500/30 font-semibold"
+              : "hover:text-foreground text-muted-foreground"
+          }`}
+          title="Review staged file patches"
+        >
+          <Activity className="h-3 w-3" />
+          <span>{state.pendingPatchCount} {state.pendingPatchCount === 1 ? "patch" : "patches"}</span>
         </button>
-        <span className="hidden min-w-0 items-center gap-1.5 sm:flex">
-          <GitBranch className="h-3 w-3" /><span className="truncate">{state.projectName}</span>
+
+        <span className="text-border hidden sm:inline">|</span>
+
+        <span className="hidden min-w-0 items-center gap-1.5 sm:flex text-slate-400">
+          <GitBranch className="h-3 w-3 text-sky-400/80" />
+          <span className="truncate max-w-[160px]">{state.projectName || "Studio"}</span>
         </span>
       </div>
-      <div className="flex items-center gap-4">
-        <span className="hidden max-w-64 items-center gap-1.5 sm:flex" title={`${profile.provider} / ${profile.model}`}><Bot className="h-3 w-3 shrink-0" /><span className="truncate">{profile.provider} / {profile.model}</span></span>
-        <span className="hidden items-center gap-1.5 md:flex"><ShieldCheck className="h-3 w-3" /> {profile.permission}</span>
-        <span className="capitalize">{state.mode}</span>
+
+      <div className="flex items-center gap-3">
+        <span
+          className="hidden max-w-64 items-center gap-1.5 sm:flex rounded bg-surface-raised/60 px-1.5 py-0.5 border border-border/60 text-slate-300"
+          title={`LLM Provider: ${profile.provider} | Model: ${profile.model}`}
+        >
+          <Bot className="h-3 w-3 text-sky-400 shrink-0" />
+          <span className="truncate">{profile.model !== "model" ? profile.model : "Universal Router"}</span>
+        </span>
+
+        <span className="hidden items-center gap-1 md:flex text-slate-400">
+          <ShieldCheck className="h-3 w-3 text-emerald-400" />
+          <span>{profile.permission === "fast" ? "Autonomous" : "Hybrid Safety"}</span>
+        </span>
+
+        <span className="rounded bg-sky-500/10 px-1.5 py-0.2 text-[10px] uppercase font-bold text-sky-400 border border-sky-500/20">
+          {state.mode}
+        </span>
       </div>
     </footer>
   );

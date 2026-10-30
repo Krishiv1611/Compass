@@ -11,6 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import TerminalView from "@/components/terminal/TerminalView";
 import { Button } from "@/components/ui/button";
 
@@ -97,16 +98,18 @@ export default function ProDrawer({
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      className={`border-t border-border bg-[#090d16] flex flex-col transition-all duration-200 ${
-        isExpanded ? "h-96" : "h-64"
-      }`}
-    >
-      {/* Header bar */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/80 bg-slate-900/80 px-3 text-xs">
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: isExpanded ? 384 : 256, opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 350, damping: 30 }}
+          className="border-t border-border bg-[#080A0E] flex flex-col overflow-hidden shadow-2xl"
+        >
+          {/* Header bar */}
+          <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/80 bg-[#0D1117] px-3 text-xs">
         {/* Tabs */}
         <div className="flex items-center gap-1">
           <button
@@ -295,6 +298,8 @@ export default function ProDrawer({
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
+  )}
+</AnimatePresence>
   );
 }

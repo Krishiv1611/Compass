@@ -93,17 +93,48 @@ class E2BCloudSandbox:
         start_time = time.perf_counter()
 
         if self._is_mock or not self._sandbox:
-            # Fallback simulator for offline or test environments
-            duration = (time.perf_counter() - start_time) * 1000
-            msg = f"[compass-sandbox-fallback] Command executed: {cmd}"
-            if on_stdout:
-                on_stdout(msg + "\n")
-            return CommandResult(
-                stdout=msg,
-                stderr="",
-                exit_code=0,
-                duration_ms=duration,
-            )
+            # Real local execution runner for local/offline environments
+            target_cwd = cwd or os.getcwd()
+            try:
+                import subprocess
+
+                def _run_sync():
+                    return subprocess.run(
+                        cmd,
+                        cwd=target_cwd,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+
+                proc = await asyncio.to_thread(_run_sync)
+                stdout_str = proc.stdout or ""
+                stderr_str = proc.stderr or ""
+                duration = (time.perf_counter() - start_time) * 1000
+
+                if on_stdout and stdout_str:
+                    on_stdout(stdout_str)
+                if on_stderr and stderr_str:
+                    on_stderr(stderr_str)
+
+                return CommandResult(
+                    stdout=stdout_str,
+                    stderr=stderr_str,
+                    exit_code=proc.returncode if proc.returncode is not None else 0,
+                    duration_ms=duration,
+                )
+            except Exception as exc:
+                duration = (time.perf_counter() - start_time) * 1000
+                err_msg = f"Local command error: {exc}"
+                if on_stderr:
+                    on_stderr(err_msg)
+                return CommandResult(
+                    stdout="",
+                    stderr=err_msg,
+                    exit_code=1,
+                    duration_ms=duration,
+                )
 
         try:
             execution = await self._sandbox.commands.run(
@@ -133,9 +164,18 @@ class E2BCloudSandbox:
             )
 
     async def write_file(self, path: str, content: str) -> bool:
-        """Write a file to the remote microVM filesystem."""
+        """Write a file to the remote microVM filesystem or local disk."""
         if self._is_mock or not self._sandbox:
-            return True
+            try:
+                parent = os.path.dirname(os.path.abspath(path))
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                return True
+            except Exception as exc:
+                logger.warning("Local write_file failed for %s: %s", path, exc)
+                return False
 
         try:
             await self._sandbox.files.write(path, content)
@@ -145,9 +185,16 @@ class E2BCloudSandbox:
             return False
 
     async def read_file(self, path: str) -> str:
-        """Read a file from the remote microVM filesystem."""
+        """Read a file from the remote microVM filesystem or local disk."""
         if self._is_mock or not self._sandbox:
-            return ""
+            try:
+                if not os.path.exists(path):
+                    return ""
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as exc:
+                logger.warning("Local read_file failed for %s: %s", path, exc)
+                return ""
 
         try:
             return await self._sandbox.files.read(path)

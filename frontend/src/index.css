@@ -39,46 +39,46 @@
 @layer base {
   :root {
     color-scheme: light;
-    --canvas: #F4F6F8;
+    --canvas: #F8FAFC;
     --surface: #FFFFFF;
-    --surface-raised: #F9FAFB;
-    --ink: #172027;
-    --ink-muted: #66737D;
-    --border: #D7DDE2;
-    --border-strong: #B9C2C9;
-    --primary: #2864DC;
-    --primary-hover: #1F55C1;
-    --brand: #E0604E;
-    --success: #2E8B62;
-    --warning: #B7791F;
-    --danger: #C64646;
-    --info: #287C9B;
+    --surface-raised: #F1F5F9;
+    --ink: #0F172A;
+    --ink-muted: #64748B;
+    --border: #E2E8F0;
+    --border-strong: #CBD5E1;
+    --primary: #0284C7;
+    --primary-hover: #0369A1;
+    --brand: #6366F1;
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --info: #38BDF8;
     
-    --shadow-sm: 0 1px 2px rgb(23 32 39 / 0.08);
-    --shadow-lg: 0 16px 44px rgb(23 32 39 / 0.14);
+    --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.05);
+    --shadow-lg: 0 16px 44px rgb(15 23 42 / 0.10);
     --motion-fast: 120ms;
     --motion-standard: 180ms;
   }
 
   .dark {
     color-scheme: dark;
-    --canvas: #0F1215;
-    --surface: #151A1E;
-    --surface-raised: #1B2126;
-    --ink: #E7ECEF;
-    --ink-muted: #96A2AA;
-    --border: #2B3339;
-    --border-strong: #46515A;
-    --primary: #6EA2FF;
-    --primary-hover: #8AB3FF;
-    --brand: #F17A67;
-    --success: #4DB889;
-    --warning: #E0A449;
-    --danger: #F06B6B;
-    --info: #53A7C4;
+    --canvas: #080A0E;
+    --surface: #0D1117;
+    --surface-raised: #131822;
+    --ink: #F1F5F9;
+    --ink-muted: #94A3B8;
+    --border: #1C2333;
+    --border-strong: #2D3748;
+    --primary: #38BDF8;
+    --primary-hover: #7DD3FC;
+    --brand: #6366F1;
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --info: #38BDF8;
 
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.25);
-    --shadow-lg: 0 18px 52px rgb(0 0 0 / 0.42);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+    --shadow-lg: 0 20px 56px rgb(0 0 0 / 0.65);
   }
 
   *, ::after, ::before, ::backdrop, ::file-selector-button {
@@ -111,22 +111,34 @@
   }
 }
 
-.glass-header {
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+.glass-header, .studio-glass {
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 
-.glass-card {
-  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+.glass-card, .studio-card {
+  background: color-mix(in srgb, var(--surface-raised) 75%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 .pulse-glow {
-  box-shadow: 0 0 14px color-mix(in srgb, var(--primary) 35%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+.studio-glow-cyan {
+  box-shadow: 0 0 24px -2px rgba(56, 189, 248, 0.25);
+}
+
+.studio-glow-emerald {
+  box-shadow: 0 0 24px -2px rgba(16, 185, 129, 0.25);
+}
+
+.studio-glow-amber {
+  box-shadow: 0 0 24px -2px rgba(245, 158, 11, 0.25);
 }
 
 button, a, [role="button"] {

@@ -13,6 +13,7 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { lazy, Suspense } from "react";
 import { toast } from "react-toastify";
 import { workspaceApi } from "@/api";
@@ -129,41 +130,49 @@ export default function WorkspaceLanding({
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-background px-6 py-10 sm:px-10">
+    <div className="h-full overflow-y-auto bg-[#080A0E] px-6 py-10 sm:px-10">
       <div className="mx-auto max-w-3xl space-y-8">
         {/* Header title */}
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="flex size-6 items-center justify-center rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/25">
+              <Sparkles className="h-3.5 w-3.5" />
+            </span>
+            <span className="text-xs font-mono uppercase tracking-wider text-sky-400 font-semibold">Studio Launchpad</span>
+          </div>
+          <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             New Workspace
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Start a new project from a template, clone an existing GitHub repository, or open a local folder.
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground leading-relaxed">
+            Initialize an isolated project sandbox from a template, connect an existing GitHub repository, or open local code.
           </p>
         </div>
 
         {/* 4 Launchpad Action Cards */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* Card 1: 1-Click Starter Web App */}
-          <button
+          <motion.button
             type="button"
+            whileHover={{ y: -3, scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
             onClick={() => void createStarterApp()}
             disabled={busy === "starter"}
-            className="group relative flex flex-col justify-between rounded-lg border border-border bg-card/60 p-4 text-left transition-all hover:border-sky-500/60 hover:bg-card hover:shadow-lg hover:shadow-sky-500/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            className="group relative flex flex-col justify-between rounded-xl border border-border/80 bg-[#0D1117]/80 p-5 text-left transition-all hover:border-sky-500/60 hover:bg-[#131822] hover:shadow-[0_0_24px_rgba(56,189,248,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
           >
             <div>
               <div className="flex items-center justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/30">
                   <Globe className="h-5 w-5" />
                 </span>
-                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-sky-400 border border-sky-500/30">
-                  Template
+                <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-sky-400 border border-sky-500/30">
+                  Vite + React
                 </span>
               </div>
-              <h2 className="mt-3 text-sm font-semibold text-foreground group-hover:text-sky-400 transition-colors">
+              <h2 className="mt-3.5 text-sm font-semibold text-foreground group-hover:text-sky-400 transition-colors">
                 React + Vite Starter
               </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Standard React application with Vite, Tailwind CSS, and instant live preview.
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                Full-stack web application with Vite, Tailwind CSS, live Canvas preview, and DOM element inspection.
               </p>
             </div>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-sky-400">
@@ -179,57 +188,61 @@ export default function WorkspaceLanding({
                 </>
               )}
             </div>
-          </button>
+          </motion.button>
 
           {/* Card 2: Import from GitHub */}
-          <button
+          <motion.button
             type="button"
+            whileHover={{ y: -3, scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
             onClick={() => void openGitHub()}
-            className="group relative flex flex-col justify-between rounded-lg border border-border bg-card/60 p-4 text-left transition-all hover:border-purple-500/60 hover:bg-card hover:shadow-lg hover:shadow-purple-500/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+            className="group relative flex flex-col justify-between rounded-xl border border-border/80 bg-[#0D1117]/80 p-5 text-left transition-all hover:border-purple-500/60 hover:bg-[#131822] hover:shadow-[0_0_24px_rgba(168,85,247,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
           >
             <div>
               <div className="flex items-center justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/30">
                   <GitFork className="h-5 w-5" />
                 </span>
-                <span className="rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
-                  Git
+                <span className="rounded-full bg-muted/60 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
+                  GitHub
                 </span>
               </div>
-              <h2 className="mt-3 text-sm font-semibold text-foreground group-hover:text-purple-400 transition-colors">
+              <h2 className="mt-3.5 text-sm font-semibold text-foreground group-hover:text-purple-400 transition-colors">
                 Import from GitHub
               </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Connect your GitHub account or clone public and private repositories with branch tracking.
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                Clone repositories with branch tracking, pull request opening, and staged commit reviews.
               </p>
             </div>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-purple-400">
               <span>Select Repository</span>
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
             </div>
-          </button>
+          </motion.button>
 
           {/* Card 3: Upload Local Folder */}
-          <button
+          <motion.button
             type="button"
+            whileHover={{ y: -3, scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
             onClick={() => folderInput.current?.click()}
             disabled={busy === "upload"}
-            className="group relative flex flex-col justify-between rounded-lg border border-border bg-card/60 p-4 text-left transition-all hover:border-emerald-500/60 hover:bg-card hover:shadow-lg hover:shadow-emerald-500/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="group relative flex flex-col justify-between rounded-xl border border-border/80 bg-[#0D1117]/80 p-5 text-left transition-all hover:border-emerald-500/60 hover:bg-[#131822] hover:shadow-[0_0_24px_rgba(16,185,129,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
             <div>
               <div className="flex items-center justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   <FolderUp className="h-5 w-5" />
                 </span>
-                <span className="rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
+                <span className="rounded-full bg-muted/60 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
                   Local
                 </span>
               </div>
-              <h2 className="mt-3 text-sm font-semibold text-foreground group-hover:text-emerald-400 transition-colors">
+              <h2 className="mt-3.5 text-sm font-semibold text-foreground group-hover:text-emerald-400 transition-colors">
                 Upload Project Folder
               </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Upload source files from your local machine into an isolated workspace.
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                Import project files directly from your disk into an isolated workspace with live sync.
               </p>
             </div>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-emerald-400">
@@ -245,7 +258,7 @@ export default function WorkspaceLanding({
                 </>
               )}
             </div>
-          </button>
+          </motion.button>
           <input
             ref={folderInput}
             type="file"
@@ -256,21 +269,24 @@ export default function WorkspaceLanding({
           />
 
           {/* Card 4: Empty / Custom Project */}
-          <div className="group relative flex flex-col justify-between rounded-lg border border-border bg-card/60 p-4 text-left transition-all hover:border-amber-500/60 hover:bg-card">
+          <motion.div
+            whileHover={{ y: -3, scale: 1.01 }}
+            className="group relative flex flex-col justify-between rounded-xl border border-border/80 bg-[#0D1117]/80 p-5 text-left transition-all hover:border-amber-500/60 hover:bg-[#131822] hover:shadow-[0_0_24px_rgba(245,158,11,0.12)]"
+          >
             <div>
               <div className="flex items-center justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">
                   <Terminal className="h-5 w-5" />
                 </span>
-                <span className="rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
+                <span className="rounded-full bg-muted/60 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground border border-border">
                   Blank
                 </span>
               </div>
-              <h2 className="mt-3 text-sm font-semibold text-foreground">
-                Empty Workspace
+              <h2 className="mt-3.5 text-sm font-semibold text-foreground">
+                Blank Studio Workspace
               </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Start from a blank workspace for backend scripts, APIs, or custom workflows.
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                Start with a clean slate for backend Python/FastAPI services, CLI tools, or automated scripts.
               </p>
             </div>
 
@@ -287,7 +303,7 @@ export default function WorkspaceLanding({
                     value={projectName}
                     onChange={(event) => setProjectName(event.target.value)}
                     placeholder="Workspace name..."
-                    className="h-8 text-xs font-mono"
+                    className="h-8 text-xs font-mono bg-background/80"
                     aria-label="Project name"
                     autoFocus
                   />
@@ -311,7 +327,7 @@ export default function WorkspaceLanding({
                 </button>
               )}
             </div>
-          </div>
+          </motion.div>
         </div>
 
         {/* Recent Projects Section */}

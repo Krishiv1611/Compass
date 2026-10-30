@@ -184,33 +184,39 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
   const explorer = <FileExplorer files={files} onFileSelect={(file) => void loadFile(file)} activePath={activeFile?.path} projectName={projectName} onCreate={(parent, type) => void createPath(parent, type)} onRename={(path) => void renamePath(path)} onDelete={(path) => void deletePath(path)} />;
   const mainPanel = (
     <Tabs value={state.centerTab} onValueChange={(tab) => dispatch({ type: "setCenterTab", tab: tab as CenterTab })} className="flex h-full flex-col">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
-        <TabsList className="bg-muted/40 p-0.5">
-          <TabsTrigger value="preview" className="data-[state=active]:bg-background">
-            <Globe className="h-4 w-4 mr-1.5 text-sky-400" />
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-[#0D1117]/60 px-2">
+        <TabsList className="bg-[#080A0E] border border-border/80 p-0.5 rounded-lg">
+          <TabsTrigger value="preview" className="data-[state=active]:bg-[#131822] data-[state=active]:text-sky-300 data-[state=active]:shadow-sm text-xs font-medium px-2.5 py-1">
+            <Globe className="h-3.5 w-3.5 mr-1.5 text-sky-400" />
             <span>Canvas</span>
             {previewFiles && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" title="Live Preview Active" />}
           </TabsTrigger>
-          <TabsTrigger value="editor" className="data-[state=active]:bg-background">
-            <Code2 className="h-4 w-4 mr-1.5" />
+          <TabsTrigger value="editor" className="data-[state=active]:bg-[#131822] data-[state=active]:text-foreground data-[state=active]:shadow-sm text-xs font-medium px-2.5 py-1">
+            <Code2 className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
             <span>Editor</span>
-            {activeFile && <span className="ml-1 text-[11px] text-muted-foreground font-mono">({activeFile.name})</span>}
+            {activeFile && <span className="ml-1 text-[10px] text-muted-foreground font-mono">({activeFile.name})</span>}
           </TabsTrigger>
-          <TabsTrigger value="changes" className="data-[state=active]:bg-background">
-            <GitPullRequest className="h-4 w-4 mr-1.5" />
+          <TabsTrigger value="changes" className="data-[state=active]:bg-[#131822] data-[state=active]:text-foreground data-[state=active]:shadow-sm text-xs font-medium px-2.5 py-1">
+            <GitPullRequest className="h-3.5 w-3.5 mr-1.5 text-purple-400" />
             <span>Changes</span>
             {state.pendingPatchCount > 0 && (
-              <span className="ml-1 rounded-full bg-sky-500/20 px-1.5 py-0.2 text-[10px] text-sky-400 font-mono font-semibold">
+              <span className="ml-1.5 rounded-full bg-sky-500/20 px-1.5 py-0.2 text-[10px] text-sky-400 font-mono font-semibold">
                 {state.pendingPatchCount}
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="checkpoints" className="data-[state=active]:bg-background">
-            <History className="h-4 w-4 mr-1.5" />
+          <TabsTrigger value="checkpoints" className="data-[state=active]:bg-[#131822] data-[state=active]:text-foreground data-[state=active]:shadow-sm text-xs font-medium px-2.5 py-1">
+            <History className="h-3.5 w-3.5 mr-1.5 text-amber-400" />
             <span>Snapshots</span>
           </TabsTrigger>
         </TabsList>
-        {state.centerTab === "editor" && <Button size="sm" variant="ghost" onClick={() => void saveFile()} disabled={!isDirty || !activeFile}>{isDirty && <span className="h-2 w-2 rounded-full bg-warning" aria-label="Unsaved changes" />}<Save className="h-4 w-4" /> Save</Button>}
+        {state.centerTab === "editor" && (
+          <Button size="sm" variant="ghost" onClick={() => void saveFile()} disabled={!isDirty || !activeFile} className="h-7 text-xs">
+            {isDirty && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse mr-1" aria-label="Unsaved changes" />}
+            <Save className="h-3.5 w-3.5 mr-1 text-sky-400" />
+            <span>Save</span>
+          </Button>
+        )}
       </div>
       <div className="min-h-0 flex-1">
         <TabsContent value="editor" className="m-0 h-full">

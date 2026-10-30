@@ -11,6 +11,50 @@ _SAFE_TOOL_NAMES = {
     "web_search",
 }
 
+SAFE_COMMAND_PREFIXES = (
+    "npm test",
+    "pnpm test",
+    "yarn test",
+    "bun test",
+    "vitest",
+    "jest",
+    "npm run test",
+    "npm run build",
+    "pnpm run build",
+    "npm run lint",
+    "pnpm run lint",
+    "pytest",
+    "python -m unittest",
+    "python -m pytest",
+    "git status",
+    "git diff",
+    "git log",
+    "git branch",
+    "npm install",
+    "pnpm install",
+    "yarn install",
+    "tsc --noEmit",
+    "cargo check",
+    "cargo test",
+    "go test",
+    "echo ",
+)
+
+
+def is_safe_shell_command(command: str) -> bool:
+    """Return True if command is recognized as safe build, test, lint, or inspection."""
+    if not command or not isinstance(command, str):
+        return False
+    normalized = command.strip().lower()
+    for prefix in SAFE_COMMAND_PREFIXES:
+        p_lower = prefix.lower().strip()
+        if normalized == p_lower or normalized.startswith(p_lower):
+            # Guard against chained destructive commands
+            if any(op in normalized for op in [";", "&&", "||", "|", "`", "$("]):
+                return False
+            return True
+    return False
+
 
 def configured_blocked_patterns() -> list[str]:
     """Return non-empty command patterns configured by the user."""
@@ -42,6 +86,11 @@ def requires_approval(
 
     if safety_mode == "strict":
         return True
+
+    if tool_name in ("execute_command", "shell_execute"):
+        cmd = tool_args.get("command", "")
+        if is_safe_shell_command(cmd):
+            return not settings.get("hitl.auto_approve_safe", True)
 
     risk = "safe" if tool_name in _SAFE_TOOL_NAMES else "approval"
 

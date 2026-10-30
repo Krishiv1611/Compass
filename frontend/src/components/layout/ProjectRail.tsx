@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Compass, Copy, FolderOpen, Loader2, MoreHorizontal, Pencil, Plus, Sparkles, Plug, Settings, Trash2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -89,27 +90,43 @@ export default function ProjectRail({ sessionState, onOpenSettings, onCloseMobil
   }, {} as Record<string, SessionSummary[]>);
 
   return (
-    <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-3 border-b border-border px-4 bg-header">
-        <div className="flex size-8 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+    <aside className="flex h-full w-full flex-col bg-[#080A0E] text-sidebar-foreground border-r border-border">
+      <div className="flex h-12 items-center gap-2.5 border-b border-border px-3 bg-header/60">
+        <div className="flex size-7 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary shadow-[0_0_10px_rgba(56,189,248,0.2)]">
           <Compass className="h-4 w-4" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">Compass</div>
-          <div className="text-xs text-muted-foreground">Coding workspace</div>
+          <div className="truncate text-xs font-semibold text-foreground tracking-tight">Compass Studio</div>
+          <div className="text-[10px] text-muted-foreground font-mono">Autonomous Workspace</div>
         </div>
       </div>
 
-      <div className="space-y-3 border-b border-border p-4">
-        <Button className="h-9 w-full justify-start" onClick={handleNewChat}>
-          <Plus className="mr-2 h-4 w-4" /> New task
+      <div className="space-y-2 border-b border-border p-3">
+        <Button
+          className="group relative h-8 w-full justify-start text-xs font-medium bg-primary/15 text-primary hover:bg-primary/25 border border-primary/30 transition-all shadow-[0_0_12px_rgba(56,189,248,0.1)]"
+          onClick={handleNewChat}
+        >
+          <Plus className="mr-2 h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
+          <span>New task</span>
         </Button>
-        <div className="grid grid-cols-1 gap-2">
-          <Button variant="ghost" className="h-9 w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => onOpenSettings("skills")}>
-            <Sparkles className="h-4 w-4 mr-2" /> Skills
+        <div className="grid grid-cols-2 gap-1.5 pt-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-full justify-start text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted font-normal px-2"
+            onClick={() => onOpenSettings("skills")}
+          >
+            <Sparkles className="h-3 w-3 mr-1.5 text-amber-400" />
+            <span>Skills</span>
           </Button>
-          <Button variant="ghost" className="h-9 w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => onOpenSettings("mcp")}>
-            <Plug className="h-4 w-4 mr-2" /> Connectors
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-full justify-start text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted font-normal px-2"
+            onClick={() => onOpenSettings("mcp")}
+          >
+            <Plug className="h-3 w-3 mr-1.5 text-sky-400" />
+            <span>Connectors</span>
           </Button>
         </div>
       </div>
@@ -117,34 +134,34 @@ export default function ProjectRail({ sessionState, onOpenSettings, onCloseMobil
       <ScrollArea className="flex-1">
         <div className="space-y-2 p-3">
           <div className="flex items-center justify-between px-1">
-            <h4 className="text-xs font-semibold text-muted-foreground">Projects</h4>
-            {isLoadingSessions && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            <h4 className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">Projects</h4>
+            {isLoadingSessions && <Loader2 className="h-3 w-3 animate-spin text-sky-400" />}
           </div>
 
           {sessions.length === 0 && !isLoadingSessions ? (
-            <div className="rounded-lg border border-dashed border-border p-3 text-xs leading-5 text-muted-foreground">
+            <div className="rounded-lg border border-dashed border-border/80 p-3 text-xs leading-5 text-muted-foreground">
               Your tasks will appear here after the first message.
             </div>
           ) : (
             <div className="space-y-4">
               {Object.entries(groupedSessions).map(([groupName, groupSessions]) => (
                 <div key={groupName} className="space-y-0.5">
-                  <div className="flex items-center gap-2 px-1 py-1.5 text-sm font-semibold text-foreground">
-                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-1.5 px-1 py-1 text-xs font-semibold text-slate-300">
+                    <FolderOpen className="h-3.5 w-3.5 text-sky-400/80" />
                     <span className="truncate">{groupName}</span>
                   </div>
                   {groupSessions.length === 0 ? (
-                    <div className="pl-7 text-xs text-muted-foreground py-1">No tasks</div>
+                    <div className="pl-6 text-[11px] text-muted-foreground py-1">No tasks</div>
                   ) : (
                     groupSessions.map((session) => {
                       const active = session.id === activeSessionId;
                       return (
                         <div
                           key={session.id}
-                          className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ml-2 transition-none border-l-2 ${
+                          className={`group relative flex items-center gap-1 rounded-md px-2 py-1.5 ml-1 transition-all border ${
                             active
-                              ? "bg-muted border-accent text-foreground font-medium"
-                              : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
+                              ? "bg-sky-500/10 border-sky-500/30 text-foreground font-medium shadow-[0_0_12px_rgba(56,189,248,0.1)]"
+                              : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                           }`}
                         >
                           <button
@@ -154,11 +171,14 @@ export default function ProjectRail({ sessionState, onOpenSettings, onCloseMobil
                               onCloseMobile?.();
                             }}
                           >
-                            <span className="truncate text-[13px]">{session.title || "Untitled task"}</span>
+                            <span className="truncate text-[12px]">{session.title || "Untitled task"}</span>
                           </button>
                           <DropdownMenu>
-                          <DropdownMenuTrigger aria-label={`Task actions for ${session.title || "Untitled task"}`} className="flex size-7 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 aria-expanded:opacity-100">
-                              <MoreHorizontal className="h-4 w-4" />
+                            <DropdownMenuTrigger
+                              aria-label={`Task actions for ${session.title || "Untitled task"}`}
+                              className="flex size-6 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 aria-expanded:opacity-100 text-muted-foreground hover:text-foreground"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-36">
                               <DropdownMenuItem
@@ -166,17 +186,17 @@ export default function ProjectRail({ sessionState, onOpenSettings, onCloseMobil
                                 onClick={() => void executeFork(session)}
                               >
                                 {forkingSessionId === session.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
-                                  <Copy className="h-4 w-4" />
+                                  <Copy className="h-3.5 w-3.5" />
                                 )}
                                 Fork task
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => { setSessionToRename(session); setRenameTitle(session.title || ""); }}>
-                                <Pencil className="h-4 w-4" /> Rename
+                                <Pencil className="h-3.5 w-3.5" /> Rename
                               </DropdownMenuItem>
                               <DropdownMenuItem variant="destructive" onClick={() => setSessionToDelete(session)}>
-                                <Trash2 className="h-4 w-4" /> Delete
+                                <Trash2 className="h-3.5 w-3.5" /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
