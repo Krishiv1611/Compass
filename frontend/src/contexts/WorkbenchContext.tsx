@@ -53,6 +53,7 @@ export interface WorkbenchState {
 export type WorkbenchAction =
   | { type: "setWorkspace"; workspaceId: string | null; projectName?: string }
   | { type: "openFile"; file: WorkbenchFile }
+  | { type: "closeFile"; path: string }
   | { type: "setCenterTab"; tab: CenterTab }
   | { type: "setMobileDestination"; destination: MobileDestination }
   | { type: "setPendingPatchCount"; count: number }
@@ -120,6 +121,31 @@ function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState
           : [...state.openFiles, action.file.path],
         centerTab: "editor",
       };
+    case "closeFile": {
+      const closedIndex = state.openFiles.indexOf(action.path);
+      const openFiles = state.openFiles.filter((path) => path !== action.path);
+      let activeFile = state.activeFile;
+
+      if (state.activeFile?.path === action.path) {
+        if (openFiles.length === 0) {
+          activeFile = null;
+        } else {
+          const nextIndex = Math.min(Math.max(0, closedIndex), openFiles.length - 1);
+          const nextPath = openFiles[nextIndex];
+          activeFile = {
+            path: nextPath,
+            name: nextPath.split("/").pop() || nextPath,
+            type: "file",
+          };
+        }
+      }
+
+      return {
+        ...state,
+        openFiles,
+        activeFile,
+      };
+    }
     case "setCenterTab": return { ...state, centerTab: action.tab };
     case "setMobileDestination": return { ...state, mobileDestination: action.destination };
     case "setPendingPatchCount": return { ...state, pendingPatchCount: Math.max(0, action.count) };
@@ -156,6 +182,7 @@ interface WorkbenchContextValue {
   state: WorkbenchState;
   dispatch: Dispatch<WorkbenchAction>;
   openFile: (file: WorkbenchFile) => void;
+  closeFile: (path: string) => void;
   openChanges: (path?: string) => void;
   openPreview: () => void;
   openActivity: () => void;
@@ -178,6 +205,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const openFile = useCallback((file: WorkbenchFile) => {
     dispatch({ type: "openFile", file });
     dispatch({ type: "setMobileDestination", destination: "editor" });
+  }, []);
+  const closeFile = useCallback((path: string) => {
+    dispatch({ type: "closeFile", path });
   }, []);
   const openChanges = useCallback((_path?: string) => {
     dispatch({ type: "setCenterTab", tab: "changes" });
@@ -204,11 +234,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   }, [state.selectedContextFiles]);
 
   const value = useMemo<WorkbenchContextValue>(() => ({
-    state, dispatch, openFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
+    state, dispatch, openFile, closeFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
     setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged, notifyCheckpointsChanged,
     setContextFiles, removeContextFile,
   }), [
-    state, openFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
+    state, openFile, closeFile, openChanges, openPreview, openActivity, refreshWorkspace, refreshBackendContext,
     setMode, startNewTask, reviewPatches, openSettings, notifyPatchesChanged, notifyCheckpointsChanged,
     setContextFiles, removeContextFile,
   ]);

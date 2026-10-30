@@ -14,6 +14,7 @@ import WorkspaceHeader from "@/components/sandbox/WorkspaceHeader";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ProDrawer from "@/components/workbench/ProDrawer";
+import EditorTabBar from "@/components/workbench/EditorTabBar";
 import { beginLoad, editFile, emptyEditorState, invalidateWorkspace, isDirty as entryIsDirty, markSaved, selectEntry, shouldReloadEntry, storeLoadedFile } from "./editorState";
 
 const DiffReviewPanel = lazy(() => import("@/components/sandbox/DiffReviewPanel"));
@@ -28,7 +29,7 @@ const languageFromName = (name: string) => {
 };
 
 export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspaceId: string | null }) {
-  const { state, dispatch, openFile, openPreview, refreshWorkspace, notifyPatchesChanged } = useWorkbench();
+  const { state, dispatch, openFile, closeFile, openPreview, refreshWorkspace, notifyPatchesChanged } = useWorkbench();
   const { files, projectName, projectSelected, refreshTree } = useWorkspaceTree(activeWorkspaceId);
   const [editorState, setEditorState] = useState(emptyEditorState);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
@@ -50,9 +51,12 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
   const code = entry?.content ?? "";
   const isDirty = Boolean(activeFile && activeWorkspaceId && entryIsDirty(editorState, activeWorkspaceId, activeFile.path));
 
+  const handleCloseFile = useCallback((path: string) => {
+    closeFile(path);
+  }, [closeFile]);
+
   const loadFile = useCallback(async (file: FileNode) => {
     if (file.type !== "file" || !activeWorkspaceId) return;
-    if (activeFile && activeFile.path !== file.path && isDirty && !window.confirm(`Discard unsaved changes in ${activeFile.name}?`)) return;
     openFile({ path: file.path, name: file.name, type: "file" });
     if (selectEntry(editorState, activeWorkspaceId, file.path)?.invalidated === false) return;
     loadController.current?.abort();
@@ -70,7 +74,7 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
     } finally {
       if (generation === loadGeneration.current) setLoadingPath(null);
     }
-  }, [activeFile, activeWorkspaceId, editorState, isDirty, openFile]);
+  }, [activeWorkspaceId, editorState, openFile]);
 
   useEffect(() => {
     if (!activeFile || !activeWorkspaceId || !shouldReloadEntry(editorState, activeWorkspaceId, activeFile.path)) return;
@@ -98,6 +102,12 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
       if ((event.ctrlKey || event.metaKey) && event.key === "`") {
         event.preventDefault();
         dispatch({ type: "setProDrawer", open: !state.proDrawerOpen });
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
+        if (!event.defaultPrevented && activeFile) {
+          event.preventDefault();
+          handleCloseFile(activeFile.path);
+        }
       }
     };
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -219,9 +229,51 @@ export default function CenterWorkbench({ activeWorkspaceId }: { activeWorkspace
         )}
       </div>
       <div className="min-h-0 flex-1">
-        <TabsContent value="editor" className="m-0 h-full">
-          {entry?.invalidated && isDirty && <div className="border-b border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">This file changed on disk. Save your version or reopen the file to review the newer copy.</div>}
-          {loadingPath === activeFile?.path ? <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Opening {activeFile?.name}</div> : activeFile ? <Suspense fallback={panelFallback}><CodeMirrorEditor key={`${activeWorkspaceId}:${activeFile.path}`} language={activeLanguage} code={code} onChange={(value) => activeWorkspaceId && setEditorState(items => editFile(items, activeWorkspaceId, activeFile.path, value))} /></Suspense> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">Choose a file from Files.</div>}
+        <TabsContent value="editor" className="m-0 flex h-full flex-col">
+          <EditorTabBar
+            openFiles={state.openFiles}
+            activePath={activeFile?.path}
+            onSelectFile={(path) => {
+              const name = path.split("/").pop() || path;
+              void loadFile({ path, name, type: "file" });
+            }}
+            onCloseFile={handleCloseFile}
+            isDirty={(path) => Boolean(activeWorkspaceId && entryIsDirty(editorState, activeWorkspaceId, path))}
+          />
+          {entry?.invalidated && isDirty && (
+            <div className="border-b border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning shrink-0">
+              This file changed on disk. Save your version or reopen the file to review the newer copy.
+            </div>
+          )}
+          <div className="min-h-0 flex-1">
+            {loadingPath === activeFile?.path ? (
+              <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Opening {activeFile?.name}
+              </div>
+            ) : activeFile && state.openFiles.includes(activeFile.path) ? (
+              <Suspense fallback={panelFallback}>
+                <CodeMirrorEditor
+                  key={`${activeWorkspaceId}:${activeFile.path}`}
+                  language={activeLanguage}
+                  code={code}
+                  onChange={(value) =>
+                    activeWorkspaceId &&
+                    setEditorState((items) =>
+                      editFile(items, activeWorkspaceId, activeFile.path, value)
+                    )
+                  }
+                />
+              </Suspense>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                <Code2 className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                <p className="font-medium text-foreground/80 mb-1">No file is open</p>
+                <p className="text-xs text-muted-foreground">
+                  Select a file from the explorer or press <kbd className="px-1.5 py-0.5 text-[11px] font-mono bg-muted/60 rounded border border-border/80 text-foreground/70">Ctrl+P</kbd>
+                </p>
+              </div>
+            )}
+          </div>
         </TabsContent>
         <TabsContent value="changes" className="m-0 h-full">
           {state.centerTab === "changes" && <Suspense fallback={panelFallback}><DiffReviewPanel workspaceId={activeWorkspaceId} onResolved={() => { notifyPatchesChanged(); refreshWorkspace(); }} onOpenFile={(path) => { const name = path.split("/").pop() || path; void loadFile({ path, name, type: "file" }); }} /></Suspense>}
