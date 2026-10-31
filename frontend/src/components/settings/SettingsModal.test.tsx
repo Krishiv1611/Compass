@@ -83,7 +83,7 @@ describe("SettingsModal Enterprise Model Control Plane", () => {
     vi.mocked(useWorkbench).mockReturnValue({
       state: { activeSkill: null } as any,
       dispatch: mockDispatch,
-    });
+    } as any);
 
     vi.mocked(useTheme).mockReturnValue({
       theme: "dark",
