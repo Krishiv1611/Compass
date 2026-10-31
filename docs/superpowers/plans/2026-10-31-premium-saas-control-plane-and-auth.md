@@ -30,11 +30,11 @@
 - Consumes: `useAuth`, `authApi.getGithubAuthUrl`, `authApi.getGoogleAuthUrl`
 - Produces: Responsive split-screen login page with left-side architecture telemetry showcase (agent state machine, runner status, feature highlights) and right-side elevated obsidian glass `AuthSurface`.
 
-- [ ] **Step 1: Write unit tests in `frontend/src/pages/LoginPage.test.tsx`**
-- [ ] **Step 2: Update `AuthSurface.tsx` with luxury obsidian glass styling and Framer Motion tab slider**
-- [ ] **Step 3: Redesign `LoginPage.tsx` into the split-screen luxury architecture showcase**
-- [ ] **Step 4: Run tests and verify: `npm --prefix frontend run test -- --run src/pages/LoginPage.test.tsx`**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write unit tests in `frontend/src/pages/LoginPage.test.tsx`**
+- [x] **Step 2: Update `AuthSurface.tsx` with luxury obsidian glass styling and Framer Motion tab slider**
+- [x] **Step 3: Redesign `LoginPage.tsx` into the split-screen luxury architecture showcase**
+- [x] **Step 4: Run tests and verify: `npm --prefix frontend run test -- --run src/pages/LoginPage.test.tsx`**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -48,10 +48,10 @@
 - Consumes: `preferencesApi.testProvider`, `ProviderTestResponse` (`latency_ms`, `success`, `error`)
 - Produces: Interactive "Test Connection & Ping" button, animated latency badge (`134.2ms · Operational` with emerald glow), model capability tags, and transparent error feedback.
 
-- [ ] **Step 1: Write unit tests in `frontend/src/components/settings/SettingsModal.test.tsx`**
-- [ ] **Step 2: Update `SettingsModal.tsx` to display real `ProviderTestResponse` latency badges and capability tags**
-- [ ] **Step 3: Run tests and verify: `npm --prefix frontend run test -- --run src/components/settings/SettingsModal.test.tsx`**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Write unit tests in `frontend/src/components/settings/SettingsModal.test.tsx`**
+- [x] **Step 2: Update `SettingsModal.tsx` to display real `ProviderTestResponse` latency badges and capability tags**
+- [x] **Step 3: Run tests and verify: `npm --prefix frontend run test -- --run src/components/settings/SettingsModal.test.tsx`**
+- [x] **Step 4: Commit**
 
 ---
 
@@ -65,16 +65,16 @@
 - Consumes: `toolsApi.listTools` (`/tools`), `mcpApi.getMcpServers`
 - Produces: Real agent capability catalog with tool category glyphs, environment tags (Web / Host), and safety indicators.
 
-- [ ] **Step 1: Write unit tests in `frontend/src/components/settings/McpServerManager.test.tsx`**
-- [ ] **Step 2: Update `McpServerManager.tsx` to list active agent capabilities and tools**
-- [ ] **Step 3: Run tests and verify: `npm --prefix frontend run test -- --run src/components/settings/McpServerManager.test.tsx`**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Write unit tests in `frontend/src/components/settings/McpServerManager.test.tsx`**
+- [x] **Step 2: Update `McpServerManager.tsx` to list active agent capabilities and tools**
+- [x] **Step 3: Run tests and verify: `npm --prefix frontend run test -- --run src/components/settings/McpServerManager.test.tsx`**
+- [x] **Step 4: Commit**
 
 ---
 
 ### Task 4: Full Quality Gates & Production Build
 
-- [ ] **Step 1: Run all frontend unit tests (`npm --prefix frontend run test -- --run`)**
-- [ ] **Step 2: Run frontend production build (`npm --prefix frontend run build`)**
-- [ ] **Step 3: Run backend unit test discovery (`uv run --no-sync python -m unittest discover tests`)**
-- [ ] **Step 4: Multi-file git review, commit, and push to origin/main**
+- [x] **Step 1: Run all frontend unit tests (`npm --prefix frontend run test -- --run`)**
+- [x] **Step 2: Run frontend production build (`npm --prefix frontend run build`)**
+- [x] **Step 3: Run backend unit test discovery (`uv run --no-sync python -m unittest discover tests`)**
+- [x] **Step 4: Multi-file git review, commit, and push to origin/main**
