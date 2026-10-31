@@ -1,4 +1,4 @@
-import { Compass, RefreshCcw, Sparkles, TestTube2, Eye, GitPullRequest } from "lucide-react";
+import { Compass, Sparkles, TestTube2, Eye, GitPullRequest } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MessageRow from "./MessageRow";
 import ToolCallCard from "./ToolCallCard";
@@ -113,39 +113,10 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <AnimatePresence initial={false}>
         {messages.map((msg, idx) => {
-          const isUser = msg.role === "user";
           const isTool = msg.role === "tool";
-
-          if (isUser) {
-            return (
-              <motion.div
-                key={msg.id || idx}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-                className="group relative border-l-[3px] border-primary/50 pl-4 py-1 mt-2"
-              >
-                <div className="mb-1.5 flex items-center justify-between text-xs font-semibold text-muted-foreground font-mono">
-                  <span className="text-sky-400">User Prompt</span>
-                  {idx === messages.length - 1 && !isLoading && (
-                    <button
-                      className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity text-muted-foreground hover:text-foreground"
-                      title="Retry message"
-                      onClick={() => onRetry(msg.content || "")}
-                    >
-                      <RefreshCcw className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-                <div className="whitespace-pre-wrap text-sm font-medium leading-relaxed text-foreground">
-                  {msg.content}
-                </div>
-              </motion.div>
-            );
-          }
 
           if (isTool) {
             let parsedArgs = msg.tool_args || {};
@@ -171,7 +142,7 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18 }}
-                className="pl-4 py-1 border-l-[3px] border-transparent"
+                className="my-1"
               >
                 <ToolCallCard
                   toolName={toolName}
@@ -191,7 +162,12 @@ export default function MessageList({ messages, isLoading, onRetry, pendingAppro
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <MessageRow key={msg.id || idx} message={msg} />
+              <MessageRow
+                message={msg}
+                onRetry={onRetry}
+                isLast={idx === messages.length - 1}
+                isLoading={isLoading}
+              />
             </motion.div>
           );
         })}

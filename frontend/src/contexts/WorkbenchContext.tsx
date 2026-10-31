@@ -178,7 +178,7 @@ function reducer(state: WorkbenchState, action: WorkbenchAction): WorkbenchState
   }
 }
 
-interface WorkbenchContextValue {
+export interface WorkbenchContextValue {
   state: WorkbenchState;
   dispatch: Dispatch<WorkbenchAction>;
   openFile: (file: WorkbenchFile) => void;
