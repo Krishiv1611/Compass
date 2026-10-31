@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Check, Loader2, LogOut, Palette, Settings, Shield, UserCircle } from "lucide-react";
+import { Activity, Bot, Check, Loader2, LogOut, Palette, Settings, Shield, UserCircle } from "lucide-react";
 import { preferencesApi } from "@/api";
 import type { AuthUser } from "@/types/auth";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,6 +23,39 @@ interface SafePreferences {
   fast_mode: boolean;
   has_llm_api_key: boolean;
 }
+
+interface ProviderTestResult {
+  provider: string;
+  model: string;
+  success: boolean;
+  latency_ms: number;
+  error: string | null;
+}
+
+interface ModelPreset {
+  label: string;
+  model: string;
+  provider?: string;
+  tags: { label: string; className: string }[];
+}
+
+const FREE_MODEL_PRESETS: ModelPreset[] = [
+  { label: "openrouter/free (Auto)", model: "openrouter/free", tags: [{ label: "Auto", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" }] },
+  { label: "DeepSeek R1 :free", model: "deepseek/deepseek-r1:free", tags: [{ label: "Reasoning", className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300" }] },
+  { label: "Qwen 2.5 Coder :free", model: "qwen/qwen-2.5-coder-32b-instruct:free", tags: [{ label: "Coder", className: "border-sky-500/30 bg-sky-500/10 text-sky-300" }] },
+  { label: "Llama 3.3 70B :free", model: "meta-llama/llama-3.3-70b-instruct:free", tags: [{ label: "General", className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300" }] },
+  { label: "DeepSeek V3 :free", model: "deepseek/deepseek-chat:free", tags: [{ label: "Coder", className: "border-sky-500/30 bg-sky-500/10 text-sky-300" }] },
+];
+
+const STANDARD_MODEL_PRESETS: ModelPreset[] = [
+  { label: "Gemini 3.8 Flash", model: "gemini/gemini-3.8-flash", provider: "google", tags: [{ label: "Vision", className: "border-amber-500/30 bg-amber-500/10 text-amber-300" }, { label: "Fast", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" }] },
+  { label: "DeepSeek R1", model: "deepseek/deepseek-r1", provider: "openrouter", tags: [{ label: "Reasoning", className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300" }] },
+  { label: "Qwen 2.5 Coder", model: "qwen/qwen-2.5-coder-32b-instruct", provider: "openrouter", tags: [{ label: "Coder", className: "border-sky-500/30 bg-sky-500/10 text-sky-300" }] },
+  { label: "Llama 3.3 70B", model: "meta-llama/llama-3.3-70b-instruct", provider: "openrouter", tags: [{ label: "General", className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300" }] },
+  { label: "DeepSeek V3", model: "deepseek/deepseek-chat", provider: "openrouter", tags: [{ label: "Coder", className: "border-sky-500/30 bg-sky-500/10 text-sky-300" }] },
+  { label: "Codestral", model: "mistralai/codestral-2501", provider: "openrouter", tags: [{ label: "Coder", className: "border-sky-500/30 bg-sky-500/10 text-sky-300" }] },
+  { label: "Nemotron 70B", model: "nvidia/llama-3.1-nemotron-70b-instruct", provider: "openrouter", tags: [{ label: "Reasoning", className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-300" }] },
+];
 
 const defaults: SafePreferences = {
   theme: "system",
@@ -66,6 +99,7 @@ export default function SettingsModal({
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [providerBusy, setProviderBusy] = useState<"test" | "remove" | null>(null);
+  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
   const activeTab = useMemo(() => normalizeTab(initialTab), [initialTab]);
 
   useEffect(() => {
@@ -74,13 +108,14 @@ export default function SettingsModal({
     setLoaded(false);
     setNewApiKey("");
     setError(null);
+    setTestResult(null);
     preferencesApi.getSettings()
       .then((value) => { setPreferences({ ...defaults, ...value, theme: value.theme || "system" }); setLoaded(true); })
       .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Could not load settings"))
       .finally(() => setLoading(false));
   }, [open, user]);
 
-  const close = () => { setNewApiKey(""); onOpenChange(false); };
+  const close = () => { setNewApiKey(""); setTestResult(null); onOpenChange(false); };
 
   const save = async () => {
     if (!preferences.model.trim()) {
@@ -111,11 +146,25 @@ export default function SettingsModal({
   };
 
   const testProvider = async () => {
-    setProviderBusy("test"); setError(null);
+    setProviderBusy("test");
+    setError(null);
+    setTestResult(null);
     try {
-      await preferencesApi.testProvider({ provider: preferences.llm_provider, model: preferences.model.trim(), ...(newApiKey ? { api_key: newApiKey } : {}) });
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Provider test failed"); }
-    finally { setProviderBusy(null); }
+      const result = (await preferencesApi.testProvider({
+        provider: preferences.llm_provider,
+        model: preferences.model.trim(),
+        ...(newApiKey ? { api_key: newApiKey } : {}),
+      })) as ProviderTestResult;
+      setTestResult(result);
+      if (!result.success && result.error) {
+        setError(result.error);
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Provider test failed");
+      setTestResult(null);
+    } finally {
+      setProviderBusy(null);
+    }
   };
 
   const removeCredential = async () => {
@@ -167,7 +216,10 @@ export default function SettingsModal({
                 <Field label="Provider">
                   <select
                     value={preferences.llm_provider}
-                    onChange={(event) => setPreferences((value) => ({ ...value, llm_provider: event.target.value }))}
+                    onChange={(event) => {
+                      setPreferences((value) => ({ ...value, llm_provider: event.target.value }));
+                      setTestResult(null);
+                    }}
                     className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
                     <option value="openrouter">OpenRouter (DeepSeek, Qwen, Llama)</option>
@@ -181,43 +233,54 @@ export default function SettingsModal({
                   <Field label="Model">
                     <Input
                       value={preferences.model}
-                      onChange={(event) => setPreferences((value) => ({ ...value, model: event.target.value }))}
+                      onChange={(event) => {
+                        setPreferences((value) => ({ ...value, model: event.target.value }));
+                        setTestResult(null);
+                      }}
                       placeholder="Provider model identifier (e.g. qwen/qwen-2.5-coder-32b-instruct)"
                     />
                   </Field>
-                  <div className="mt-3 space-y-2.5">
+                  <div className="mt-3 space-y-3">
                     <div>
                       <div className="flex items-center gap-1.5 mb-1.5">
                         <span className="text-[11px] font-semibold text-emerald-400">Free Models</span>
                         <span className="text-[10px] text-muted-foreground font-mono">(Zero credits required on OpenRouter)</span>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
-                        {[
-                          { label: "openrouter/free (Auto)", model: "openrouter/free" },
-                          { label: "DeepSeek R1 :free", model: "deepseek/deepseek-r1:free" },
-                          { label: "Qwen 2.5 Coder :free", model: "qwen/qwen-2.5-coder-32b-instruct:free" },
-                          { label: "Llama 3.3 70B :free", model: "meta-llama/llama-3.3-70b-instruct:free" },
-                          { label: "DeepSeek V3 :free", model: "deepseek/deepseek-chat:free" },
-                        ].map((preset) => (
-                          <button
-                            key={preset.model}
-                            type="button"
-                            onClick={() =>
-                              setPreferences((prev) => ({
-                                ...prev,
-                                llm_provider: "openrouter",
-                                model: preset.model,
-                              }))
-                            }
-                            className={`rounded border px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                              preferences.model === preset.model
-                                ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 font-medium"
-                                : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300 hover:border-emerald-500/60 hover:bg-emerald-500/10"
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
+                        {FREE_MODEL_PRESETS.map((preset) => {
+                          const isSelected = preferences.model === preset.model;
+                          return (
+                            <button
+                              key={preset.model}
+                              type="button"
+                              onClick={() => {
+                                setPreferences((prev) => ({
+                                  ...prev,
+                                  llm_provider: "openrouter",
+                                  model: preset.model,
+                                }));
+                                setTestResult(null);
+                              }}
+                              className={`flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] transition-colors ${
+                                isSelected
+                                  ? "border-emerald-500 bg-emerald-500/15 text-emerald-300 font-medium shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300/90 hover:border-emerald-500/60 hover:bg-emerald-500/10"
+                              }`}
+                            >
+                              <span>{preset.label}</span>
+                              <div className="flex items-center gap-1">
+                                {preset.tags.map((tag) => (
+                                  <span
+                                    key={tag.label}
+                                    className={`rounded border px-1 py-0.2 text-[9px] font-sans font-medium tracking-tight ${tag.className}`}
+                                  >
+                                    {tag.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -226,40 +289,104 @@ export default function SettingsModal({
                         <span className="text-[11px] font-semibold text-muted-foreground">Standard / Direct Models</span>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
-                        {[
-                          { label: "Gemini 3.8 Flash", model: "gemini/gemini-3.8-flash", provider: "google" },
-                          { label: "DeepSeek R1", model: "deepseek/deepseek-r1", provider: "openrouter" },
-                          { label: "Qwen 2.5 Coder", model: "qwen/qwen-2.5-coder-32b-instruct", provider: "openrouter" },
-                          { label: "Llama 3.3 70B", model: "meta-llama/llama-3.3-70b-instruct", provider: "openrouter" },
-                          { label: "DeepSeek V3", model: "deepseek/deepseek-chat", provider: "openrouter" },
-                          { label: "Codestral", model: "mistralai/codestral-2501", provider: "openrouter" },
-                          { label: "Nemotron 70B", model: "nvidia/llama-3.1-nemotron-70b-instruct", provider: "openrouter" },
-                        ].map((preset) => (
-                          <button
-                            key={preset.model}
-                            type="button"
-                            onClick={() =>
-                              setPreferences((prev) => ({
-                                ...prev,
-                                llm_provider: preset.provider || prev.llm_provider,
-                                model: preset.model,
-                              }))
-                            }
-                            className={`rounded border px-2 py-0.5 font-mono text-[11px] transition-colors ${
-                              preferences.model === preset.model
-                                ? "border-primary bg-primary/10 text-primary font-medium"
-                                : "border-border/80 bg-muted/40 text-muted-foreground hover:border-sky-500/50 hover:bg-muted hover:text-foreground"
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
+                        {STANDARD_MODEL_PRESETS.map((preset) => {
+                          const isSelected = preferences.model === preset.model;
+                          return (
+                            <button
+                              key={preset.model}
+                              type="button"
+                              onClick={() => {
+                                setPreferences((prev) => ({
+                                  ...prev,
+                                  llm_provider: preset.provider || prev.llm_provider,
+                                  model: preset.model,
+                                }));
+                                setTestResult(null);
+                              }}
+                              className={`flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] transition-colors ${
+                                isSelected
+                                  ? "border-primary bg-primary/15 text-primary font-medium shadow-[0_0_10px_rgba(99,102,241,0.15)]"
+                                  : "border-border/80 bg-muted/40 text-muted-foreground hover:border-sky-500/50 hover:bg-muted hover:text-foreground"
+                              }`}
+                            >
+                              <span>{preset.label}</span>
+                              <div className="flex items-center gap-1">
+                                {preset.tags.map((tag) => (
+                                  <span
+                                    key={tag.label}
+                                    className={`rounded border px-1 py-0.2 text-[9px] font-sans font-medium tracking-tight ${tag.className}`}
+                                  >
+                                    {tag.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
                 </div>
                 <Field label={preferences.has_llm_api_key ? "Replace API key" : "API key"} help="Write-only. Compass encrypts this value on the backend and never returns it to the browser."><Input type="password" autoComplete="off" value={newApiKey} onChange={(event) => setNewApiKey(event.target.value)} placeholder={preferences.has_llm_api_key ? "A credential is already stored" : "Enter provider credential"} /></Field>
-                <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => void testProvider()} disabled={!preferences.model.trim() || !!providerBusy}>{providerBusy === "test" && <Loader2 className="h-4 w-4 animate-spin" />} Test provider</Button>{preferences.has_llm_api_key && <Button type="button" variant="outline" size="sm" onClick={() => void removeCredential()} disabled={!!providerBusy}>{providerBusy === "remove" && <Loader2 className="h-4 w-4 animate-spin" />} Remove credential</Button>}</div>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void testProvider()}
+                    disabled={!preferences.model.trim() || !!providerBusy}
+                    className="h-8 border-sky-500/30 hover:border-sky-500/60 hover:bg-sky-500/10"
+                  >
+                    {providerBusy === "test" ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
+                        <span>Pinging provider...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Activity className="h-3.5 w-3.5 text-sky-400" />
+                        <span>Test provider</span>
+                      </>
+                    )}
+                  </Button>
+                  {preferences.has_llm_api_key && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void removeCredential()}
+                      disabled={!!providerBusy}
+                      className="h-8 text-xs text-muted-foreground hover:text-destructive"
+                    >
+                      {providerBusy === "remove" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      Remove credential
+                    </Button>
+                  )}
+                  {testResult && (
+                    <div
+                      role="status"
+                      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium font-mono ${
+                        testResult.success
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]"
+                          : "border-destructive/40 bg-destructive/10 text-destructive"
+                      }`}
+                    >
+                      <span className="relative flex h-2 w-2">
+                        {testResult.success && (
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                        )}
+                        <span
+                          className={`relative inline-flex h-2 w-2 rounded-full ${
+                            testResult.success ? "bg-emerald-400" : "bg-destructive"
+                          }`}
+                        />
+                      </span>
+                      <span>
+                        Ping: {testResult.latency_ms}ms · {testResult.success ? "Operational" : "Failed"}
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.safe_mode} onChange={(event) => setPreferences((value) => ({ ...value, safe_mode: event.target.checked }))} /> Stage agent file changes for review</label>
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences.fast_mode} onChange={(event) => setPreferences((value) => ({ ...value, fast_mode: event.target.checked }))} /> Reduce approval prompts; shell and custom tools still require approval</label>
               </TabsContent>
